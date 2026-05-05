@@ -1,6 +1,7 @@
 import { Line, Section, Station } from './types';
 
 const TOKEN_KEY = 'metro_token';
+const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 
 export interface UserDto {
   id: string;
@@ -44,7 +45,8 @@ async function request<T>(path: string, options: RequestInit = {}, auth = false)
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
   }
-  const res = await fetch(path, { ...options, headers });
+  const url = `${API_BASE_URL}${path}`;
+  const res = await fetch(url, { ...options, headers });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.message || '请求失败');
   return data as T;

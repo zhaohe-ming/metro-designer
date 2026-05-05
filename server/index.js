@@ -8,10 +8,23 @@ const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'metro_designer_change_me';
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 
-app.use(cors());
+const allowedOrigins = FRONTEND_ORIGIN
+  ? FRONTEND_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
+  : [];
+
+app.use(cors({
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
+      callback(null, true);
+      return;
+    }
+    callback(new Error('Not allowed by CORS'));
+  }
+}));
 app.use(express.json({ limit: '10mb' }));
 
 function ensureDb() {
