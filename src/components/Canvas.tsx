@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line } from 'react-konva';
 import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
-import { Station, Line as LineType, Section, LINE_COLORS } from '../types';
+import { MapSettings, Station, Line as LineType, Section, LINE_COLORS } from '../types';
 import DraggableModal from './DraggableModal';
 
 const STATION_RADIUS = 18;
@@ -16,6 +16,7 @@ interface CanvasProps {
   lines: LineType[];
   sections: Section[];
   stations: Station[];
+  mapSettings: MapSettings;
   onAddStation: (station: Station) => void;
   onUpdateStation: (station: Station) => void;
   onAddStationToLine: (
@@ -34,6 +35,7 @@ const Canvas: React.FC<CanvasProps> = ({
   lines,
   sections,
   stations,
+  mapSettings,
   onAddStation,
   onUpdateStation,
   onAddStationToLine,
@@ -213,6 +215,10 @@ const Canvas: React.FC<CanvasProps> = ({
       }
     };
   }, [canvasBackgroundImage]);
+
+  useEffect(() => {
+    setCanvasBackgroundColor(mapSettings.canvasTheme === 'dark' ? '#0f172a' : DEFAULT_CANVAS_BACKGROUND_COLOR);
+  }, [mapSettings.canvasTheme]);
 
   useEffect(() => {
     const element = containerRef.current;
@@ -1126,10 +1132,98 @@ const Canvas: React.FC<CanvasProps> = ({
     return currentLine?.stationIds.includes(stationId) || false;
   };
 
+  const isDotLabelStyle = mapSettings.mapStyle === 'dot-label';
+  const isDarkCanvas = mapSettings.canvasTheme === 'dark';
+
+  type LabelRect = { x: number; y: number; width: number; height: number };
+
+  const rectsOverlap = (a: LabelRect, b: LabelRect) =>
+    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+  const distanceToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const lengthSquared = dx * dx + dy * dy;
+    if (lengthSquared === 0) return Math.hypot(px - x1, py - y1);
+    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSquared));
+    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+  };
+
+  const getStationColor = (stationId: string) => {
+    const currentLine = currentLineId ? lines.find(line => line.id === currentLineId) : null;
+    if (currentLine?.stationIds.includes(stationId)) return currentLine.color;
+    return lines.find(line => line.stationIds.includes(stationId))?.color || '#64748b';
+  };
+
+  const labelPlacements = (() => {
+    const occupied: LabelRect[] = [];
+    const lineSegments = sections
+      .map(section => {
+        const start = stations.find(station => station.id === section.startStationId);
+        const end = stations.find(station => station.id === section.endStationId);
+        if (!start || !end) return [];
+        const points = [start, ...(waypoints[section.id] || []), end];
+        const segments: Array<[number, number, number, number]> = [];
+        for (let i = 0; i < points.length - 1; i += 1) {
+          segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
+        }
+        return segments;
+      })
+      .flat();
+
+    return stations.reduce<Record<string, LabelRect>>((result, station) => {
+      if (station.labelPosition === 'hidden') return result;
+      const labelWidth = Math.max(44, station.name.length * 13);
+      const labelHeight = 22;
+      const gap = 12;
+      const candidates = [
+        { key: 'right', x: station.x + gap, y: station.y - labelHeight / 2 },
+        { key: 'left', x: station.x - labelWidth - gap, y: station.y - labelHeight / 2 },
+        { key: 'top', x: station.x - labelWidth / 2, y: station.y - labelHeight - gap },
+        { key: 'bottom', x: station.x - labelWidth / 2, y: station.y + gap },
+        { key: 'top-right', x: station.x + gap, y: station.y - labelHeight - gap },
+        { key: 'bottom-right', x: station.x + gap, y: station.y + gap },
+        { key: 'top-left', x: station.x - labelWidth - gap, y: station.y - labelHeight - gap },
+        { key: 'bottom-left', x: station.x - labelWidth - gap, y: station.y + gap }
+      ].filter(candidate => station.labelPosition === 'auto' || !station.labelPosition || candidate.key === station.labelPosition);
+
+      const best = candidates
+        .map(candidate => {
+          const rect = { x: candidate.x, y: candidate.y, width: labelWidth, height: labelHeight };
+          let score = 0;
+          occupied.forEach(other => {
+            if (rectsOverlap(rect, other)) score += 100;
+          });
+          stations.forEach(other => {
+            if (other.id !== station.id && rectsOverlap(rect, { x: other.x - 8, y: other.y - 8, width: 16, height: 16 })) {
+              score += 60;
+            }
+          });
+          if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height) {
+            score += 40;
+          }
+          const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
+          lineSegments.forEach(([x1, y1, x2, y2]) => {
+            if (distanceToSegment(center.x, center.y, x1, y1, x2, y2) < 16) score += 18;
+          });
+          if (candidate.key === 'right') score -= 6;
+          if (candidate.key === 'left') score -= 3;
+          return { rect, score };
+        })
+        .sort((a, b) => a.score - b.score)[0];
+
+      if (best) {
+        occupied.push(best.rect);
+        result[station.id] = best.rect;
+      }
+      return result;
+    }, {});
+  })();
+
   return (
     <div
       ref={containerRef}
-      className="metro-canvas-surface"
+      className={`metro-canvas-surface ${isDarkCanvas ? 'is-canvas-dark' : ''}`}
       style={{
         width: '100%',
         height: '100%',
@@ -1457,49 +1551,78 @@ const Canvas: React.FC<CanvasProps> = ({
           )}
           
           {/* 渲染站点 */}
-          {stations.map(station => (
-            <Group
-              key={station.id}
-              x={station.x}
-              y={station.y}
-              draggable={activeTool === 'select' || activeTool === 'station'}
-              onDragMove={e =>
-                handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
-              }
-              onDragEnd={() => setActiveCalibrationGuides([])}
-              onClick={(e) => handleStationClick(station, e)}
-              onContextMenu={(e) => handleStationRightClick(e, station)}
-              style={{ cursor: isDrawingMode ? 'crosshair' : 'pointer' }}
-            >
-              <Circle
-                radius={20}
-                fill={currentLineId && lines.find(line => 
-                  line.id === currentLineId && line.stationIds.includes(station.id)
-                ) ? '#1890ff' : '#52c41a'}
-                stroke="#fff"
-                strokeWidth={2}
-                shadowColor="rgba(0,0,0,0.3)"
-                shadowBlur={4}
-                shadowOffset={{ x: 2, y: 2 }}
-              />
-              <Text
-                text={station.name}
-                fontSize={12}
-                fill={currentLineId && lines.find(line => 
-                  line.id === currentLineId && line.stationIds.includes(station.id)
-                ) ? '#fff' : '#333'}
-                align="center"
-                verticalAlign="middle"
-                width={40}
-                height={40}
-                offsetX={20}
-                offsetY={20}
-                shadowColor="rgba(0,0,0,0.5)"
-                shadowBlur={2}
-                shadowOffset={{ x: 1, y: 1 }}
-              />
-            </Group>
-          ))}
+          {stations.map(station => {
+            const stationColor = getStationColor(station.id);
+            const labelRect = labelPlacements[station.id];
+            return (
+              <Group
+                key={station.id}
+                x={station.x}
+                y={station.y}
+                draggable={activeTool === 'select' || activeTool === 'station'}
+                onDragMove={e =>
+                  handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
+                }
+                onDragEnd={() => setActiveCalibrationGuides([])}
+                onClick={(e) => handleStationClick(station, e)}
+                onContextMenu={(e) => handleStationRightClick(e, station)}
+                style={{ cursor: isDrawingMode ? 'crosshair' : 'pointer' }}
+              >
+                {isDotLabelStyle ? (
+                  <>
+                    <Circle
+                      radius={6}
+                      fill={stationColor}
+                      stroke={isDarkCanvas ? '#0f172a' : '#ffffff'}
+                      strokeWidth={2}
+                      shadowColor="rgba(15,23,42,0.2)"
+                      shadowBlur={3}
+                    />
+                    {labelRect ? (
+                      <Text
+                        text={station.name}
+                        x={labelRect.x - station.x}
+                        y={labelRect.y - station.y}
+                        width={labelRect.width}
+                        height={labelRect.height}
+                        fontSize={13}
+                        fontStyle="bold"
+                        fill={isDarkCanvas ? '#e2e8f0' : '#0f172a'}
+                        align="center"
+                        verticalAlign="middle"
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <Circle
+                      radius={20}
+                      fill={isStationInCurrentLine(station.id) ? '#1890ff' : '#52c41a'}
+                      stroke="#fff"
+                      strokeWidth={2}
+                      shadowColor="rgba(0,0,0,0.3)"
+                      shadowBlur={4}
+                      shadowOffset={{ x: 2, y: 2 }}
+                    />
+                    <Text
+                      text={station.name}
+                      fontSize={12}
+                      fill={isStationInCurrentLine(station.id) ? '#fff' : '#333'}
+                      align="center"
+                      verticalAlign="middle"
+                      width={40}
+                      height={40}
+                      offsetX={20}
+                      offsetY={20}
+                      shadowColor="rgba(0,0,0,0.5)"
+                      shadowBlur={2}
+                      shadowOffset={{ x: 1, y: 1 }}
+                    />
+                  </>
+                )}
+              </Group>
+            );
+          })}
         </Layer>
       </Stage>
       

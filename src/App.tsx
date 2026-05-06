@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Avatar, Button, Divider, Form, Input, Layout, List, Popconfirm, Space, message } from 'antd';
+import { Avatar, Button, Divider, Form, Input, Layout, List, Popconfirm, Radio, Space, message } from 'antd';
 import { api, clearToken, getToken, setToken } from './api';
 import AuthPanel from './components/AuthPanel';
 import Canvas from './components/Canvas';
@@ -7,7 +7,7 @@ import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoSegmentInput } from './components/VideoExportModal';
-import { Line, Section, Station } from './types';
+import { DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings } from './types';
 
 const { Header, Sider, Content } = Layout;
 
@@ -26,6 +26,74 @@ type MapSummaryState = {
   createdAt: string;
 };
 
+type AppLanguage = 'zh-CN' | 'en-US';
+type InterfaceTheme = 'light' | 'dark' | 'system';
+
+const LANGUAGE_KEY = 'metro_language';
+const INTERFACE_THEME_KEY = 'metro_interface_theme';
+
+const i18n = {
+  'zh-CN': {
+    saveMap: '保存地图',
+    overwriteSave: '覆盖保存',
+    viewMaps: '查看地图',
+    profile: '个人中心',
+    settings: '设置',
+    language: '语言',
+    simplifiedChinese: '简体中文',
+    english: 'English',
+    interfaceTheme: '界面主题',
+    light: '浅色',
+    dark: '深色',
+    system: '跟随系统',
+    canvasTheme: '画布主题',
+    lightCanvas: '浅色画布',
+    darkCanvas: '深色画布',
+    mapStyle: '地图样式',
+    classicBadge: '经典圆标',
+    dotLabel: '专业线网',
+    signOut: '退出登录',
+    close: '关闭',
+    phone: '手机号',
+    avatarHint: '点击头像可上传本机图片'
+  },
+  'en-US': {
+    saveMap: 'Save map',
+    overwriteSave: 'Overwrite',
+    viewMaps: 'Maps',
+    profile: 'Profile',
+    settings: 'Settings',
+    language: 'Language',
+    simplifiedChinese: '简体中文',
+    english: 'English',
+    interfaceTheme: 'Interface theme',
+    light: 'Light',
+    dark: 'Dark',
+    system: 'System',
+    canvasTheme: 'Canvas theme',
+    lightCanvas: 'Light canvas',
+    darkCanvas: 'Dark canvas',
+    mapStyle: 'Map style',
+    classicBadge: 'Classic badge',
+    dotLabel: 'Transit diagram',
+    signOut: 'Sign out',
+    close: 'Close',
+    phone: 'Phone',
+    avatarHint: 'Click avatar to upload an image'
+  }
+};
+
+const getInitialLanguage = (): AppLanguage =>
+  localStorage.getItem(LANGUAGE_KEY) === 'en-US' ? 'en-US' : 'zh-CN';
+
+const getInitialInterfaceTheme = (): InterfaceTheme => {
+  const value = localStorage.getItem(INTERFACE_THEME_KEY);
+  return value === 'dark' || value === 'system' ? value : 'light';
+};
+
+const getSystemTheme = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
 const App: React.FC = () => {
   const [lines, setLines] = useState<Line[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
@@ -41,8 +109,15 @@ const App: React.FC = () => {
   const [mapName, setMapName] = useState('');
   const [savedMaps, setSavedMaps] = useState<MapSummaryState[]>([]);
   const [currentMap, setCurrentMap] = useState<MapSummaryState | null>(null);
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [language, setLanguage] = useState<AppLanguage>(getInitialLanguage);
+  const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
+  const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
+  const [mapSettings, setMapSettings] = useState<MapSettings>(DEFAULT_MAP_SETTINGS);
   const stageRef = useRef<any>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const text = i18n[language];
+  const resolvedInterfaceTheme = interfaceTheme === 'system' ? systemTheme : interfaceTheme;
 
   const revokeBlobUrl = (url?: string) => {
     if (url && url.startsWith('blob:')) {
@@ -92,6 +167,26 @@ const App: React.FC = () => {
       revokeBlobUrl(userProfile?.avatar);
     };
   }, [userProfile?.avatar]);
+
+  useEffect(() => {
+    localStorage.setItem(LANGUAGE_KEY, language);
+  }, [language]);
+
+  useEffect(() => {
+    localStorage.setItem(INTERFACE_THEME_KEY, interfaceTheme);
+  }, [interfaceTheme]);
+
+  useEffect(() => {
+    document.body.dataset.interfaceTheme = resolvedInterfaceTheme;
+  }, [resolvedInterfaceTheme]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const handleChange = () => setSystemTheme(mediaQuery.matches ? 'dark' : 'light');
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     const boot = async () => {
@@ -384,6 +479,9 @@ const App: React.FC = () => {
     setCurrentLineId(null);
     setCurrentMap(null);
     setSavedMaps([]);
+    setMapSettings(DEFAULT_MAP_SETTINGS);
+    setProfileVisible(false);
+    setSettingsVisible(false);
     setMapName('');
     message.info('已退出登录');
   };
@@ -455,7 +553,7 @@ const App: React.FC = () => {
       const name = trimmed || fallbackName;
 
       if (currentMap) {
-        const { map } = await api.updateMap(currentMap.id, { name, lines, stations, sections });
+        const { map } = await api.updateMap(currentMap.id, { name, lines, stations, sections, mapSettings });
         setCurrentMap(map);
         upsertSavedMap(map);
         setSaveMapVisible(false);
@@ -464,7 +562,7 @@ const App: React.FC = () => {
         return;
       }
 
-      const { map } = await api.createMap({ name, lines, stations, sections });
+      const { map } = await api.createMap({ name, lines, stations, sections, mapSettings });
       setCurrentMap(map);
       upsertSavedMap(map);
       setSaveMapVisible(false);
@@ -483,6 +581,7 @@ const App: React.FC = () => {
       setLines(loadedLines);
       setSections(Array.isArray(map.sections) ? map.sections : []);
       setStations(Array.isArray(map.stations) ? map.stations : []);
+      setMapSettings(normalizeMapSettings(map.mapSettings));
       setCurrentLineId(loadedLines[0]?.id || null);
       setCurrentMap({
         id: map.id,
@@ -505,6 +604,7 @@ const App: React.FC = () => {
 
       if (currentMap?.id === mapId) {
         setCurrentMap(null);
+        setMapSettings(DEFAULT_MAP_SETTINGS);
         setMapName('');
       }
 
@@ -722,7 +822,7 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="metro-app-shell">
+    <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
       <Layout className="metro-workbench">
         <Header className="metro-header">
           <div className="app-header">
@@ -755,13 +855,16 @@ const App: React.FC = () => {
             <section className="metro-user-panel">
               <div className="metro-action-buttons">
                 <Button className="metro-action-btn metro-action-btn--primary" size="small" onClick={handleOpenSaveMap}>
-                  {currentMap ? '覆盖保存' : '保存地图'}
+                  {currentMap ? text.overwriteSave : text.saveMap}
                 </Button>
                 <Button className="metro-action-btn" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
-                  查看地图
+                  {text.viewMaps}
                 </Button>
-                <Button className="metro-action-btn metro-action-btn--warn" size="small" onClick={() => setProfileVisible(true)}>
-                  个人中心
+                <Button className="metro-action-btn" size="small" onClick={() => setProfileVisible(true)}>
+                  {text.profile}
+                </Button>
+                <Button className="metro-action-btn" size="small" onClick={() => setSettingsVisible(true)}>
+                  {text.settings}
                 </Button>
               </div>
 
@@ -773,12 +876,6 @@ const App: React.FC = () => {
                   <div className="user-chip__name">{displayName}</div>
                   <div className="user-chip__email">+86 {userProfile.phone}</div>
                 </div>
-                <Button className="metro-user-link" type="text" size="small" onClick={() => setProfileVisible(true)}>
-                  个人中心
-                </Button>
-                <Button className="metro-logout-btn" size="small" onClick={handleLogout}>
-                  退出
-                </Button>
               </div>
             </section>
           </div>
@@ -821,6 +918,7 @@ const App: React.FC = () => {
                 lines={lines}
                 sections={sections}
                 stations={stations}
+                mapSettings={mapSettings}
                 onAddStation={handleAddStation}
                 onUpdateStation={handleUpdateStation}
                 onAddStationToLine={handleAddStationToLine}
@@ -936,7 +1034,72 @@ const App: React.FC = () => {
           />
         </DraggableModal>
 
-        <DraggableModal title="个人中心" open={profileVisible} onCancel={() => setProfileVisible(false)} footer={null}>
+        <DraggableModal title={text.settings} open={settingsVisible} onCancel={() => setSettingsVisible(false)} footer={null}>
+          <div className="metro-settings-panel">
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.language}</div>
+              <Radio.Group
+                value={language}
+                onChange={(event) => setLanguage(event.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="zh-CN">{text.simplifiedChinese}</Radio.Button>
+                <Radio.Button value="en-US">{text.english}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.interfaceTheme}</div>
+              <Radio.Group
+                value={interfaceTheme}
+                onChange={(event) => setInterfaceTheme(event.target.value)}
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="light">{text.light}</Radio.Button>
+                <Radio.Button value="dark">{text.dark}</Radio.Button>
+                <Radio.Button value="system">{text.system}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.canvasTheme}</div>
+              <Radio.Group
+                value={mapSettings.canvasTheme}
+                onChange={(event) =>
+                  setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: event.target.value }))
+                }
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="light">{text.lightCanvas}</Radio.Button>
+                <Radio.Button value="dark">{text.darkCanvas}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.mapStyle}</div>
+              <Radio.Group
+                value={mapSettings.mapStyle}
+                onChange={(event) =>
+                  setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: event.target.value }))
+                }
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="classic-badge">{text.classicBadge}</Radio.Button>
+                <Radio.Button value="dot-label">{text.dotLabel}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            <div className="metro-settings-footer">
+              <Button onClick={() => setSettingsVisible(false)}>{text.close}</Button>
+            </div>
+          </div>
+        </DraggableModal>
+
+        <DraggableModal title={text.profile} open={profileVisible} onCancel={() => setProfileVisible(false)} footer={null}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
             <Avatar
               size={56}
@@ -948,8 +1111,8 @@ const App: React.FC = () => {
             </Avatar>
             <div>
               <div style={{ fontWeight: 600, fontSize: 16 }}>{displayName}</div>
-              <div style={{ color: '#8c8c8c' }}>手机号：+86 {userProfile.phone}</div>
-              <div style={{ color: '#8c8c8c', fontSize: 12 }}>点击头像可上传本机图片</div>
+              <div style={{ color: '#8c8c8c' }}>{text.phone}: +86 {userProfile.phone}</div>
+              <div style={{ color: '#8c8c8c', fontSize: 12 }}>{text.avatarHint}</div>
             </div>
           </div>
 
@@ -1015,6 +1178,10 @@ const App: React.FC = () => {
               </Space>
             </Form.Item>
           </Form>
+          <Divider style={{ margin: '12px 0' }} />
+          <Button danger type="primary" block onClick={handleLogout}>
+            {text.signOut}
+          </Button>
         </DraggableModal>
 
         <DraggableModal open={isExporting} footer={null} closable={false} centered>

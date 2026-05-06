@@ -11,6 +11,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'metro_designer_change_me';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
+const DEFAULT_MAP_SETTINGS = {
+  mapStyle: 'classic-badge',
+  canvasTheme: 'light'
+};
 
 const allowedOrigins = FRONTEND_ORIGIN
   ? FRONTEND_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
@@ -56,6 +60,13 @@ function sanitizeUser(user) {
     phone: user.phone,
     username: user.username,
     avatar: user.avatar || ''
+  };
+}
+
+function normalizeMapSettings(settings) {
+  return {
+    mapStyle: settings && settings.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
+    canvasTheme: settings && settings.canvasTheme === 'dark' ? 'dark' : 'light'
   };
 }
 
@@ -152,11 +163,11 @@ app.get('/api/maps/:id', auth, (req, res) => {
   const db = readDb();
   const map = db.maps.find(m => m.id === req.params.id && m.userId === req.userId);
   if (!map) return res.status(404).json({ message: '地图不存在' });
-  res.json({ map });
+  res.json({ map: { ...map, mapSettings: normalizeMapSettings(map.mapSettings) } });
 });
 
 app.post('/api/maps', auth, (req, res) => {
-  const { name, lines, stations, sections } = req.body || {};
+  const { name, lines, stations, sections, mapSettings } = req.body || {};
   if (!name || !Array.isArray(lines) || !Array.isArray(stations) || !Array.isArray(sections)) {
     return res.status(400).json({ message: '地图数据不完整' });
   }
@@ -169,6 +180,7 @@ app.post('/api/maps', auth, (req, res) => {
     lines,
     stations,
     sections,
+    mapSettings: normalizeMapSettings(mapSettings || DEFAULT_MAP_SETTINGS),
     createdAt: now,
     updatedAt: now
   };
@@ -178,7 +190,7 @@ app.post('/api/maps', auth, (req, res) => {
 });
 
 app.put('/api/maps/:id', auth, (req, res) => {
-  const { name, lines, stations, sections } = req.body || {};
+  const { name, lines, stations, sections, mapSettings } = req.body || {};
   const db = readDb();
   const map = db.maps.find(m => m.id === req.params.id && m.userId === req.userId);
   if (!map) return res.status(404).json({ message: '地图不存在' });
@@ -186,6 +198,7 @@ app.put('/api/maps/:id', auth, (req, res) => {
   if (Array.isArray(lines)) map.lines = lines;
   if (Array.isArray(stations)) map.stations = stations;
   if (Array.isArray(sections)) map.sections = sections;
+  if (mapSettings) map.mapSettings = normalizeMapSettings(mapSettings);
   map.updatedAt = new Date().toISOString();
   writeDb(db);
   res.json({ map: { id: map.id, name: map.name, updatedAt: map.updatedAt, createdAt: map.createdAt } });

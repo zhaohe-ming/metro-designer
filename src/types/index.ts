@@ -4,6 +4,7 @@ export interface Station {
   x: number;
   y: number;
   note?: string;
+  labelPosition?: 'auto' | 'top' | 'right' | 'bottom' | 'left' | 'hidden';
 }
 
 export interface Section {
@@ -21,6 +22,24 @@ export interface Line {
   sectionIds: string[];
   lastAddedStationId?: string;
 }
+
+export type MapStyle = 'classic-badge' | 'dot-label';
+export type CanvasTheme = 'light' | 'dark';
+
+export interface MapSettings {
+  mapStyle: MapStyle;
+  canvasTheme: CanvasTheme;
+}
+
+export const DEFAULT_MAP_SETTINGS: MapSettings = {
+  mapStyle: 'classic-badge',
+  canvasTheme: 'light'
+};
+
+export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): MapSettings => ({
+  mapStyle: settings?.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
+  canvasTheme: settings?.canvasTheme === 'dark' ? 'dark' : 'light'
+});
 
 export const LINE_COLORS = [
   '#1890ff',

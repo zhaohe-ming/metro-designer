@@ -1,4 +1,4 @@
-import { Line, Section, Station } from './types';
+import { Line, MapSettings, Section, Station } from './types';
 
 const TOKEN_KEY = 'metro_token';
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
@@ -30,6 +30,7 @@ export interface FullMap extends MapSummary {
   lines: Line[];
   stations: Station[];
   sections: Section[];
+  mapSettings?: MapSettings;
 }
 
 export function getToken() {
@@ -79,9 +80,9 @@ export const api = {
     request<{ user: UserDto }>('/api/me', { method: 'PUT', body: JSON.stringify(payload) }, true),
   listMaps: () => request<{ maps: MapSummary[] }>('/api/maps', {}, true),
   getMap: (id: string) => request<{ map: FullMap }>(`/api/maps/${id}`, {}, true),
-  createMap: (payload: { name: string; lines: Line[]; stations: Station[]; sections: Section[] }) =>
+  createMap: (payload: { name: string; lines: Line[]; stations: Station[]; sections: Section[]; mapSettings?: MapSettings }) =>
     request<{ map: MapSummary }>('/api/maps', { method: 'POST', body: JSON.stringify(payload) }, true),
-  updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[] }) =>
+  updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[]; mapSettings?: MapSettings }) =>
     request<{ map: MapSummary }>(`/api/maps/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, true),
   deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, true)
 };
