@@ -1,13 +1,6 @@
 import React, { useState } from 'react';
 import { Button, Form, Input, Typography } from 'antd';
-import {
-  ArrowRightOutlined,
-  BorderOutlined,
-  LockOutlined,
-  PhoneOutlined,
-  PictureOutlined,
-  UserOutlined
-} from '@ant-design/icons';
+import { ArrowRightOutlined, LockOutlined, PhoneOutlined, UserOutlined } from '@ant-design/icons';
 
 interface AuthPanelProps {
   onLogin: (payload: { phone: string; password: string }) => void | Promise<void>;
@@ -54,62 +47,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onRegister }) => {
   return (
     <div className={`auth-card auth-card--${mode}`}>
       <div className="auth-card__inner">
-        <section className="auth-card__info">
-          <div className="auth-hero__content">
-            <div className="auth-badge">
-              <BorderOutlined />
-              <span className="auth-badge__text">Metro Designer</span>
-            </div>
-
-            <Title className="auth-title">
-              设计更像地铁系统
-              <br />
-              而不是普通流程图
-            </Title>
-
-            <Text className="auth-subtitle">
-              登录后即可进入城市轨道设计台，创建线路、布置站点、管理区间，并导出适合展示与汇报的地图画面。
-            </Text>
-
-            <div className="auth-highlights">
-              <div className="auth-highlight">
-                <span className="dot" />
-                <span>多线路并行设计，颜色与顺序一体管理</span>
-              </div>
-              <div className="auth-highlight">
-                <span className="dot" />
-                <span>拖拽站点、连接区间，导出高清图片与演示视频</span>
-              </div>
-              <div className="auth-highlight">
-                <span className="dot" />
-                <span>保存地图后可继续覆盖编辑，维持完整设计轨迹</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="auth-grid" aria-hidden>
-            <div className="auth-grid__card">
-              <div className="auth-grid__icon">
-                <BorderOutlined />
-              </div>
-              <div>
-                <div className="auth-grid__eyebrow">Workbench</div>
-                <div className="auth-grid__value">2D</div>
-                <div className="auth-grid__copy">围绕线路、区间、站点构建清晰的轨道图层级。</div>
-              </div>
-            </div>
-            <div className="auth-grid__card">
-              <div className="auth-grid__icon">
-                <PictureOutlined />
-              </div>
-              <div>
-                <div className="auth-grid__eyebrow">Output</div>
-                <div className="auth-grid__value">PNG / WebM</div>
-                <div className="auth-grid__copy">适合课程作业、展示汇报与方案演示的导出形态。</div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <section className="auth-card__info" aria-hidden="true" />
 
         <section className="auth-card__form">
           <div className="auth-form-shell">
@@ -136,7 +74,13 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onRegister }) => {
             </div>
 
             {mode === 'login' ? (
-              <Form className="auth-form" layout="vertical" onFinish={handleLoginFinish} autoComplete="off">
+              <Form
+                className="auth-form"
+                layout="vertical"
+                onFinish={handleLoginFinish}
+                autoComplete="off"
+                requiredMark={false}
+              >
                 <Form.Item
                   name="phone"
                   label="手机号"
@@ -169,7 +113,13 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onRegister }) => {
                 </Button>
               </Form>
             ) : (
-              <Form className="auth-form" layout="vertical" onFinish={handleRegisterFinish} autoComplete="off">
+              <Form
+                className="auth-form"
+                layout="vertical"
+                onFinish={handleRegisterFinish}
+                autoComplete="off"
+                requiredMark={false}
+              >
                 <Form.Item
                   name="username"
                   label="用户名"
