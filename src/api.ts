@@ -3,6 +3,14 @@ import { Line, Section, Station } from './types';
 const TOKEN_KEY = 'metro_token';
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 
+function normalizeAuthPayload<T extends { phone: string; password: string }>(payload: T): T {
+  return {
+    ...payload,
+    phone: payload.phone.trim(),
+    password: payload.password.trim()
+  };
+}
+
 export interface UserDto {
   id: string;
   phone: string;
@@ -56,12 +64,15 @@ export const api = {
   login: (payload: { phone: string; password: string }) =>
     request<{ token: string; user: UserDto }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify(normalizeAuthPayload(payload))
     }),
   register: (payload: { phone: string; password: string; username: string }) =>
     request<{ token: string; user: UserDto }>('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify(payload)
+      body: JSON.stringify({
+        ...normalizeAuthPayload(payload),
+        username: payload.username.trim()
+      })
     }),
   me: () => request<{ user: UserDto }>('/api/me', {}, true),
   updateMe: (payload: { username?: string; avatar?: string; password?: string }) =>
