@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Stage, Layer, Circle, Text, Group, Line } from 'react-konva';
+import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
 import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
 import { MapSettings, Station, Line as LineType, Section, LINE_COLORS } from '../types';
 import DraggableModal from './DraggableModal';
@@ -8,8 +8,54 @@ const STATION_RADIUS = 18;
 const DEFAULT_CANVAS_BACKGROUND_COLOR = '#fafbfc';
 const GUIDE_THRESHOLD_DEG = 10;
 const SNAP_THRESHOLD_DEG = 2;
+const CANVAS_THEME_PALETTES = {
+  light: {
+    background: '#fbfdff',
+    lineGuide: '#94a3b8',
+    activeGuide: '#2563eb',
+    drawingLine: '#2563eb',
+    stationStroke: '#ffffff',
+    inactiveStationFill: '#10b981',
+    stationText: '#ffffff',
+    labelText: '#0f172a',
+    labelShadow: 'rgba(255,255,255,0.92)',
+    dotShadow: 'rgba(15,23,42,0.2)',
+    waypointFill: '#ffffff',
+    waypointStroke: '#2563eb',
+    waypointShadow: 'rgba(37,99,235,0.24)',
+    lineShadowOpacity: 0.28,
+    menuSurface: '#ffffff',
+    menuText: '#1f2937',
+    menuMuted: '#94a3b8',
+    menuShadow: '0 8px 24px rgba(15,23,42,0.12)'
+  },
+  dark: {
+    background: '#07111f',
+    lineGuide: '#475569',
+    activeGuide: '#93c5fd',
+    drawingLine: '#93c5fd',
+    stationStroke: '#07111f',
+    inactiveStationFill: '#0f766e',
+    stationText: '#ffffff',
+    labelText: '#f8fafc',
+    labelShadow: 'rgba(2,6,23,0.95)',
+    dotShadow: 'rgba(147,197,253,0.34)',
+    waypointFill: '#07111f',
+    waypointStroke: '#93c5fd',
+    waypointShadow: 'rgba(147,197,253,0.36)',
+    lineShadowOpacity: 0.56,
+    menuSurface: '#0f172a',
+    menuText: '#e5eefc',
+    menuMuted: '#94a3b8',
+    menuShadow: '0 12px 28px rgba(0,0,0,0.34)'
+  }
+} as const;
+
+const getDefaultCanvasBackground = (theme: MapSettings['canvasTheme']) =>
+  CANVAS_THEME_PALETTES[theme].background;
 
 type CanvasTool = 'select' | 'station' | 'line' | 'section' | 'pan';
+type Waypoint = { x: number; y: number; hidden?: boolean };
 
 interface CanvasProps {
   currentLineId: string | null;
@@ -49,7 +95,9 @@ const Canvas: React.FC<CanvasProps> = ({
   const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null);
   // 导出按钮悬浮提示
   const [showExportTip, setShowExportTip] = useState(false);
-  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState(DEFAULT_CANVAS_BACKGROUND_COLOR);
+  const [canvasBackgroundColor, setCanvasBackgroundColor] = useState<string>(() =>
+    getDefaultCanvasBackground(mapSettings.canvasTheme)
+  );
   const [canvasBackgroundImage, setCanvasBackgroundImage] = useState<string | null>(null);
   const [canvasContextMenu, setCanvasContextMenu] = useState<{
     visible: boolean;
@@ -66,7 +114,7 @@ const Canvas: React.FC<CanvasProps> = ({
     showPicker: boolean;
   }>({
     visible: false,
-    currentColor: DEFAULT_CANVAS_BACKGROUND_COLOR,
+    currentColor: getDefaultCanvasBackground(mapSettings.canvasTheme),
     showPicker: false
   });
   // 右键点击标志
@@ -78,12 +126,14 @@ const Canvas: React.FC<CanvasProps> = ({
     y: number;
     sectionKey: string | null;
     waypointIndex: number | null;
+    waypointOnly: boolean;
   }>({
     visible: false,
     x: 0,
     y: 0,
     sectionKey: null,
-    waypointIndex: null
+    waypointIndex: null,
+    waypointOnly: false
   });
   const [adding, setAdding] = useState(false);
   const [newStation, setNewStation] = useState<{ x: number; y: number } | null>(null);
@@ -94,7 +144,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [isSectionMode, setIsSectionMode] = useState(false); // 区间绘制模式
   const [selectedSection, setSelectedSection] = useState<{ sectionId: string; lineId: string; startStation: Station; endStation: Station } | null>(null);
-  const [waypoints, setWaypoints] = useState<{ [key: string]: { x: number; y: number }[] }>({}); // key: lineId_startId_endId
+  const [waypoints, setWaypoints] = useState<{ [key: string]: Waypoint[] }>({}); // key: lineId_startId_endId
   const [addingWaypoint, setAddingWaypoint] = useState(false);
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingLine, setDrawingLine] = useState<{ startStation: Station | null; points: number[] }>({
@@ -217,7 +267,7 @@ const Canvas: React.FC<CanvasProps> = ({
   }, [canvasBackgroundImage]);
 
   useEffect(() => {
-    setCanvasBackgroundColor(mapSettings.canvasTheme === 'dark' ? '#0f172a' : DEFAULT_CANVAS_BACKGROUND_COLOR);
+    setCanvasBackgroundColor(getDefaultCanvasBackground(mapSettings.canvasTheme));
   }, [mapSettings.canvasTheme]);
 
   useEffect(() => {
@@ -868,7 +918,7 @@ const Canvas: React.FC<CanvasProps> = ({
         snappedX = baseX;
       }
 
-      next[waypointIndex] = { x: snappedX, y: snappedY };
+      next[waypointIndex] = { ...next[waypointIndex], x: snappedX, y: snappedY };
       computedGuides = guideLines.map(g => [g[0], g[1], g[2], g[3]]);
       return { ...prev, [sectionId]: next };
     });
@@ -876,6 +926,40 @@ const Canvas: React.FC<CanvasProps> = ({
     if (withGuide) {
       setActiveCalibrationGuides(computedGuides);
     }
+  };
+
+  const hideWaypoint = (sectionId: string, waypointIndex: number) => {
+    setWaypoints(prev => {
+      const current = prev[sectionId] || [];
+      return {
+        ...prev,
+        [sectionId]: current.map((point, index) =>
+          index === waypointIndex ? { ...point, hidden: true } : point
+        )
+      };
+    });
+  };
+
+  const showWaypoint = (sectionId: string, waypointIndex: number) => {
+    setWaypoints(prev => {
+      const current = prev[sectionId] || [];
+      return {
+        ...prev,
+        [sectionId]: current.map((point, index) =>
+          index === waypointIndex ? { ...point, hidden: false } : point
+        )
+      };
+    });
+  };
+
+  const deleteWaypoint = (sectionId: string, waypointIndex: number) => {
+    setWaypoints(prev => {
+      const current = prev[sectionId] || [];
+      return {
+        ...prev,
+        [sectionId]: current.filter((_, index) => index !== waypointIndex)
+      };
+    });
   };
 
   const handleCanvasContextMenu = (e: any) => {
@@ -886,7 +970,7 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     const pointer = stage.getPointerPosition();
     closeStationContextMenu();
-    setSectionContextMenu(prev => ({ ...prev, visible: false }));
+    setSectionContextMenu(prev => ({ ...prev, visible: false, waypointOnly: false }));
     setCanvasContextMenu({
       visible: true,
       x: pointer?.x || 0,
@@ -909,7 +993,7 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const handleConfirmCanvasColor = () => {
-    setCanvasBackgroundColor(canvasColorModal.currentColor || DEFAULT_CANVAS_BACKGROUND_COLOR);
+    setCanvasBackgroundColor(canvasColorModal.currentColor || getDefaultCanvasBackground(mapSettings.canvasTheme));
     setCanvasColorModal({ visible: false, currentColor: canvasColorModal.currentColor, showPicker: false });
   };
 
@@ -924,7 +1008,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const handleResetCanvasColor = () => {
     setCanvasContextMenu(prev => ({ ...prev, visible: false }));
-    setCanvasBackgroundColor(DEFAULT_CANVAS_BACKGROUND_COLOR);
+    setCanvasBackgroundColor(getDefaultCanvasBackground(mapSettings.canvasTheme));
     message.success('已恢复默认画布颜色');
   };
 
@@ -1009,7 +1093,7 @@ const Canvas: React.FC<CanvasProps> = ({
       line: LineType;
       start: Station;
       end: Station;
-      waypoints: { x: number; y: number }[];
+      waypoints: Waypoint[];
       normalizedKey: string;
     }>;
 
@@ -1045,7 +1129,7 @@ const Canvas: React.FC<CanvasProps> = ({
           lineJoin="round"
           shadowColor={seg.line.color}
           shadowBlur={8}
-          shadowOpacity={0.3}
+          shadowOpacity={canvasPalette.lineShadowOpacity}
           tension={0}
           onClick={e => {
             if (lastIsRightClickRef.current) {
@@ -1080,7 +1164,8 @@ const Canvas: React.FC<CanvasProps> = ({
               x: pointer?.x || 0,
               y: pointer?.y || 0,
               sectionKey: seg.section.id,
-              waypointIndex: null
+              waypointIndex: null,
+              waypointOnly: false
             });
           }}
         />
@@ -1099,7 +1184,7 @@ const Canvas: React.FC<CanvasProps> = ({
             <Line
               key={`guide_${seg.section.id}_${currentIndex}_${i}`}
               points={guide}
-              stroke="#8c8c8c"
+              stroke={canvasPalette.lineGuide}
               strokeWidth={1}
               dash={[6, 6]}
               opacity={0.8}
@@ -1134,6 +1219,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const isDotLabelStyle = mapSettings.mapStyle === 'dot-label';
   const isDarkCanvas = mapSettings.canvasTheme === 'dark';
+  const canvasPalette = CANVAS_THEME_PALETTES[mapSettings.canvasTheme];
 
   type LabelRect = { x: number; y: number; width: number; height: number };
 
@@ -1227,12 +1313,13 @@ const Canvas: React.FC<CanvasProps> = ({
       style={{
         width: '100%',
         height: '100%',
+        '--metro-canvas-bg': canvasBackgroundColor,
         backgroundColor: canvasBackgroundColor,
         backgroundImage: canvasBackgroundImage ? `url(${canvasBackgroundImage})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat'
-      }}
+      } as React.CSSProperties}
     >
       <div className="metro-canvas-tools">
         <div className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
@@ -1502,13 +1589,21 @@ const Canvas: React.FC<CanvasProps> = ({
         style={{ cursor: activeTool === 'pan' ? 'grab' : isDrawingMode || activeTool === 'station' ? 'crosshair' : 'default' }}
       >
         <Layer>
+          <Rect
+            x={-10000}
+            y={-10000}
+            width={20000}
+            height={20000}
+            fill={canvasBackgroundColor}
+            listening={false}
+          />
           {/* 渲染线路连接线 */}
           {renderLines()}
           {activeCalibrationGuides.map((guide, idx) => (
             <Line
               key={`active_guide_${idx}`}
               points={guide}
-              stroke="#1890ff"
+              stroke={canvasPalette.activeGuide}
               strokeWidth={1}
               dash={[6, 6]}
               opacity={0.9}
@@ -1516,22 +1611,42 @@ const Canvas: React.FC<CanvasProps> = ({
           ))}
           {sections.map(section => {
             const points = waypoints[section.id] || [];
-            if (!points.length) return null;
-            return points.map((pt, idx) => (
+            const visiblePoints = points
+              .map((pt, idx) => ({ pt, idx }))
+              .filter(({ pt }) => !pt.hidden);
+            if (!visiblePoints.length) return null;
+            return visiblePoints.map(({ pt, idx }) => (
               <Circle
                 key={`wp_${section.id}_${idx}`}
                 x={pt.x}
                 y={pt.y}
                 radius={6}
-                fill="#fff"
-                stroke="#1890ff"
+                fill={canvasPalette.waypointFill}
+                stroke={canvasPalette.waypointStroke}
                 strokeWidth={2}
+                shadowColor={canvasPalette.waypointShadow}
+                shadowBlur={5}
                 draggable
                 onDragMove={e => {
                   updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
                 }}
                 onDragEnd={() => {
                   setActiveCalibrationGuides([]);
+                }}
+                onContextMenu={e => {
+                  e.evt.preventDefault();
+                  lastIsRightClickRef.current = true;
+                  const stage = e.target.getStage();
+                  if (!stage) return;
+                  const pointer = stage.getPointerPosition();
+                  setSectionContextMenu({
+                    visible: true,
+                    x: pointer?.x || 0,
+                    y: pointer?.y || 0,
+                    sectionKey: section.id,
+                    waypointIndex: idx,
+                    waypointOnly: true
+                  });
                 }}
               />
             ));
@@ -1541,7 +1656,7 @@ const Canvas: React.FC<CanvasProps> = ({
           {isDrawing && drawingLine.points.length >= 4 && (
             <Line
               points={drawingLine.points}
-              stroke="#1890ff"
+              stroke={canvasPalette.drawingLine}
               strokeWidth={3}
               lineCap="round"
               lineJoin="round"
@@ -1573,10 +1688,10 @@ const Canvas: React.FC<CanvasProps> = ({
                     <Circle
                       radius={6}
                       fill={stationColor}
-                      stroke={isDarkCanvas ? '#0f172a' : '#ffffff'}
+                      stroke={canvasPalette.stationStroke}
                       strokeWidth={2}
-                      shadowColor="rgba(15,23,42,0.2)"
-                      shadowBlur={3}
+                      shadowColor={canvasPalette.dotShadow}
+                      shadowBlur={4}
                     />
                     {labelRect ? (
                       <Text
@@ -1587,9 +1702,12 @@ const Canvas: React.FC<CanvasProps> = ({
                         height={labelRect.height}
                         fontSize={13}
                         fontStyle="bold"
-                        fill={isDarkCanvas ? '#e2e8f0' : '#0f172a'}
+                        fill={canvasPalette.labelText}
                         align="center"
                         verticalAlign="middle"
+                        shadowColor={canvasPalette.labelShadow}
+                        shadowBlur={isDarkCanvas ? 5 : 2}
+                        shadowOpacity={1}
                       />
                     ) : null}
                   </>
@@ -1597,25 +1715,25 @@ const Canvas: React.FC<CanvasProps> = ({
                   <>
                     <Circle
                       radius={20}
-                      fill={isStationInCurrentLine(station.id) ? '#1890ff' : '#52c41a'}
-                      stroke="#fff"
+                      fill={isStationInCurrentLine(station.id) ? stationColor : canvasPalette.inactiveStationFill}
+                      stroke={canvasPalette.stationStroke}
                       strokeWidth={2}
-                      shadowColor="rgba(0,0,0,0.3)"
-                      shadowBlur={4}
+                      shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
+                      shadowBlur={isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2, y: 2 }}
                     />
                     <Text
                       text={station.name}
                       fontSize={12}
-                      fill={isStationInCurrentLine(station.id) ? '#fff' : '#333'}
+                      fill={canvasPalette.stationText}
                       align="center"
                       verticalAlign="middle"
                       width={40}
                       height={40}
                       offsetX={20}
                       offsetY={20}
-                      shadowColor="rgba(0,0,0,0.5)"
-                      shadowBlur={2}
+                      shadowColor={isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
+                      shadowBlur={isDarkCanvas ? 3 : 2}
                       shadowOffset={{ x: 1, y: 1 }}
                     />
                   </>
@@ -1702,7 +1820,7 @@ const Canvas: React.FC<CanvasProps> = ({
         {canvasColorModal.showPicker && (
           <div style={{ marginTop: 16, textAlign: 'center' }}>
             <ColorPicker
-              value={canvasColorModal.currentColor || DEFAULT_CANVAS_BACKGROUND_COLOR}
+              value={canvasColorModal.currentColor || getDefaultCanvasBackground(mapSettings.canvasTheme)}
               onChange={handleCanvasColorPickerChange}
               showText
             />
@@ -1821,73 +1939,112 @@ const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
        {/* 区间右键菜单 */}
-       {sectionContextMenu.visible && sectionContextMenu.sectionKey ? (
-         <div
-           className="section-context-menu"
-           onMouseDown={e => e.stopPropagation()}
-           style={{
-             position: 'absolute',
-             top: sectionContextMenu.y,
-             left: sectionContextMenu.x,
-             zIndex: 1000,
-             background: '#fff',
-             padding: '8px 12px',
-             borderRadius: '6px',
-             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-             fontSize: '12px',
-             color: '#333',
-             display: 'flex',
-             flexDirection: 'column',
-             gap: 8,
-           }}
-         >
-           <div style={{ fontWeight: 'bold' }}>区间途经点管理</div>
-           {(waypoints[sectionContextMenu.sectionKey]?.length ?? 0) > 0 ? (
-             waypoints[sectionContextMenu.sectionKey].map((pt, idx) => (
-               <Button
-                 key={idx}
-                 size="small"
-                 danger
-                 onClick={() => {
-                   const newArr = [...waypoints[sectionContextMenu.sectionKey!]];
-                   newArr.splice(idx, 1);
-                   setWaypoints({
-                     ...waypoints,
-                     [sectionContextMenu.sectionKey!]: newArr
-                   });
-                   setSectionContextMenu({ ...sectionContextMenu, visible: false });
-                   setSelectedSection(null);
-                   setAddingWaypoint(false);
-                 }}
-               >
-                 删除途经点 {idx + 1}
-               </Button>
-             ))
-           ) : (
-             <div style={{ color: '#999' }}>暂无途经点</div>
-           )}
-            <Button size="small" onClick={() => setSectionContextMenu({ ...sectionContextMenu, visible: false })}>取消</Button>
-            <Button
-              size="small"
-              danger
-              onClick={() => {
-                if (sectionContextMenu.sectionKey) {
-                  onDeleteSection(sectionContextMenu.sectionKey);
-                }
-                setSectionContextMenu({ ...sectionContextMenu, visible: false });
-                setSelectedSection(null);
-                setAddingWaypoint(false);
-              }}
-            >
-              删除当前区间
-            </Button>
-            <Button size="small" onClick={() => {
-              setSectionContextMenu({ ...sectionContextMenu, visible: false });
-              setSelectedSection(null);
-             setAddingWaypoint(false);
-           }}>取消</Button>
-         </div>
-       ) : null}
+       {sectionContextMenu.visible && sectionContextMenu.sectionKey ? (() => {
+         const sectionKey = sectionContextMenu.sectionKey!;
+         const pointIndex = sectionContextMenu.waypointIndex;
+         const currentPoint = pointIndex === null ? null : waypoints[sectionKey]?.[pointIndex];
+         const closeSectionMenu = () => {
+           setSectionContextMenu({ ...sectionContextMenu, visible: false, waypointOnly: false });
+           setSelectedSection(null);
+           setAddingWaypoint(false);
+         };
+
+         return (
+           <div
+             className="section-context-menu"
+             onMouseDown={e => e.stopPropagation()}
+             style={{
+               position: 'absolute',
+               top: sectionContextMenu.y,
+               left: sectionContextMenu.x,
+               zIndex: 1000,
+               minWidth: 140,
+               background: canvasPalette.menuSurface,
+               padding: '8px 10px',
+               borderRadius: '8px',
+               boxShadow: canvasPalette.menuShadow,
+               fontSize: '12px',
+               color: canvasPalette.menuText,
+               display: 'flex',
+               flexDirection: 'column',
+               gap: 8,
+             }}
+           >
+             {sectionContextMenu.waypointOnly && currentPoint ? (
+               <>
+                 <div style={{ fontWeight: 700 }}>途经点管理</div>
+                 <Button
+                   size="small"
+                   onClick={() => {
+                     hideWaypoint(sectionKey, pointIndex!);
+                     closeSectionMenu();
+                   }}
+                 >
+                   隐藏途经点
+                 </Button>
+                 <Button
+                   size="small"
+                   danger
+                   onClick={() => {
+                     deleteWaypoint(sectionKey, pointIndex!);
+                     closeSectionMenu();
+                   }}
+                 >
+                   删除途经点
+                 </Button>
+                 <Button size="small" onClick={closeSectionMenu}>取消</Button>
+               </>
+             ) : (
+               <>
+                 <div style={{ fontWeight: 700 }}>区间途经点管理</div>
+                 {(waypoints[sectionKey]?.length ?? 0) > 0 ? (
+                   waypoints[sectionKey].map((pt, idx) => (
+                     <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 6, alignItems: 'center' }}>
+                       <span style={{ color: canvasPalette.menuText }}>途经点 {idx + 1}</span>
+                       <Button
+                         size="small"
+                         onClick={() => {
+                           if (pt.hidden) {
+                             showWaypoint(sectionKey, idx);
+                           } else {
+                             hideWaypoint(sectionKey, idx);
+                           }
+                           closeSectionMenu();
+                         }}
+                       >
+                         {pt.hidden ? '显示' : '隐藏'}
+                       </Button>
+                       <Button
+                         size="small"
+                         danger
+                         onClick={() => {
+                           deleteWaypoint(sectionKey, idx);
+                           closeSectionMenu();
+                         }}
+                       >
+                         删除
+                       </Button>
+                     </div>
+                   ))
+                 ) : (
+                   <div style={{ color: canvasPalette.menuMuted }}>暂无途经点</div>
+                 )}
+                 <Button
+                   size="small"
+                   danger
+                   onClick={() => {
+                     onDeleteSection(sectionKey);
+                     closeSectionMenu();
+                   }}
+                 >
+                   删除当前区间
+                 </Button>
+                 <Button size="small" onClick={closeSectionMenu}>取消</Button>
+               </>
+             )}
+           </div>
+         );
+       })() : null}
 
        {/* 站点右键菜单 */}
        {stationContextMenu.visible && (

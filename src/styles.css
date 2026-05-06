@@ -1370,6 +1370,81 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-select-selector)
   color: #dbeafe !important;
 }
 
+.metro-header {
+  border-bottom: 0 !important;
+  background: transparent !important;
+  position: relative;
+  z-index: 30;
+}
+
+.metro-workbench {
+  background: transparent;
+}
+
+.metro-body {
+  padding-top: 6px;
+}
+
+.app-header {
+  grid-template-columns: minmax(150px, 180px) minmax(360px, 1fr) auto;
+  gap: 8px;
+  height: auto;
+}
+
+.metro-action-buttons {
+  gap: 6px;
+  margin-right: 6px;
+}
+
+.metro-action-btn.ant-btn {
+  padding: 0 9px;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-header {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-action-btn.ant-btn span {
+  color: inherit;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper) {
+  background: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover) {
+  color: #1d4ed8 !important;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper-checked) {
+  background: #2563eb !important;
+  border-color: #2563eb !important;
+  color: #ffffff !important;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled)::before) {
+  background-color: #2563eb !important;
+}
+
+.metro-canvas-surface {
+  background-color: var(--metro-canvas-bg, #fbfdff) !important;
+}
+
+.metro-canvas-surface.is-canvas-dark {
+  background-color: var(--metro-canvas-bg, #07111f) !important;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface {
+  background-color: var(--metro-canvas-bg, #fbfdff) !important;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface.is-canvas-dark {
+  background-color: var(--metro-canvas-bg, #07111f) !important;
+}
+
 .metro-canvas-surface > div[style*="top: 60"][style*="left: 16"],
 .metro-canvas-surface > div[style*="top: 16"][style*="left: 16"] {
   display: none !important;
