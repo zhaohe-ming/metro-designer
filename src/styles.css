@@ -2108,7 +2108,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-card {
-  width: min(1120px, calc(100vw - 48px));
+  width: min(1180px, calc(100vw - 48px));
   height: clamp(680px, calc(100vh - 80px), 720px);
   min-height: 0;
   overflow: hidden;
@@ -2116,7 +2116,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-card__inner {
-  grid-template-columns: minmax(0, 48%) minmax(0, 52%);
+  grid-template-columns: minmax(0, 52%) minmax(0, 48%);
   height: 100%;
   min-height: 0;
 }
@@ -2173,7 +2173,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-card--register .auth-card__form {
-  padding: 32px 56px;
+  padding: 32px 48px;
 }
 
 .auth-card--register .auth-switcher {
