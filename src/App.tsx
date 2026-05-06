@@ -35,6 +35,7 @@ const App: React.FC = () => {
   const [profileVisible, setProfileVisible] = useState(false);
   const [saveMapVisible, setSaveMapVisible] = useState(false);
   const [mapsVisible, setMapsVisible] = useState(false);
+  const [mapsLoading, setMapsLoading] = useState(false);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [mapName, setMapName] = useState('');
@@ -72,6 +73,20 @@ const App: React.FC = () => {
     });
   };
 
+  const refreshSavedMaps = async (showError = false) => {
+    setMapsLoading(true);
+    try {
+      const { maps } = await api.listMaps();
+      setSavedMaps(maps);
+    } catch (error: any) {
+      if (showError) {
+        message.error(error.message || '加载地图列表失败');
+      }
+    } finally {
+      setMapsLoading(false);
+    }
+  };
+
   useEffect(() => {
     return () => {
       revokeBlobUrl(userProfile?.avatar);
@@ -85,6 +100,7 @@ const App: React.FC = () => {
       try {
         const { user } = await api.me();
         setUserProfile({ ...user, password: '' });
+        refreshSavedMaps(false);
       } catch {
         clearToken();
       }
@@ -331,6 +347,7 @@ const App: React.FC = () => {
       const { token, user } = await api.login({ phone, password });
       setToken(token);
       setUserProfile({ ...user, password: '' });
+      refreshSavedMaps(false);
       message.success('登录成功');
     } catch (error: any) {
       message.error(error.message || '登录失败');
@@ -350,6 +367,7 @@ const App: React.FC = () => {
       const { token, user } = await api.register({ phone, username, password });
       setToken(token);
       setUserProfile({ ...user, password: '' });
+      refreshSavedMaps(false);
       message.success('注册成功，已自动登录');
     } catch (error: any) {
       message.error(error.message || '注册失败');
@@ -420,13 +438,9 @@ const App: React.FC = () => {
   };
 
   const handleOpenMapList = async () => {
-    try {
-      const { maps } = await api.listMaps();
-      setSavedMaps(maps);
-      setMapsVisible(true);
-    } catch (error: any) {
-      message.error(error.message || '加载地图列表失败');
-    }
+    setMapsVisible(true);
+    if (mapsLoading) return;
+    refreshSavedMaps(true);
   };
 
   const handleOpenSaveMap = () => {
@@ -743,7 +757,7 @@ const App: React.FC = () => {
                 <Button className="metro-action-btn metro-action-btn--primary" size="small" onClick={handleOpenSaveMap}>
                   {currentMap ? '覆盖保存' : '保存地图'}
                 </Button>
-                <Button className="metro-action-btn" size="small" onClick={handleOpenMapList}>
+                <Button className="metro-action-btn" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
                   查看地图
                 </Button>
                 <Button className="metro-action-btn metro-action-btn--warn" size="small" onClick={() => setProfileVisible(true)}>
@@ -857,7 +871,7 @@ const App: React.FC = () => {
                 <Button className="metro-info-action metro-info-action--primary" size="small" onClick={handleOpenSaveMap}>
                   {currentMap ? '覆盖保存' : '保存地图'}
                 </Button>
-                <Button className="metro-info-action" size="small" onClick={handleOpenMapList}>
+                <Button className="metro-info-action" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
                   查看地图
                 </Button>
               </div>
@@ -891,8 +905,9 @@ const App: React.FC = () => {
 
         <DraggableModal title="我的地图" open={mapsVisible} onCancel={() => setMapsVisible(false)} footer={null}>
           <List
+            loading={mapsLoading}
             dataSource={savedMaps}
-            locale={{ emptyText: '暂无已保存地图' }}
+            locale={{ emptyText: mapsLoading ? '正在加载地图...' : '暂无已保存地图' }}
             renderItem={(item) => (
               <List.Item
                 actions={[
