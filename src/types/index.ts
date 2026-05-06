@@ -25,6 +25,7 @@ export interface Line {
 
 export type MapStyle = 'classic-badge' | 'dot-label';
 export type CanvasTheme = 'light' | 'dark';
+export type CityStyle = 'standard' | 'beijing' | 'shanghai' | 'mtr';
 export type DotLabelStyle = {
   fontSize: number;
   fontWeight: number;
@@ -34,12 +35,16 @@ export type DotLabelStyle = {
 export interface MapSettings {
   mapStyle: MapStyle;
   canvasTheme: CanvasTheme;
+  cityStyle: CityStyle;
+  showLineNameLabels: boolean;
   dotLabelStyle: DotLabelStyle;
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
   mapStyle: 'classic-badge',
   canvasTheme: 'light',
+  cityStyle: 'standard',
+  showLineNameLabels: true,
   dotLabelStyle: {
     fontSize: 13,
     fontWeight: 700,
@@ -54,9 +59,17 @@ const normalizeNumber = (value: unknown, fallback: number, min: number, max: num
 
 export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): MapSettings => {
   const dotLabelStyle = (settings?.dotLabelStyle || {}) as Partial<DotLabelStyle>;
+  const cityStyle =
+    settings?.cityStyle === 'beijing' ||
+    settings?.cityStyle === 'shanghai' ||
+    settings?.cityStyle === 'mtr'
+      ? settings.cityStyle
+      : 'standard';
   return {
     mapStyle: settings?.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
     canvasTheme: settings?.canvasTheme === 'dark' ? 'dark' : 'light',
+    cityStyle,
+    showLineNameLabels: settings?.showLineNameLabels !== false,
     dotLabelStyle: {
       fontSize: normalizeNumber(dotLabelStyle.fontSize, DEFAULT_MAP_SETTINGS.dotLabelStyle.fontSize, 10, 24),
       fontWeight: normalizeNumber(dotLabelStyle.fontWeight, DEFAULT_MAP_SETTINGS.dotLabelStyle.fontWeight, 300, 900),

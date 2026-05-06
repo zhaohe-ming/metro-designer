@@ -13,7 +13,9 @@ const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 const DEFAULT_MAP_SETTINGS = {
   mapStyle: 'classic-badge',
-  canvasTheme: 'light'
+  canvasTheme: 'light',
+  cityStyle: 'standard',
+  showLineNameLabels: true
 };
 
 const allowedOrigins = FRONTEND_ORIGIN
@@ -72,6 +74,11 @@ function normalizeMapSettings(settings) {
   return {
     mapStyle: settings && settings.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
     canvasTheme: settings && settings.canvasTheme === 'dark' ? 'dark' : 'light',
+    cityStyle:
+      settings && ['standard', 'beijing', 'shanghai', 'mtr'].includes(settings.cityStyle)
+        ? settings.cityStyle
+        : 'standard',
+    showLineNameLabels: !settings || settings.showLineNameLabels !== false,
     dotLabelStyle: {
       fontSize: normalizeNumber(dotLabelStyle.fontSize, 13, 10, 24),
       fontWeight: normalizeNumber(dotLabelStyle.fontWeight, 700, 300, 900),

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
 import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
 import { MapSettings, Station, Line as LineType, Section, LINE_COLORS } from '../types';
+import { getCityStylePreset } from '../stylePresets';
 import DraggableModal from './DraggableModal';
 
 const STATION_RADIUS = 18;
@@ -1133,6 +1134,12 @@ const Canvas: React.FC<CanvasProps> = ({
     setAdding(true);
   };
 
+  const stylePreset = getCityStylePreset(mapSettings);
+  const stationLineCounts = stations.reduce<Record<string, number>>((result, station) => {
+    result[station.id] = lines.filter(line => line.stationIds.includes(station.id)).length;
+    return result;
+  }, {});
+
   // 渲染线路连接线（网状结构）
   const renderLines = () => {
     const segments = sections
@@ -1186,12 +1193,12 @@ const Canvas: React.FC<CanvasProps> = ({
           key={`${seg.section.id}_${currentIndex}`}
           points={shiftedPoints}
           stroke={seg.line.color}
-          strokeWidth={4}
+          strokeWidth={stylePreset.lineWidth}
           lineCap="round"
           lineJoin="round"
           shadowColor={seg.line.color}
-          shadowBlur={8}
-          shadowOpacity={canvasPalette.lineShadowOpacity}
+          shadowBlur={stylePreset.lineShadowBlur}
+          shadowOpacity={Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
           onClick={e => {
             if (lastIsRightClickRef.current) {
@@ -1367,6 +1374,85 @@ const Canvas: React.FC<CanvasProps> = ({
       }
       return result;
     }, {});
+  })();
+
+  const lineNamePlacements = (() => {
+    if (!mapSettings.showLineNameLabels || lines.length === 0) return [];
+    const occupied: LabelRect[] = [
+      ...Object.values(labelPlacements),
+      ...stations.map(station => ({
+        x: station.x - stylePreset.interchangeRadius - 8,
+        y: station.y - stylePreset.interchangeRadius - 8,
+        width: (stylePreset.interchangeRadius + 8) * 2,
+        height: (stylePreset.interchangeRadius + 8) * 2
+      }))
+    ];
+
+    const placements: Array<{
+      key: string;
+      line: LineType;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }> = [];
+
+    lines.forEach(line => {
+      const orderedStations = line.stationIds
+        .map(id => stations.find(station => station.id === id))
+        .filter(Boolean) as Station[];
+      if (orderedStations.length < 2) return;
+
+      const anchorIndexes = Array.from(
+        new Set([
+          0,
+          Math.max(0, orderedStations.length - 2),
+          ...(orderedStations.length >= 5 ? [Math.floor((orderedStations.length - 2) / 2)] : [])
+        ])
+      );
+
+      const labelWidth = Math.max(52, line.name.length * stylePreset.lineLabelFontSize + stylePreset.lineLabelPaddingX * 2);
+      const labelHeight = stylePreset.lineLabelFontSize + stylePreset.lineLabelPaddingY * 2 + 2;
+
+      anchorIndexes.forEach((stationIndex, labelIndex) => {
+        const start = orderedStations[stationIndex];
+        const end = orderedStations[stationIndex + 1];
+        if (!start || !end) return;
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const normal = { x: -dy / len, y: dx / len };
+        const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+        const candidates = [18, -26, 34, -42].map(distance => ({
+          x: mid.x + normal.x * distance - labelWidth / 2,
+          y: mid.y + normal.y * distance - labelHeight / 2
+        }));
+
+        const best = candidates
+          .map(candidate => {
+            const rect = { x: candidate.x, y: candidate.y, width: labelWidth, height: labelHeight };
+            let score = 0;
+            occupied.forEach(other => {
+              if (rectsOverlap(rect, other)) score += 90;
+            });
+            if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height) {
+              score += 25;
+            }
+            return { rect, score };
+          })
+          .sort((a, b) => a.score - b.score)[0];
+
+        if (!best) return;
+        occupied.push(best.rect);
+        placements.push({
+          key: `${line.id}_${labelIndex}`,
+          line,
+          ...best.rect
+        });
+      });
+    });
+
+    return placements;
   })();
 
   return (
@@ -1662,6 +1748,31 @@ const Canvas: React.FC<CanvasProps> = ({
           />
           {/* 渲染线路连接线 */}
           {renderLines()}
+          {lineNamePlacements.map(label => (
+            <Group key={`line_label_${label.key}`} x={label.x} y={label.y} listening={false}>
+              <Rect
+                width={label.width}
+                height={label.height}
+                cornerRadius={label.height / 2}
+                fill={stylePreset.lineLabelFill}
+                stroke={label.line.color}
+                strokeWidth={stylePreset.lineLabelStrokeWidth}
+                shadowColor={label.line.color}
+                shadowBlur={4}
+                shadowOpacity={0.16}
+              />
+              <Text
+                text={label.line.name}
+                width={label.width}
+                height={label.height}
+                align="center"
+                verticalAlign="middle"
+                fontSize={stylePreset.lineLabelFontSize}
+                fontStyle={`${stylePreset.lineLabelFontWeight}`}
+                fill={stylePreset.lineLabelText}
+              />
+            </Group>
+          ))}
           {activeCalibrationGuides.map((guide, idx) => (
             <Line
               key={`active_guide_${idx}`}
@@ -1732,6 +1843,7 @@ const Canvas: React.FC<CanvasProps> = ({
           {stations.map(station => {
             const stationColor = getStationColor(station.id);
             const labelRect = labelPlacements[station.id];
+            const isInterchangeStation = (stationLineCounts[station.id] || 0) > 1;
             return (
               <Group
                 key={station.id}
@@ -1748,14 +1860,33 @@ const Canvas: React.FC<CanvasProps> = ({
               >
                 {isDotLabelStyle ? (
                   <>
-                    <Circle
-                      radius={6}
-                      fill={stationColor}
-                      stroke={canvasPalette.stationStroke}
-                      strokeWidth={2}
-                      shadowColor={canvasPalette.dotShadow}
-                      shadowBlur={4}
-                    />
+                    {isInterchangeStation ? (
+                      <>
+                        <Circle
+                          radius={stylePreset.interchangeRadius}
+                          fill={canvasPalette.stationStroke}
+                          stroke={stationColor}
+                          strokeWidth={stylePreset.interchangeStrokeWidth}
+                          shadowColor={canvasPalette.dotShadow}
+                          shadowBlur={6}
+                        />
+                        <Circle
+                          radius={stylePreset.interchangeInnerRadius}
+                          fill={stationColor}
+                          stroke={mapSettings.cityStyle === 'mtr' ? canvasPalette.stationStroke : stationColor}
+                          strokeWidth={mapSettings.cityStyle === 'mtr' ? 2 : 1}
+                        />
+                      </>
+                    ) : (
+                      <Circle
+                        radius={stylePreset.normalStationRadius}
+                        fill={stationColor}
+                        stroke={canvasPalette.stationStroke}
+                        strokeWidth={stylePreset.normalStationStrokeWidth}
+                        shadowColor={canvasPalette.dotShadow}
+                        shadowBlur={4}
+                      />
+                    )}
                     {labelRect ? (
                       <Text
                         text={station.name}
@@ -1777,10 +1908,10 @@ const Canvas: React.FC<CanvasProps> = ({
                 ) : (
                   <>
                     <Circle
-                      radius={20}
+                      radius={isInterchangeStation ? 24 : 20}
                       fill={isStationInCurrentLine(station.id) ? stationColor : canvasPalette.inactiveStationFill}
                       stroke={canvasPalette.stationStroke}
-                      strokeWidth={2}
+                      strokeWidth={isInterchangeStation ? 4 : 2}
                       shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
                       shadowBlur={isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2, y: 2 }}

@@ -7,6 +7,7 @@ import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoSegmentInput } from './components/VideoExportModal';
+import { getCityStylePreset } from './stylePresets';
 import { DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings } from './types';
 
 const { Header, Sider, Content } = Layout;
@@ -52,6 +53,14 @@ const i18n = {
     mapStyle: '地图样式',
     classicBadge: '经典圆标',
     dotLabel: '专业线网',
+    cityStyle: '城市风格',
+    cityStyleStandard: '通用专业',
+    cityStyleBeijing: '北京',
+    cityStyleShanghai: '上海',
+    cityStyleMtr: '港铁',
+    showLineNameLabels: '显示线路名称标注',
+    lineNameLabelsOn: '显示',
+    lineNameLabelsOff: '隐藏',
     dotLabelText: '专业线网站名',
     dotLabelFontSize: '字体大小',
     dotLabelFontWeight: '字体粗细',
@@ -83,6 +92,14 @@ const i18n = {
     mapStyle: 'Map style',
     classicBadge: 'Classic badge',
     dotLabel: 'Transit diagram',
+    cityStyle: 'City style',
+    cityStyleStandard: 'Standard',
+    cityStyleBeijing: 'Beijing',
+    cityStyleShanghai: 'Shanghai',
+    cityStyleMtr: 'MTR',
+    showLineNameLabels: 'Line name labels',
+    lineNameLabelsOn: 'Show',
+    lineNameLabelsOff: 'Hide',
     dotLabelText: 'Transit label text',
     dotLabelFontSize: 'Font size',
     dotLabelFontWeight: 'Font weight',
@@ -638,10 +655,10 @@ const App: React.FC = () => {
     setIsExporting(true);
 
     try {
-      await exportVideoFromStage(stageRef.current, segments, lines, stations);
-    } catch (error) {
+      await exportVideoFromStage(stageRef.current, segments, lines, stations, sections, mapSettings);
+    } catch (error: any) {
       console.error(error);
-      message.error('导出失败，请重试');
+      message.error(error?.message || '导出失败，请重试');
     } finally {
       setIsExporting(false);
     }
@@ -651,23 +668,140 @@ const App: React.FC = () => {
     stage: any,
     segments: VideoSegmentInput[],
     allLines: Line[],
-    allStations: Station[]
+    allStations: Station[],
+    allSections: Section[],
+    settings: MapSettings
   ) => {
+    void stage;
     if (!segments.length) {
       message.warning('请至少填写一个开通区间');
       return;
     }
 
-    const width = stage.width();
-    const height = stage.height();
-    const snapshotUrl = stage.toDataURL({ pixelRatio: 2 });
+    if (!allStations.length) {
+      message.warning('请先创建站点后再导出视频');
+      return;
+    }
 
-    const baseImage: HTMLImageElement = await new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = reject;
-      image.src = snapshotUrl;
+    const fps = 30;
+    const width = 1280;
+    const height = 720;
+    const titleFrames = Math.round(fps * 1.2);
+    const secondsPerSegment = 3;
+    const segmentFrames = fps * secondsPerSegment;
+    const outroFrames = fps;
+    const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
+    const preset = getCityStylePreset(settings);
+    const isDarkCanvas = settings.canvasTheme === 'dark';
+    const mutedLineColor = isDarkCanvas ? '#334155' : '#d8e0eb';
+    const mutedStationFill = isDarkCanvas ? '#0f172a' : '#ffffff';
+    const mutedStationStroke = isDarkCanvas ? '#475569' : '#cbd5e1';
+    const primaryText = isDarkCanvas ? '#f8fafc' : '#0f172a';
+    const secondaryText = isDarkCanvas ? '#cbd5e1' : '#475569';
+    const stationById = new Map(allStations.map(station => [station.id, station]));
+    const stationLineCounts = allStations.reduce<Record<string, number>>((result, station) => {
+      result[station.id] = allLines.filter(line => line.stationIds.includes(station.id)).length;
+      return result;
+    }, {});
+
+    const resolveSegmentPath = (segment: VideoSegmentInput) => {
+      const line = allLines.find(item => item.id === segment.lineId);
+      const startStation = stationById.get(segment.startStationId);
+      const endStation = stationById.get(segment.endStationId);
+      if (!line || !startStation || !endStation || startStation.id === endStation.id) {
+        throw new Error(`视频区间配置无效：${segment.openDate || '未填写日期'}`);
+      }
+
+      const startIndex = line.stationIds.indexOf(startStation.id);
+      const endIndex = line.stationIds.indexOf(endStation.id);
+      if (startIndex >= 0 && endIndex >= 0 && startIndex !== endIndex) {
+        const orderedIds =
+          startIndex < endIndex
+            ? line.stationIds.slice(startIndex, endIndex + 1)
+            : line.stationIds.slice(endIndex, startIndex + 1).reverse();
+        if (orderedIds.every(id => stationById.has(id))) {
+          return { segment, line, stationIds: orderedIds };
+        }
+      }
+
+      const adjacency = new Map<string, string[]>();
+      allSections
+        .filter(section => section.lineId === line.id)
+        .forEach(section => {
+          adjacency.set(section.startStationId, [...(adjacency.get(section.startStationId) || []), section.endStationId]);
+          adjacency.set(section.endStationId, [...(adjacency.get(section.endStationId) || []), section.startStationId]);
+        });
+
+      const queue: string[][] = [[startStation.id]];
+      const visited = new Set([startStation.id]);
+      while (queue.length) {
+        const path = queue.shift()!;
+        const tail = path[path.length - 1];
+        if (tail === endStation.id) return { segment, line, stationIds: path };
+        (adjacency.get(tail) || []).forEach(next => {
+          if (!visited.has(next)) {
+            visited.add(next);
+            queue.push([...path, next]);
+          }
+        });
+      }
+
+      throw new Error(`找不到视频路径：${line.name} ${startStation.name} - ${endStation.name}`);
+    };
+
+    const animationSegments = sortedSegments.map(resolveSegmentPath);
+    const minX = Math.min(...allStations.map(station => station.x));
+    const minY = Math.min(...allStations.map(station => station.y));
+    const maxX = Math.max(...allStations.map(station => station.x));
+    const maxY = Math.max(...allStations.map(station => station.y));
+    const padding = 96;
+    const mapWidth = Math.max(1, maxX - minX);
+    const mapHeight = Math.max(1, maxY - minY);
+    const mapScale = Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight, 2.2);
+    const mapOffset = {
+      x: (width - mapWidth * mapScale) / 2 - minX * mapScale,
+      y: (height - mapHeight * mapScale) / 2 - minY * mapScale - 10
+    };
+    const toCanvasPoint = (station: Station) => ({
+      x: station.x * mapScale + mapOffset.x,
+      y: station.y * mapScale + mapOffset.y
     });
+    const pathToPoints = (stationIds: string[]) =>
+      stationIds.map(id => stationById.get(id)).filter(Boolean).map(station => toCanvasPoint(station!));
+
+    const canvasThemeGradient = (ctx: CanvasRenderingContext2D) => {
+      const gradient = ctx.createLinearGradient(0, 0, width, height);
+      if (isDarkCanvas) {
+        gradient.addColorStop(0, '#07111f');
+        gradient.addColorStop(1, '#0f172a');
+      } else {
+        gradient.addColorStop(0, '#fbfdff');
+        gradient.addColorStop(1, '#eef6ff');
+      }
+      return gradient;
+    };
+
+    const roundRect = (
+      ctx: CanvasRenderingContext2D,
+      x: number,
+      y: number,
+      rectWidth: number,
+      rectHeight: number,
+      radius: number
+    ) => {
+      const r = Math.min(radius, rectWidth / 2, rectHeight / 2);
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + rectWidth - r, y);
+      ctx.quadraticCurveTo(x + rectWidth, y, x + rectWidth, y + r);
+      ctx.lineTo(x + rectWidth, y + rectHeight - r);
+      ctx.quadraticCurveTo(x + rectWidth, y + rectHeight, x + rectWidth - r, y + rectHeight);
+      ctx.lineTo(x + r, y + rectHeight);
+      ctx.quadraticCurveTo(x, y + rectHeight, x, y + rectHeight - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+    };
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -678,59 +812,271 @@ const App: React.FC = () => {
       return;
     }
 
-    const stream = canvas.captureStream(30);
-    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-    const chunks: BlobPart[] = [];
+    const drawLinePath = (
+      points: Array<{ x: number; y: number }>,
+      color: string,
+      progress = 1,
+      alpha = 1,
+      lineWidth = preset.lineWidth
+    ) => {
+      if (points.length < 2 || progress <= 0) return;
+      const lengths = points.slice(1).map((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y));
+      const totalLength = lengths.reduce((sum, value) => sum + value, 0);
+      let remaining = totalLength * Math.min(1, progress);
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = color;
+      ctx.shadowBlur = preset.lineShadowBlur;
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let index = 1; index < points.length; index += 1) {
+        const previous = points[index - 1];
+        const current = points[index];
+        const length = lengths[index - 1];
+        if (remaining >= length) {
+          ctx.lineTo(current.x, current.y);
+          remaining -= length;
+        } else {
+          const ratio = length === 0 ? 0 : remaining / length;
+          ctx.lineTo(previous.x + (current.x - previous.x) * ratio, previous.y + (current.y - previous.y) * ratio);
+          break;
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    };
 
+    const drawStation = (station: Station, activeColor?: string, pulse = 0) => {
+      const point = toCanvasPoint(station);
+      const isInterchange = (stationLineCounts[station.id] || 0) > 1;
+      const color = activeColor || mutedStationStroke;
+      ctx.save();
+      ctx.shadowColor = activeColor || 'transparent';
+      ctx.shadowBlur = activeColor ? 8 : 0;
+      if (pulse > 0) {
+        ctx.globalAlpha = 0.25 * (1 - pulse);
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, (preset.interchangeRadius + 10 + pulse * 12) * mapScale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+      ctx.fillStyle = activeColor ? '#ffffff' : mutedStationFill;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = (isInterchange ? preset.interchangeStrokeWidth : preset.normalStationStrokeWidth) * mapScale;
+      ctx.beginPath();
+      ctx.arc(
+        point.x,
+        point.y,
+        (isInterchange ? preset.interchangeRadius : preset.normalStationRadius) * mapScale,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      ctx.stroke();
+      if (isInterchange && activeColor) {
+        ctx.fillStyle = activeColor;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, preset.interchangeInnerRadius * mapScale, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    };
+
+    const drawLineLabels = () => {
+      if (!settings.showLineNameLabels) return;
+      const occupied: Array<{ x: number; y: number; width: number; height: number }> = [];
+      allLines.forEach(line => {
+        const ordered = line.stationIds.map(id => stationById.get(id)).filter(Boolean) as Station[];
+        if (ordered.length < 2) return;
+        const indexes = Array.from(new Set([0, Math.max(0, ordered.length - 2), ...(ordered.length >= 5 ? [Math.floor((ordered.length - 2) / 2)] : [])]));
+        indexes.forEach(index => {
+          const start = ordered[index];
+          const end = ordered[index + 1];
+          if (!start || !end) return;
+          const p1 = toCanvasPoint(start);
+          const p2 = toCanvasPoint(end);
+          const label = line.name;
+          ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+          const labelWidth = Math.max(52, ctx.measureText(label).width + preset.lineLabelPaddingX * 2);
+          const labelHeight = preset.lineLabelFontSize + preset.lineLabelPaddingY * 2 + 2;
+          const dx = p2.x - p1.x;
+          const dy = p2.y - p1.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const normal = { x: -dy / len, y: dx / len };
+          const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+          const candidates = [18, -24, 34, -40].map(distance => ({
+            x: mid.x + normal.x * distance - labelWidth / 2,
+            y: mid.y + normal.y * distance - labelHeight / 2,
+            width: labelWidth,
+            height: labelHeight
+          }));
+          const best = candidates.find(candidate => !occupied.some(other => (
+            candidate.x < other.x + other.width &&
+            candidate.x + candidate.width > other.x &&
+            candidate.y < other.y + other.height &&
+            candidate.y + candidate.height > other.y
+          ))) || candidates[0];
+          occupied.push(best);
+          ctx.save();
+          roundRect(ctx, best.x, best.y, best.width, best.height, best.height / 2);
+          ctx.fillStyle = preset.lineLabelFill;
+          ctx.strokeStyle = line.color;
+          ctx.lineWidth = preset.lineLabelStrokeWidth;
+          ctx.fill();
+          ctx.stroke();
+          ctx.fillStyle = preset.lineLabelText;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(label, best.x + best.width / 2, best.y + best.height / 2);
+          ctx.restore();
+        });
+      });
+    };
+
+    const drawBaseMap = (openedCount: number, currentProgress = 0) => {
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = canvasThemeGradient(ctx);
+      ctx.fillRect(0, 0, width, height);
+
+      allSections.forEach(section => {
+        const start = stationById.get(section.startStationId);
+        const end = stationById.get(section.endStationId);
+        if (!start || !end) return;
+        drawLinePath([toCanvasPoint(start), toCanvasPoint(end)], mutedLineColor, 1, 0.8, preset.lineWidth);
+      });
+
+      animationSegments.slice(0, openedCount).forEach(item => {
+        drawLinePath(pathToPoints(item.stationIds), item.line.color, 1, 1);
+      });
+
+      const current = animationSegments[openedCount];
+      if (current) {
+        drawLinePath(pathToPoints(current.stationIds), current.line.color, currentProgress, 1, preset.lineWidth + 1);
+      }
+
+      const activeStationColors = new Map<string, string>();
+      animationSegments.slice(0, openedCount).forEach(item => {
+        item.stationIds.forEach(id => activeStationColors.set(id, item.line.color));
+      });
+      if (current) {
+        const currentIds = current.stationIds;
+        const activeUntil = Math.max(1, Math.ceil(currentIds.length * currentProgress));
+        currentIds.slice(0, activeUntil).forEach(id => activeStationColors.set(id, current.line.color));
+      }
+
+      allStations.forEach(station => drawStation(station, activeStationColors.get(station.id)));
+      if (current) {
+        const endId = current.stationIds[current.stationIds.length - 1];
+        const end = stationById.get(endId);
+        if (end) drawStation(end, current.line.color, Math.sin(currentProgress * Math.PI));
+      }
+      drawLineLabels();
+    };
+
+    const drawInfoPanel = (item: ReturnType<typeof resolveSegmentPath>, progress: number) => {
+      const startStation = stationById.get(item.stationIds[0]);
+      const endStation = stationById.get(item.stationIds[item.stationIds.length - 1]);
+      const panelWidth = 430;
+      const panelHeight = 118;
+      const x = 42;
+      const y = height - panelHeight - 36;
+      ctx.save();
+      roundRect(ctx, x, y, panelWidth, panelHeight, 14);
+      ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.86)' : 'rgba(255, 255, 255, 0.9)';
+      ctx.strokeStyle = isDarkCanvas ? 'rgba(148, 163, 184, 0.32)' : 'rgba(148, 163, 184, 0.34)';
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = item.line.color;
+      roundRect(ctx, x + 18, y + 20, 62, 28, 14);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 13px "Microsoft YaHei", "PingFang SC", Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(item.line.name, x + 49, y + 34);
+      ctx.fillStyle = primaryText;
+      ctx.font = '800 22px "Microsoft YaHei", "PingFang SC", Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText(item.segment.openDate, x + 96, y + 32);
+      ctx.fillStyle = secondaryText;
+      ctx.font = '500 16px "Microsoft YaHei", "PingFang SC", Arial';
+      ctx.fillText(`${startStation?.name || '-'}  →  ${endStation?.name || '-'}`, x + 96, y + 64);
+      ctx.fillStyle = isDarkCanvas ? '#1e293b' : '#e2e8f0';
+      roundRect(ctx, x + 20, y + 88, panelWidth - 40, 8, 4);
+      ctx.fill();
+      ctx.fillStyle = item.line.color;
+      roundRect(ctx, x + 20, y + 88, (panelWidth - 40) * progress, 8, 4);
+      ctx.fill();
+      ctx.restore();
+    };
+
+    const drawTitle = () => {
+      drawBaseMap(0, 0);
+      ctx.save();
+      ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.72)' : 'rgba(255, 255, 255, 0.72)';
+      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = primaryText;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.font = '900 44px "Microsoft YaHei", "PingFang SC", Arial';
+      ctx.fillText('线路开通演示', width / 2, height / 2 - 18);
+      ctx.fillStyle = secondaryText;
+      ctx.font = '500 18px "Microsoft YaHei", "PingFang SC", Arial';
+      ctx.fillText('按开通日期逐步点亮城市轨道网络', width / 2, height / 2 + 30);
+      ctx.restore();
+    };
+
+    const drawFrame = (frame: number) => {
+      if (frame < titleFrames) {
+        drawTitle();
+        return;
+      }
+      const animatedFrame = frame - titleFrames;
+      const segmentIndex = Math.min(animationSegments.length - 1, Math.floor(animatedFrame / segmentFrames));
+      const segmentFrame = animatedFrame - segmentIndex * segmentFrames;
+      if (animatedFrame >= animationSegments.length * segmentFrames) {
+        drawBaseMap(animationSegments.length, 1);
+        return;
+      }
+      const progress = Math.min(1, segmentFrame / segmentFrames);
+      const easedProgress = 1 - Math.pow(1 - progress, 3);
+      const item = animationSegments[segmentIndex];
+      drawBaseMap(segmentIndex, easedProgress);
+      drawInfoPanel(item, easedProgress);
+    };
+
+    const stream = canvas.captureStream(fps);
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
+        ? 'video/webm;codecs=vp8'
+        : 'video/webm';
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks: BlobPart[] = [];
+    const videoTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack & { requestFrame?: () => void };
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0) {
         chunks.push(event.data);
       }
     };
 
-    const fps = 30;
-    const secondsPerSegment = 3;
-    const totalFrames = segments.length * fps * secondsPerSegment;
+    const totalFrames = titleFrames + animationSegments.length * segmentFrames + outroFrames;
     let frame = 0;
-
-    const drawFrame = () => {
-      const segmentIndex = Math.floor(frame / (fps * secondsPerSegment));
-      const segmentProgress = (frame % (fps * secondsPerSegment)) / (fps * secondsPerSegment);
-      const segment = segments[segmentIndex] || segments[segments.length - 1];
-      const line = allLines.find((item) => item.id === segment.lineId);
-      const startStation = allStations.find((item) => item.id === segment.startStationId);
-      const endStation = allStations.find((item) => item.id === segment.endStationId);
-      const overlayColor = line?.color || '#1890ff';
-
-      ctx.clearRect(0, 0, width, height);
-      const zoom = 1 + 0.05 * Math.sin(segmentProgress * Math.PI);
-      const drawWidth = width * zoom;
-      const drawHeight = height * zoom;
-      ctx.drawImage(baseImage, (width - drawWidth) / 2, (height - drawHeight) / 2, drawWidth, drawHeight);
-
-      const panelWidth = Math.min(360, width * 0.45);
-      const panelHeight = 90;
-      ctx.globalAlpha = 0.78;
-      ctx.fillStyle = '#0b1b2a';
-      ctx.fillRect(12, height - panelHeight - 12, panelWidth, panelHeight);
-      ctx.globalAlpha = 1;
-      ctx.fillStyle = '#fff';
-      ctx.font = '16px "Microsoft YaHei", "PingFang SC", Arial';
-      ctx.fillText(`开通日期：${segment.openDate}`, 24, height - panelHeight + 20);
-      ctx.fillText(`线路：${line?.name || '未选择'}`, 24, height - panelHeight + 44);
-      ctx.fillText(`区间：${startStation?.name || '-'} -> ${endStation?.name || '-'}`, 24, height - panelHeight + 68);
-      ctx.fillStyle = overlayColor;
-      ctx.fillRect(panelWidth - 28, height - panelHeight - 12, 16, panelHeight);
-    };
-
     const stopPromise: Promise<Blob> = new Promise((resolve) => {
       recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
     });
 
-    recorder.start();
+    recorder.start(100);
     await new Promise<void>((resolve) => {
       const timer = setInterval(() => {
-        drawFrame();
+        drawFrame(frame);
+        videoTrack?.requestFrame?.();
         frame += 1;
         if (frame >= totalFrames) {
           clearInterval(timer);
@@ -741,6 +1087,9 @@ const App: React.FC = () => {
     });
 
     const blob = await stopPromise;
+    if (blob.size === 0) {
+      throw new Error('视频生成失败：浏览器没有录制到有效画面');
+    }
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -1051,7 +1400,7 @@ const App: React.FC = () => {
           />
         </DraggableModal>
 
-        <DraggableModal title={text.settings} open={settingsVisible} onCancel={() => setSettingsVisible(false)} footer={null}>
+        <DraggableModal title={text.settings} open={settingsVisible} onCancel={() => setSettingsVisible(false)} footer={null} width={640}>
           <div className="metro-settings-panel">
             <section className="metro-settings-section">
               <div className="metro-settings-label">{text.language}</div>
@@ -1107,6 +1456,40 @@ const App: React.FC = () => {
               >
                 <Radio.Button value="classic-badge">{text.classicBadge}</Radio.Button>
                 <Radio.Button value="dot-label">{text.dotLabel}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.cityStyle}</div>
+              <Radio.Group
+                value={mapSettings.cityStyle}
+                onChange={(event) =>
+                  setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: event.target.value }))
+                }
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="standard">{text.cityStyleStandard}</Radio.Button>
+                <Radio.Button value="beijing">{text.cityStyleBeijing}</Radio.Button>
+                <Radio.Button value="shanghai">{text.cityStyleShanghai}</Radio.Button>
+                <Radio.Button value="mtr">{text.cityStyleMtr}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.showLineNameLabels}</div>
+              <Radio.Group
+                value={mapSettings.showLineNameLabels ? 'show' : 'hide'}
+                onChange={(event) =>
+                  setMapSettings((prev) =>
+                    normalizeMapSettings({ ...prev, showLineNameLabels: event.target.value === 'show' })
+                  )
+                }
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="show">{text.lineNameLabelsOn}</Radio.Button>
+                <Radio.Button value="hide">{text.lineNameLabelsOff}</Radio.Button>
               </Radio.Group>
             </section>
 
