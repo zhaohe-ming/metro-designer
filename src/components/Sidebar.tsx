@@ -197,7 +197,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="metro-sidebar">
-      <div className="metro-sidebar__badge">Metro Workbench</div>
       <div className="metro-sidebar__title">线路设计台</div>
       <div className="metro-sidebar__subtitle">
         管理当前方案中的线路顺序、颜色与站点概览。左侧面板负责组织结构，主画布负责空间布局。

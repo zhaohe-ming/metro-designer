@@ -64,9 +64,22 @@ function sanitizeUser(user) {
 }
 
 function normalizeMapSettings(settings) {
+  const dotLabelStyle = settings && settings.dotLabelStyle ? settings.dotLabelStyle : {};
+  const normalizeNumber = (value, fallback, min, max) => {
+    const numberValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+    return Math.max(min, Math.min(max, numberValue));
+  };
   return {
     mapStyle: settings && settings.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
-    canvasTheme: settings && settings.canvasTheme === 'dark' ? 'dark' : 'light'
+    canvasTheme: settings && settings.canvasTheme === 'dark' ? 'dark' : 'light',
+    dotLabelStyle: {
+      fontSize: normalizeNumber(dotLabelStyle.fontSize, 13, 10, 24),
+      fontWeight: normalizeNumber(dotLabelStyle.fontWeight, 700, 300, 900),
+      color:
+        typeof dotLabelStyle.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(dotLabelStyle.color)
+          ? dotLabelStyle.color
+          : '#0f172a'
+    }
   };
 }
 

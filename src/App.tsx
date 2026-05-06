@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Avatar, Button, Divider, Form, Input, Layout, List, Popconfirm, Radio, Space, message } from 'antd';
+import { Avatar, Button, ColorPicker, Divider, Form, Input, Layout, List, Popconfirm, Radio, Slider, Space, message } from 'antd';
 import { api, clearToken, getToken, setToken } from './api';
 import AuthPanel from './components/AuthPanel';
 import Canvas from './components/Canvas';
@@ -52,6 +52,10 @@ const i18n = {
     mapStyle: '地图样式',
     classicBadge: '经典圆标',
     dotLabel: '专业线网',
+    dotLabelText: '专业线网站名',
+    dotLabelFontSize: '字体大小',
+    dotLabelFontWeight: '字体粗细',
+    dotLabelColor: '字体颜色',
     signOut: '退出登录',
     close: '关闭',
     phone: '手机号',
@@ -76,6 +80,10 @@ const i18n = {
     mapStyle: 'Map style',
     classicBadge: 'Classic badge',
     dotLabel: 'Transit diagram',
+    dotLabelText: 'Transit label text',
+    dotLabelFontSize: 'Font size',
+    dotLabelFontWeight: 'Font weight',
+    dotLabelColor: 'Text color',
     signOut: 'Sign out',
     close: 'Close',
     phone: 'Phone',
@@ -1091,6 +1099,68 @@ const App: React.FC = () => {
                 <Radio.Button value="classic-badge">{text.classicBadge}</Radio.Button>
                 <Radio.Button value="dot-label">{text.dotLabel}</Radio.Button>
               </Radio.Group>
+            </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.dotLabelText}</div>
+              <div className="metro-settings-control">
+                <div className="metro-settings-control__row">
+                  <span>{text.dotLabelFontSize}</span>
+                  <strong>{mapSettings.dotLabelStyle.fontSize}px</strong>
+                </div>
+                <Slider
+                  min={10}
+                  max={24}
+                  step={1}
+                  value={mapSettings.dotLabelStyle.fontSize}
+                  onChange={(value) =>
+                    setMapSettings((prev) =>
+                      normalizeMapSettings({
+                        ...prev,
+                        dotLabelStyle: { ...prev.dotLabelStyle, fontSize: value }
+                      })
+                    )
+                  }
+                />
+              </div>
+              <div className="metro-settings-control">
+                <div className="metro-settings-control__row">
+                  <span>{text.dotLabelFontWeight}</span>
+                  <strong>{mapSettings.dotLabelStyle.fontWeight}</strong>
+                </div>
+                <Slider
+                  min={300}
+                  max={900}
+                  step={10}
+                  value={mapSettings.dotLabelStyle.fontWeight}
+                  onChange={(value) =>
+                    setMapSettings((prev) =>
+                      normalizeMapSettings({
+                        ...prev,
+                        dotLabelStyle: { ...prev.dotLabelStyle, fontWeight: value }
+                      })
+                    )
+                  }
+                />
+              </div>
+              <div className="metro-settings-color-row">
+                <span>{text.dotLabelColor}</span>
+                <ColorPicker
+                  value={mapSettings.dotLabelStyle.color}
+                  onChange={(color) =>
+                    setMapSettings((prev) =>
+                      normalizeMapSettings({
+                        ...prev,
+                        dotLabelStyle: {
+                          ...prev.dotLabelStyle,
+                          color: color.toHexString()
+                        }
+                      })
+                    )
+                  }
+                  showText
+                />
+              </div>
             </section>
 
             <div className="metro-settings-footer">

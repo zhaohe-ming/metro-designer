@@ -8,6 +8,7 @@ const STATION_RADIUS = 18;
 const DEFAULT_CANVAS_BACKGROUND_COLOR = '#fafbfc';
 const GUIDE_THRESHOLD_DEG = 10;
 const SNAP_THRESHOLD_DEG = 2;
+const SNAP_ANGLES = [0, 45, 90, 135];
 const CANVAS_THEME_PALETTES = {
   light: {
     background: '#fbfdff',
@@ -705,22 +706,18 @@ const Canvas: React.FC<CanvasProps> = ({
       let snappedX = pos.x;
       let snappedY = pos.y;
       const guides: number[][] = [];
-      let bestHorizontalDiff = Number.POSITIVE_INFINITY;
-      let bestVerticalDiff = Number.POSITIVE_INFINITY;
+      let bestSnapDiff = Number.POSITIVE_INFINITY;
 
       connectedStations.forEach(st => {
-        const { horizontal, vertical } = getAngleToAxis(st.x, st.y, pos.x, pos.y);
         const guide = buildAxisGuide(st.x, st.y, pos.x, pos.y);
         if (guide) {
           guides.push(guide);
         }
-        if (horizontal <= SNAP_THRESHOLD_DEG && horizontal < bestHorizontalDiff) {
-          bestHorizontalDiff = horizontal;
-          snappedY = st.y;
-        }
-        if (vertical <= SNAP_THRESHOLD_DEG && vertical < bestVerticalDiff) {
-          bestVerticalDiff = vertical;
-          snappedX = st.x;
+        const snap = getDirectionalSnap(st.x, st.y, pos.x, pos.y, SNAP_THRESHOLD_DEG);
+        if (snap && snap.diff < bestSnapDiff) {
+          bestSnapDiff = snap.diff;
+          snappedX = snap.x;
+          snappedY = snap.y;
         }
       });
 
@@ -866,15 +863,36 @@ const Canvas: React.FC<CanvasProps> = ({
     return { horizontal, vertical };
   };
 
+  const getDirectionalSnap = (x1: number, y1: number, x2: number, y2: number, threshold: number) => {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    if (dx === 0 && dy === 0) return null;
+
+    const rawAngle = Math.atan2(dy, dx) * 180 / Math.PI;
+    const normalizedAngle = ((rawAngle % 180) + 180) % 180;
+    const best = SNAP_ANGLES
+      .map(angle => {
+        const diff = Math.min(Math.abs(normalizedAngle - angle), 180 - Math.abs(normalizedAngle - angle));
+        return { angle, diff };
+      })
+      .sort((a, b) => a.diff - b.diff)[0];
+
+    if (!best || best.diff > threshold) return null;
+
+    const radians = best.angle * Math.PI / 180;
+    const ux = Math.cos(radians);
+    const uy = Math.sin(radians);
+    const projectedLength = dx * ux + dy * uy;
+    return {
+      x: x1 + ux * projectedLength,
+      y: y1 + uy * projectedLength,
+      diff: best.diff
+    };
+  };
+
   const buildAxisGuide = (x1: number, y1: number, x2: number, y2: number): number[] | null => {
-    const { horizontal, vertical } = getAngleToAxis(x1, y1, x2, y2);
-    if (horizontal <= GUIDE_THRESHOLD_DEG) {
-      return [x1, y1, x2, y1];
-    }
-    if (vertical <= GUIDE_THRESHOLD_DEG) {
-      return [x1, y1, x1, y2];
-    }
-    return null;
+    const snapped = getDirectionalSnap(x1, y1, x2, y2, GUIDE_THRESHOLD_DEG);
+    return snapped ? [x1, y1, snapped.x, snapped.y] : null;
   };
 
   const updateWaypoint = (sectionId: string, waypointIndex: number, x: number, y: number, withGuide = false) => {
@@ -898,9 +916,6 @@ const Canvas: React.FC<CanvasProps> = ({
       const prevGuide = buildAxisGuide(prevPoint.x, prevPoint.y, x, y);
       const nextGuide = buildAxisGuide(x, y, nextPoint.x, nextPoint.y);
 
-      const prevAngle = getAngleToAxis(prevPoint.x, prevPoint.y, x, y);
-      const nextAngle = getAngleToAxis(x, y, nextPoint.x, nextPoint.y);
-
       if (prevGuide) {
         guideLines.push(prevGuide);
       }
@@ -908,14 +923,14 @@ const Canvas: React.FC<CanvasProps> = ({
         guideLines.push([x, y, nextGuide[2], nextGuide[3]]);
       }
 
-      // 2度内自动吸附，10度内仅显示虚线
-      if (prevAngle.horizontal <= SNAP_THRESHOLD_DEG || nextAngle.horizontal <= SNAP_THRESHOLD_DEG) {
-        const baseY = prevAngle.horizontal <= nextAngle.horizontal ? prevPoint.y : nextPoint.y;
-        snappedY = baseY;
-      }
-      if (prevAngle.vertical <= SNAP_THRESHOLD_DEG || nextAngle.vertical <= SNAP_THRESHOLD_DEG) {
-        const baseX = prevAngle.vertical <= nextAngle.vertical ? prevPoint.x : nextPoint.x;
-        snappedX = baseX;
+      const snapCandidates = [
+        getDirectionalSnap(prevPoint.x, prevPoint.y, x, y, SNAP_THRESHOLD_DEG),
+        getDirectionalSnap(nextPoint.x, nextPoint.y, x, y, SNAP_THRESHOLD_DEG)
+      ].filter(Boolean) as Array<{ x: number; y: number; diff: number }>;
+      const bestSnap = snapCandidates.sort((a, b) => a.diff - b.diff)[0];
+      if (bestSnap) {
+        snappedX = bestSnap.x;
+        snappedY = bestSnap.y;
       }
 
       next[waypointIndex] = { ...next[waypointIndex], x: snappedX, y: snappedY };
@@ -1220,6 +1235,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const isDotLabelStyle = mapSettings.mapStyle === 'dot-label';
   const isDarkCanvas = mapSettings.canvasTheme === 'dark';
   const canvasPalette = CANVAS_THEME_PALETTES[mapSettings.canvasTheme];
+  const dotLabelStyle = mapSettings.dotLabelStyle;
 
   type LabelRect = { x: number; y: number; width: number; height: number };
 
@@ -1259,8 +1275,8 @@ const Canvas: React.FC<CanvasProps> = ({
 
     return stations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
-      const labelWidth = Math.max(44, station.name.length * 13);
-      const labelHeight = 22;
+      const labelWidth = Math.max(44, station.name.length * dotLabelStyle.fontSize);
+      const labelHeight = Math.max(22, dotLabelStyle.fontSize + 10);
       const gap = 12;
       const candidates = [
         { key: 'right', x: station.x + gap, y: station.y - labelHeight / 2 },
@@ -1700,9 +1716,9 @@ const Canvas: React.FC<CanvasProps> = ({
                         y={labelRect.y - station.y}
                         width={labelRect.width}
                         height={labelRect.height}
-                        fontSize={13}
-                        fontStyle="bold"
-                        fill={canvasPalette.labelText}
+                        fontSize={dotLabelStyle.fontSize}
+                        fontStyle={`${dotLabelStyle.fontWeight}`}
+                        fill={dotLabelStyle.color || canvasPalette.labelText}
                         align="center"
                         verticalAlign="middle"
                         shadowColor={canvasPalette.labelShadow}

@@ -25,21 +25,48 @@ export interface Line {
 
 export type MapStyle = 'classic-badge' | 'dot-label';
 export type CanvasTheme = 'light' | 'dark';
+export type DotLabelStyle = {
+  fontSize: number;
+  fontWeight: number;
+  color: string;
+};
 
 export interface MapSettings {
   mapStyle: MapStyle;
   canvasTheme: CanvasTheme;
+  dotLabelStyle: DotLabelStyle;
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
   mapStyle: 'classic-badge',
-  canvasTheme: 'light'
+  canvasTheme: 'light',
+  dotLabelStyle: {
+    fontSize: 13,
+    fontWeight: 700,
+    color: '#0f172a'
+  }
 };
 
-export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): MapSettings => ({
-  mapStyle: settings?.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
-  canvasTheme: settings?.canvasTheme === 'dark' ? 'dark' : 'light'
-});
+const normalizeNumber = (value: unknown, fallback: number, min: number, max: number) => {
+  const numberValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+  return Math.max(min, Math.min(max, numberValue));
+};
+
+export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): MapSettings => {
+  const dotLabelStyle = (settings?.dotLabelStyle || {}) as Partial<DotLabelStyle>;
+  return {
+    mapStyle: settings?.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
+    canvasTheme: settings?.canvasTheme === 'dark' ? 'dark' : 'light',
+    dotLabelStyle: {
+      fontSize: normalizeNumber(dotLabelStyle.fontSize, DEFAULT_MAP_SETTINGS.dotLabelStyle.fontSize, 10, 24),
+      fontWeight: normalizeNumber(dotLabelStyle.fontWeight, DEFAULT_MAP_SETTINGS.dotLabelStyle.fontWeight, 300, 900),
+      color:
+        typeof dotLabelStyle.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(dotLabelStyle.color)
+          ? dotLabelStyle.color
+          : DEFAULT_MAP_SETTINGS.dotLabelStyle.color
+    }
+  };
+};
 
 export const LINE_COLORS = [
   '#1890ff',

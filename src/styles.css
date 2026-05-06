@@ -1272,6 +1272,31 @@ body {
   padding-top: 4px;
 }
 
+.metro-settings-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.metro-settings-control__row,
+.metro-settings-color-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--metro-text);
+}
+
+.metro-settings-control__row strong {
+  font-size: 12px;
+  color: var(--metro-heading);
+}
+
+.metro-settings-control :where(.ant-slider) {
+  margin: 4px 4px 2px;
+}
+
 .metro-app-shell[data-interface-theme="dark"] {
   --metro-bg: #0f172a;
   --metro-surface: #111827;
@@ -1364,7 +1389,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-input),
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-input-affix-wrapper),
-body[data-interface-theme="dark"] .metro-modal-root :where(.ant-select-selector) {
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-select-selector),
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-color-picker-trigger) {
   background: #172033 !important;
   border-color: #29364d !important;
   color: #dbeafe !important;
