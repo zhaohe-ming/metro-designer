@@ -2099,3 +2099,179 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     font-size: 30px !important;
   }
 }
+
+/* Auth final alignment and register stability */
+.auth-layout {
+  min-height: 100vh;
+  padding: clamp(24px, 4vh, 40px) 24px;
+  overflow: auto;
+}
+
+.auth-card {
+  width: min(1120px, calc(100vw - 48px));
+  height: clamp(680px, calc(100vh - 80px), 720px);
+  min-height: 0;
+  overflow: hidden;
+  border-radius: 10px !important;
+}
+
+.auth-card__inner {
+  grid-template-columns: minmax(0, 48%) minmax(0, 52%);
+  height: 100%;
+  min-height: 0;
+}
+
+.auth-card__info {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  background: #075bd8;
+}
+
+.auth-card__info::before,
+.auth-card__info::after,
+.auth-card__form::before {
+  display: none;
+}
+
+.auth-hero-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.auth-card__form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 0;
+  padding: 48px 56px;
+  overflow: hidden;
+}
+
+.auth-form-shell {
+  width: min(470px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 2px 0;
+}
+
+.auth-card--register .auth-form-title {
+  font-size: 30px !important;
+}
+
+.auth-card--register .auth-form-subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auth-card--register .auth-card__form {
+  padding: 32px 56px;
+}
+
+.auth-card--register .auth-switcher {
+  margin-top: 18px;
+}
+
+.auth-card--register .auth-switcher__btn {
+  height: 40px;
+}
+
+.auth-card--register .auth-form {
+  margin-top: 16px;
+}
+
+.auth-card--register .auth-form :where(.ant-form-item) {
+  margin-bottom: 8px;
+}
+
+.auth-card--register .auth-form :where(.ant-form-item-label) {
+  padding-bottom: 4px;
+}
+
+.auth-card--register .auth-form :where(.ant-form-item-label > label) {
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.auth-card--register .auth-form :where(.ant-input-affix-wrapper),
+.auth-card--register .auth-form :where(.ant-input) {
+  min-height: 42px;
+}
+
+.auth-card--register .auth-form :where(.ant-input-prefix) {
+  font-size: 16px;
+}
+
+.auth-card--register .auth-submit-btn.ant-btn {
+  height: 48px;
+  margin-top: 4px;
+}
+
+.auth-card--register .auth-form-footer {
+  margin-top: 14px;
+  padding-top: 14px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+@media (max-width: 1120px) {
+  .auth-layout {
+    padding: 16px;
+  }
+
+  .auth-card {
+    width: min(100%, calc(100vw - 32px));
+    height: auto;
+    min-height: 0;
+  }
+
+  .auth-card__inner {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .auth-card__info {
+    height: clamp(360px, 56vw, 520px);
+    min-height: 0;
+  }
+
+  .auth-card__form {
+    height: auto;
+    min-height: 0;
+    padding: 44px 24px;
+    overflow: visible;
+  }
+
+  .auth-form-shell {
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+@media (max-width: 720px) {
+  .auth-layout {
+    padding: 0;
+  }
+
+  .auth-card {
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0 !important;
+  }
+
+  .auth-card__info {
+    height: clamp(340px, 94vw, 430px);
+  }
+
+  .auth-card__form {
+    padding: 32px 18px 42px;
+  }
+}

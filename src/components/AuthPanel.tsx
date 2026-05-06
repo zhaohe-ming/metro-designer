@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Form, Input, Typography } from 'antd';
 import { ArrowRightOutlined, LockOutlined, PhoneOutlined, UserOutlined } from '@ant-design/icons';
+import authHeroImage from '../assets/auth-metro-hero.png';
 
 interface AuthPanelProps {
   onLogin: (payload: { phone: string; password: string }) => void | Promise<void>;
@@ -47,7 +48,9 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onRegister }) => {
   return (
     <div className={`auth-card auth-card--${mode}`}>
       <div className="auth-card__inner">
-        <section className="auth-card__info" aria-hidden="true" />
+        <section className="auth-card__info" aria-hidden="true">
+          <img className="auth-hero-image" src={authHeroImage} alt="" />
+        </section>
 
         <section className="auth-card__form">
           <div className="auth-form-shell">
