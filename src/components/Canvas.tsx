@@ -64,6 +64,7 @@ interface CanvasProps {
   sections: Section[];
   stations: Station[];
   mapSettings: MapSettings;
+  language?: 'zh-CN' | 'en-US';
   onAddStation: (station: Station) => void;
   onUpdateStation: (station: Station) => void;
   onAddStationToLine: (
@@ -83,6 +84,7 @@ const Canvas: React.FC<CanvasProps> = ({
   sections,
   stations,
   mapSettings,
+  language = 'zh-CN',
   onAddStation,
   onUpdateStation,
   onAddStationToLine,
@@ -92,6 +94,51 @@ const Canvas: React.FC<CanvasProps> = ({
   onDeleteStation,
   onStageReady
 }) => {
+  const text = language === 'en-US'
+    ? {
+        tools: {
+          select: 'Select',
+          station: 'Station',
+          line: 'Connect',
+          section: 'Section',
+          pan: 'Pan'
+        },
+        hints: {
+          select: 'Select mode: click stations for details, right-click stations or sections to edit.',
+          station: 'Station mode: click blank canvas to add stations.',
+          lineIdle: 'Connect mode: click a start station, then click an end station to build line order.',
+          lineDrawing: (name: string) => `Connecting from ${name}. Click an end station to finish, Esc to cancel.`,
+          section: 'Section mode: click existing section lines to add or manage waypoints.',
+          pan: 'Pan mode: drag blank canvas to move the view, mouse wheel to zoom.'
+        },
+        zoomIn: 'Zoom in',
+        zoomOut: 'Zoom out',
+        fitView: 'Fit view',
+        resetView: 'Reset view',
+        zoom: 'Zoom'
+      }
+    : {
+        tools: {
+          select: '选择',
+          station: '站点',
+          line: '连线',
+          section: '区间',
+          pan: '移动'
+        },
+        hints: {
+          select: '选择模式：点击站点查看信息，右键编辑站点或区间。',
+          station: '站点模式：点击空白画布添加站点。',
+          lineIdle: '连线模式：先点击起点站，再点击终点站建立线路顺序。',
+          lineDrawing: (name: string) => `连线中：从 ${name} 出发，点击终点站完成连接，Esc 取消。`,
+          section: '区间模式：点击已有区间线条，添加或管理途经点。',
+          pan: '移动模式：拖拽空白画布调整视图，滚轮缩放。'
+        },
+        zoomIn: '放大',
+        zoomOut: '缩小',
+        fitView: '适应视图',
+        resetView: '重置视图',
+        zoom: '缩放'
+      };
   // 记录鼠标按下位置
   const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null);
   // 导出按钮悬浮提示
@@ -1340,11 +1387,11 @@ const Canvas: React.FC<CanvasProps> = ({
       <div className="metro-canvas-tools">
         <div className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
           {[
-            { key: 'select' as CanvasTool, label: '选择' },
-            { key: 'station' as CanvasTool, label: '站点' },
-            { key: 'line' as CanvasTool, label: '连线' },
-            { key: 'section' as CanvasTool, label: '区间' },
-            { key: 'pan' as CanvasTool, label: '移动' }
+            { key: 'select' as CanvasTool, label: text.tools.select },
+            { key: 'station' as CanvasTool, label: text.tools.station },
+            { key: 'line' as CanvasTool, label: text.tools.line },
+            { key: 'section' as CanvasTool, label: text.tools.section },
+            { key: 'pan' as CanvasTool, label: text.tools.pan }
           ].map((tool) => (
             <button
               key={tool.key}
@@ -1357,14 +1404,14 @@ const Canvas: React.FC<CanvasProps> = ({
           ))}
         </div>
         <div className="metro-tool-hint">
-          {activeTool === 'select' && '选择模式：点击站点查看信息，右键编辑站点或区间。'}
-          {activeTool === 'station' && '站点模式：点击空白画布添加站点。'}
+          {activeTool === 'select' && text.hints.select}
+          {activeTool === 'station' && text.hints.station}
           {activeTool === 'line' &&
             (drawingLine.startStation
-              ? `连线中：从 ${drawingLine.startStation.name} 出发，点击终点站完成连接，Esc 取消。`
-              : '连线模式：先点击起点站，再点击终点站建立线路顺序。')}
-          {activeTool === 'section' && '区间模式：点击已有区间线条，添加或管理途经点。'}
-          {activeTool === 'pan' && '移动模式：拖拽空白画布调整视图，滚轮缩放。'}
+              ? text.hints.lineDrawing(drawingLine.startStation.name)
+              : text.hints.lineIdle)}
+          {activeTool === 'section' && text.hints.section}
+          {activeTool === 'pan' && text.hints.pan}
         </div>
       </div>
       {/* 区间绘制模式开关 */}
@@ -1467,10 +1514,10 @@ const Canvas: React.FC<CanvasProps> = ({
         boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
       }}>
         <Space direction="vertical" size="small">
-          <Button size="small" onClick={zoomIn} title="放大">+</Button>
-          <Button size="small" onClick={zoomOut} title="缩小">-</Button>
-          <Button size="small" onClick={fitView} title="适应视图">□</Button>
-          <Button size="small" onClick={resetView} title="重置视图">⌂</Button>
+          <Button size="small" onClick={zoomIn} title={text.zoomIn}>+</Button>
+          <Button size="small" onClick={zoomOut} title={text.zoomOut}>-</Button>
+          <Button size="small" onClick={fitView} title={text.fitView}>□</Button>
+          <Button size="small" onClick={resetView} title={text.resetView}>⌂</Button>
         </Space>
       </div>
 
@@ -1507,7 +1554,7 @@ const Canvas: React.FC<CanvasProps> = ({
         fontSize: '12px',
         color: '#666'
       }}>
-        缩放: {Math.round(scale * 100)}%
+        {text.zoom}: {Math.round(scale * 100)}%
       </div>
 
       {/* 绘制模式使用说明 */}

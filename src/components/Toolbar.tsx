@@ -5,6 +5,7 @@ import { LINE_COLORS, Line } from '../types';
 import DraggableModal from './DraggableModal';
 
 interface ToolbarProps {
+  language?: 'zh-CN' | 'en-US';
   lines: Line[];
   currentLineId: string | null;
   onAddLine: (name: string, color: string) => boolean;
@@ -14,6 +15,7 @@ interface ToolbarProps {
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
+  language = 'zh-CN',
   lines,
   currentLineId,
   onAddLine,
@@ -21,6 +23,35 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onExportImage,
   onOpenVideoModal
 }) => {
+  const text = language === 'en-US'
+    ? {
+        addLine: 'New line',
+        selectLine: 'Switch current line',
+        exportImage: 'Export image',
+        exportVideo: 'Export demo video',
+        createLine: 'Create new line',
+        createLineOk: 'Create line',
+        cancel: 'Cancel',
+        lineName: 'Line name',
+        lineNamePlaceholder: 'e.g. Line 1 / Loop / Airport Express',
+        lineColor: 'Line color',
+        moreColors: 'More colors',
+        lineNameRequired: 'Please enter a line name'
+      }
+    : {
+        addLine: '新建线路',
+        selectLine: '切换当前线路',
+        exportImage: '导出图片',
+        exportVideo: '导出演示视频',
+        createLine: '创建新线路',
+        createLineOk: '创建线路',
+        cancel: '取消',
+        lineName: '线路名称',
+        lineNamePlaceholder: '例如 1 号线 / 环线 / 机场快线',
+        lineColor: '线路颜色',
+        moreColors: '使用更多颜色',
+        lineNameRequired: '请输入线路名称'
+      };
   const [addingLine, setAddingLine] = useState(false);
   const [newLineName, setNewLineName] = useState('');
   const [selectedColor, setSelectedColor] = useState(LINE_COLORS[0]);
@@ -36,7 +67,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const handleAddLine = () => {
     const trimmed = newLineName.trim();
     if (!trimmed) {
-      message.warning('请输入线路名称');
+      message.warning(text.lineNameRequired);
       return;
     }
 
@@ -56,13 +87,13 @@ const Toolbar: React.FC<ToolbarProps> = ({
             icon={<PlusOutlined />}
             onClick={() => setAddingLine(true)}
           >
-            新建线路
+            {text.addLine}
           </Button>
 
           <Select
             className="metro-toolbar__select"
             value={currentLineId || undefined}
-            placeholder="切换当前线路"
+            placeholder={text.selectLine}
             onChange={onSelectLine}
             options={lines.map((line) => ({
               label: (
@@ -79,29 +110,29 @@ const Toolbar: React.FC<ToolbarProps> = ({
         <div className="metro-toolbar__right">
           {onExportImage ? (
             <Button className="metro-toolbar__secondary" onClick={onExportImage} icon={<PictureOutlined />}>
-              导出图片
+              {text.exportImage}
             </Button>
           ) : null}
           {onOpenVideoModal ? (
             <Button className="metro-toolbar__secondary" onClick={onOpenVideoModal} icon={<DownloadOutlined />}>
-              导出演示视频
+              {text.exportVideo}
             </Button>
           ) : null}
         </div>
       </div>
 
       <DraggableModal
-        title="创建新线路"
+        title={text.createLine}
         open={addingLine}
         onOk={handleAddLine}
         onCancel={resetForm}
-        okText="创建线路"
-        cancelText="取消"
+        okText={text.createLineOk}
+        cancelText={text.cancel}
       >
         <div className="metro-add-line-form__field">
-          <div className="metro-form-label">线路名称</div>
+          <div className="metro-form-label">{text.lineName}</div>
           <Input
-            placeholder="例如 1 号线 / 环线 / 机场快线"
+            placeholder={text.lineNamePlaceholder}
             value={newLineName}
             onChange={(e) => setNewLineName(e.target.value)}
             maxLength={12}
@@ -109,7 +140,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         <div className="metro-add-line-form__field">
-          <div className="metro-form-label">线路颜色</div>
+          <div className="metro-form-label">{text.lineColor}</div>
           <div className="metro-color-grid">
             {LINE_COLORS.map((color) => (
               <div
@@ -123,7 +154,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
 
           <div style={{ marginTop: 16 }}>
             <Button type="dashed" block onClick={() => setShowColorPicker((prev) => !prev)}>
-              使用更多颜色
+              {text.moreColors}
             </Button>
           </div>
 

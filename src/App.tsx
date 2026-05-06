@@ -56,6 +56,9 @@ const i18n = {
     dotLabelFontSize: '字体大小',
     dotLabelFontWeight: '字体粗细',
     dotLabelColor: '字体颜色',
+    resetDefault: '恢复默认',
+    unnamedMap: '未命名方案',
+    defaultUserName: '地铁设计师',
     signOut: '退出登录',
     close: '关闭',
     phone: '手机号',
@@ -84,6 +87,9 @@ const i18n = {
     dotLabelFontSize: 'Font size',
     dotLabelFontWeight: 'Font weight',
     dotLabelColor: 'Text color',
+    resetDefault: 'Reset default',
+    unnamedMap: 'Untitled map',
+    defaultUserName: 'Metro Designer',
     signOut: 'Sign out',
     close: 'Close',
     phone: 'Phone',
@@ -811,10 +817,10 @@ const App: React.FC = () => {
     }
   };
 
-  const displayName = userProfile?.username || '地铁设计师';
+  const displayName = userProfile?.username || text.defaultUserName;
   const displayInitial = (userProfile?.username || userProfile?.phone || 'M').charAt(0).toUpperCase();
   const activeLine = lines.find((line) => line.id === currentLineId) || null;
-  const mapDisplayName = currentMap?.name || '未命名方案';
+  const mapDisplayName = currentMap?.name || text.unnamedMap;
   const mapMetaText = currentMap
     ? `最近更新 ${new Date(currentMap.updatedAt).toLocaleString()}`
     : '从左侧组织线路，在画布上构建你的轨道图';
@@ -851,6 +857,7 @@ const App: React.FC = () => {
 
             <section className="metro-toolbar-panel">
               <Toolbar
+                language={language}
                 lines={lines}
                 currentLineId={currentLineId}
                 onAddLine={handleAddLine}
@@ -892,6 +899,7 @@ const App: React.FC = () => {
         <Layout className="metro-body">
           <Sider className="metro-sider" width={252}>
             <Sidebar
+              language={language}
               lines={lines}
               stations={stations}
               currentLineId={currentLineId}
@@ -927,6 +935,7 @@ const App: React.FC = () => {
                 sections={sections}
                 stations={stations}
                 mapSettings={mapSettings}
+                language={language}
                 onAddStation={handleAddStation}
                 onUpdateStation={handleUpdateStation}
                 onAddStationToLine={handleAddStationToLine}
@@ -1160,6 +1169,21 @@ const App: React.FC = () => {
                   }
                   showText
                 />
+              </div>
+              <div className="metro-settings-reset-row">
+                <Button
+                  size="small"
+                  onClick={() =>
+                    setMapSettings((prev) =>
+                      normalizeMapSettings({
+                        ...prev,
+                        dotLabelStyle: DEFAULT_MAP_SETTINGS.dotLabelStyle
+                      })
+                    )
+                  }
+                >
+                  {text.resetDefault}
+                </Button>
               </div>
             </section>
 

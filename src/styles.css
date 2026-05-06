@@ -1288,6 +1288,11 @@ body {
   color: var(--metro-text);
 }
 
+.metro-settings-reset-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .metro-settings-control__row strong {
   font-size: 12px;
   color: var(--metro-heading);

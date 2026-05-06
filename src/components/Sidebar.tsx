@@ -8,6 +8,7 @@ import DraggableModal from './DraggableModal';
 const { Text } = Typography;
 
 interface SidebarProps {
+  language?: 'zh-CN' | 'en-US';
   lines: Line[];
   stations: Station[];
   currentLineId: string | null;
@@ -22,6 +23,7 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
+  language = 'zh-CN',
   lines,
   stations,
   currentLineId,
@@ -32,6 +34,69 @@ const Sidebar: React.FC<SidebarProps> = ({
   onChangeLineName,
   onReorderLines
 }) => {
+  const text = language === 'en-US'
+    ? {
+        title: 'Line workbench',
+        subtitle: 'Manage line order, colors, and station overview. Use the canvas for spatial layout.',
+        lineList: 'Lines',
+        deselect: 'Deselect',
+        reorder: 'Reorder',
+        finishReorder: 'Done',
+        reorderHint: 'Drag line cards to reorder.',
+        emptyLines: 'No lines yet. Create the first line from the top toolbar.',
+        stationUnit: 'stations',
+        sectionUnit: 'sections',
+        active: 'Editing',
+        expand: 'Expand',
+        collapse: 'Collapse',
+        noStations: 'No stations',
+        allStations: 'All stations',
+        emptyStations: 'Click blank canvas area to add stations.',
+        changeName: 'Rename',
+        changeColor: 'Change color',
+        deleteLine: 'Delete line',
+        confirmDelete: 'Confirm delete',
+        confirmDeleteContent: (name: string) => `Delete line "${name}"? This cannot be undone.`,
+        delete: 'Delete',
+        cancel: 'Cancel',
+        confirm: 'Confirm',
+        nameModalTitle: 'Rename line',
+        colorModalTitle: 'Change line color',
+        namePlaceholder: 'Enter a new line name',
+        colorLabel: 'Line color',
+        moreColors: 'More colors'
+      }
+    : {
+        title: '线路设计台',
+        subtitle: '管理当前方案中的线路顺序、颜色与站点概览。左侧面板负责组织结构，主画布负责空间布局。',
+        lineList: '线路列表',
+        deselect: '取消选中',
+        reorder: '调整顺序',
+        finishReorder: '完成排序',
+        reorderHint: '拖拽线路卡片即可重新排序',
+        emptyLines: '还没有线路。请先在顶部工具栏中创建第一条线路。',
+        stationUnit: '个站点',
+        sectionUnit: '个区间',
+        active: '当前编辑',
+        expand: '展开',
+        collapse: '收起',
+        noStations: '暂无站点',
+        allStations: '全部站点',
+        emptyStations: '在主画布中点击空白区域即可新增站点。',
+        changeName: '修改名称',
+        changeColor: '修改颜色',
+        deleteLine: '删除线路',
+        confirmDelete: '确认删除',
+        confirmDeleteContent: (name: string) => `确定要删除线路“${name}”吗？删除后无法恢复。`,
+        delete: '删除',
+        cancel: '取消',
+        confirm: '确认',
+        nameModalTitle: '修改线路名称',
+        colorModalTitle: '修改线路颜色',
+        namePlaceholder: '请输入新的线路名称',
+        colorLabel: '选择线路颜色',
+        moreColors: '使用更多颜色'
+      };
   const [expandedLines, setExpandedLines] = useState<Record<string, boolean>>({});
   const [isReorderingLines, setIsReorderingLines] = useState(false);
   const [draggedLineId, setDraggedLineId] = useState<string | null>(null);
@@ -169,25 +234,25 @@ const Sidebar: React.FC<SidebarProps> = ({
   const getContextMenuItems = (line: Line) => [
     {
       key: 'change-name',
-      label: '修改名称',
+      label: text.changeName,
       onClick: () => openNameModal(line)
     },
     {
       key: 'change-color',
-      label: '修改颜色',
+      label: text.changeColor,
       onClick: () => openColorModal(line)
     },
     {
       key: 'delete',
       danger: true,
       icon: <DeleteOutlined />,
-      label: '删除线路',
+      label: text.deleteLine,
       onClick: () => {
         Modal.confirm({
-          title: '确认删除',
-          content: `确定要删除线路“${line.name}”吗？删除后无法恢复。`,
-          okText: '删除',
-          cancelText: '取消',
+          title: text.confirmDelete,
+          content: text.confirmDeleteContent(line.name),
+          okText: text.delete,
+          cancelText: text.cancel,
           okType: 'danger',
           onOk: () => onDeleteLine(line.id)
         });
@@ -197,16 +262,16 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="metro-sidebar">
-      <div className="metro-sidebar__title">线路设计台</div>
+      <div className="metro-sidebar__title">{text.title}</div>
       <div className="metro-sidebar__subtitle">
-        管理当前方案中的线路顺序、颜色与站点概览。左侧面板负责组织结构，主画布负责空间布局。
+        {text.subtitle}
       </div>
 
       <div className="metro-sidebar__section">
         <div className="metro-sidebar__section-head">
-          <div className="metro-sidebar__section-title">线路列表</div>
+          <div className="metro-sidebar__section-title">{text.lineList}</div>
           <Button className="metro-sidebar__ghost-btn" size="small" onClick={onDeselectLine} disabled={!currentLineId}>
-            取消选中
+            {text.deselect}
           </Button>
         </div>
 
@@ -219,7 +284,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 icon={<SwapOutlined />}
                 onClick={handleStartLineReorder}
               >
-                调整顺序
+                {text.reorder}
               </Button>
             ) : (
               <Space direction="vertical" size="small" style={{ width: '100%' }}>
@@ -229,10 +294,10 @@ const Sidebar: React.FC<SidebarProps> = ({
                   icon={<SwapOutlined />}
                   onClick={handleCancelLineReorder}
                 >
-                  完成排序
+                  {text.finishReorder}
                 </Button>
                 <Text type="secondary" style={{ fontSize: 12 }}>
-                  拖拽线路卡片即可重新排序
+                  {text.reorderHint}
                 </Text>
               </Space>
             )}
@@ -241,7 +306,7 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="metro-line-list" onClick={handleLinesAreaClick}>
           {lines.length === 0 ? (
-            <div className="metro-empty-card">还没有线路。请先在顶部工具栏中创建第一条线路。</div>
+            <div className="metro-empty-card">{text.emptyLines}</div>
           ) : (
             lines.map((line) => {
               const active = currentLineId === line.id;
@@ -269,9 +334,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                         <div style={{ minWidth: 0 }}>
                           <div className="metro-line-card__name">{line.name}</div>
                           <div className="metro-line-card__sub">
-                            <span>{line.stationIds.length} 个站点</span>
-                            <span>{line.sectionIds.length} 个区间</span>
-                            {active ? <span>当前编辑</span> : null}
+                            <span>{line.stationIds.length} {text.stationUnit}</span>
+                            <span>{line.sectionIds.length} {text.sectionUnit}</span>
+                            {active ? <span>{text.active}</span> : null}
                           </div>
                         </div>
                       </div>
@@ -288,7 +353,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                             }
                           }}
                         >
-                          {expandedLines[line.id] ? '收起' : '展开'}
+                          {expandedLines[line.id] ? text.collapse : text.expand}
                         </Button>
 
                         <Dropdown menu={{ items: getContextMenuItems(line) }} trigger={['click']}>
@@ -306,7 +371,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     {expandedLines[line.id] ? (
                       <div className="metro-line-card__stations">
                         {lineStations.length === 0 ? (
-                          <span className="metro-line-card__station-tag">暂无站点</span>
+                          <span className="metro-line-card__station-tag">{text.noStations}</span>
                         ) : (
                           lineStations.map((station) => (
                             <span key={station.id} className="metro-line-card__station-tag">
@@ -345,13 +410,13 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       <div className="metro-sidebar__section">
         <div className="metro-sidebar__section-head">
-          <div className="metro-sidebar__section-title">全部站点</div>
+          <div className="metro-sidebar__section-title">{text.allStations}</div>
           <Text type="secondary">{stations.length}</Text>
         </div>
 
         <div className="metro-station-list">
           {stations.length === 0 ? (
-            <div className="metro-empty-card">在主画布中点击空白区域即可新增站点。</div>
+            <div className="metro-empty-card">{text.emptyStations}</div>
           ) : (
             stations.map((station) => (
               <div key={station.id} className="metro-station-item">
@@ -366,12 +431,12 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <DraggableModal
-        title="修改线路名称"
+        title={text.nameModalTitle}
         open={nameChangeModal.visible}
         onOk={handleConfirmNameChange}
         onCancel={closeNameModal}
-        okText="确认"
-        cancelText="取消"
+        okText={text.confirm}
+        cancelText={text.cancel}
       >
         <Input
           value={nameChangeModal.currentName}
@@ -381,20 +446,20 @@ const Sidebar: React.FC<SidebarProps> = ({
               currentName: event.target.value
             }))
           }
-          placeholder="请输入新的线路名称"
+          placeholder={text.namePlaceholder}
           maxLength={20}
         />
       </DraggableModal>
 
       <DraggableModal
-        title="修改线路颜色"
+        title={text.colorModalTitle}
         open={colorChangeModal.visible}
         onOk={handleConfirmColorChange}
         onCancel={closeColorModal}
-        okText="确认"
-        cancelText="取消"
+        okText={text.confirm}
+        cancelText={text.cancel}
       >
-        <div className="metro-form-label">选择线路颜色</div>
+        <div className="metro-form-label">{text.colorLabel}</div>
         <div className="metro-color-grid">
           {LINE_COLORS.map((color) => (
             <div
@@ -412,7 +477,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             block
             onClick={() => setColorChangeModal((prev) => ({ ...prev, showPicker: !prev.showPicker }))}
           >
-            使用更多颜色
+            {text.moreColors}
           </Button>
         </div>
 
