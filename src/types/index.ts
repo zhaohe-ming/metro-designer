@@ -3,6 +3,8 @@ export interface Station {
   name: string;
   x: number;
   y: number;
+  lng?: number;
+  lat?: number;
   note?: string;
   labelPosition?: 'auto' | 'top' | 'right' | 'bottom' | 'left' | 'hidden';
 }
@@ -31,6 +33,17 @@ export type DotLabelStyle = {
   fontWeight: number;
   color: string;
 };
+export type BaseMapMode = 'plain' | 'amap';
+export type AmapStyle = 'normal' | 'dark' | 'grey' | 'fresh';
+export type AmapBaseMapSettings = {
+  center: [number, number];
+  zoom: number;
+  style: AmapStyle;
+};
+export type BaseMapSettings = {
+  mode: BaseMapMode;
+  amap?: AmapBaseMapSettings;
+};
 
 export interface MapSettings {
   mapStyle: MapStyle;
@@ -38,6 +51,7 @@ export interface MapSettings {
   cityStyle: CityStyle;
   showLineNameLabels: boolean;
   dotLabelStyle: DotLabelStyle;
+  baseMap: BaseMapSettings;
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
@@ -49,6 +63,14 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
     fontSize: 13,
     fontWeight: 700,
     color: '#0f172a'
+  },
+  baseMap: {
+    mode: 'plain',
+    amap: {
+      center: [116.397428, 39.90923],
+      zoom: 11,
+      style: 'normal'
+    }
   }
 };
 
@@ -59,6 +81,8 @@ const normalizeNumber = (value: unknown, fallback: number, min: number, max: num
 
 export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): MapSettings => {
   const dotLabelStyle = (settings?.dotLabelStyle || {}) as Partial<DotLabelStyle>;
+  const baseMap = (settings?.baseMap || {}) as Partial<BaseMapSettings>;
+  const amap = (baseMap.amap || {}) as Partial<AmapBaseMapSettings>;
   const cityStyle =
     settings?.cityStyle === 'beijing' ||
     settings?.cityStyle === 'shanghai' ||
@@ -77,6 +101,22 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
         typeof dotLabelStyle.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(dotLabelStyle.color)
           ? dotLabelStyle.color
           : DEFAULT_MAP_SETTINGS.dotLabelStyle.color
+    },
+    baseMap: {
+      mode: baseMap.mode === 'amap' ? 'amap' : 'plain',
+      amap: {
+        center:
+          Array.isArray(amap.center) &&
+          amap.center.length === 2 &&
+          amap.center.every(value => typeof value === 'number' && Number.isFinite(value))
+            ? [amap.center[0], amap.center[1]]
+            : DEFAULT_MAP_SETTINGS.baseMap.amap!.center,
+        zoom: normalizeNumber(amap.zoom, DEFAULT_MAP_SETTINGS.baseMap.amap!.zoom, 3, 20),
+        style:
+          amap.style === 'dark' || amap.style === 'grey' || amap.style === 'fresh'
+            ? amap.style
+            : 'normal'
+      }
     }
   };
 };

@@ -3,6 +3,7 @@ import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
 import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
 import { MapSettings, Station, Line as LineType, Section, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
+import { getAmapConfig, loadAmap } from '../amapLoader';
 import DraggableModal from './DraggableModal';
 
 const STATION_RADIUS = 18;
@@ -56,6 +57,12 @@ const CANVAS_THEME_PALETTES = {
 const getDefaultCanvasBackground = (theme: MapSettings['canvasTheme']) =>
   CANVAS_THEME_PALETTES[theme].background;
 
+const DEFAULT_AMAP_SETTINGS = {
+  center: [116.397428, 39.90923] as [number, number],
+  zoom: 11,
+  style: 'normal' as const
+};
+
 type CanvasTool = 'select' | 'station' | 'line' | 'section' | 'pan';
 type Waypoint = { x: number; y: number; hidden?: boolean };
 
@@ -76,6 +83,7 @@ interface CanvasProps {
   onDeleteSection: (sectionId: string) => void;
   onReorderStations: (lineId: string, stationIds: string[]) => void;
   onDeleteStation: (stationId: string) => void;
+  onMapSettingsChange?: (settings: MapSettings) => void;
   onStageReady?: (stage: any) => void;
 }
 
@@ -93,6 +101,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onDeleteSection,
   onReorderStations,
   onDeleteStation,
+  onMapSettingsChange,
   onStageReady
 }) => {
   const text = language === 'en-US'
@@ -185,7 +194,7 @@ const Canvas: React.FC<CanvasProps> = ({
     waypointOnly: false
   });
   const [adding, setAdding] = useState(false);
-  const [newStation, setNewStation] = useState<{ x: number; y: number } | null>(null);
+  const [newStation, setNewStation] = useState<{ x: number; y: number; lng?: number; lat?: number } | null>(null);
   const [stationName, setStationName] = useState('');
   const [activeTool, setActiveTool] = useState<CanvasTool>('station');
   
@@ -262,9 +271,21 @@ const Canvas: React.FC<CanvasProps> = ({
   const [activeCalibrationGuides, setActiveCalibrationGuides] = useState<number[][]>([]);
   
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const amapContainerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<any>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
+  const amapRef = useRef<any>(null);
+  const latestMapSettingsRef = useRef(mapSettings);
+  const [amapReady, setAmapReady] = useState(false);
+  const [amapError, setAmapError] = useState('');
+  const [mapRenderTick, setMapRenderTick] = useState(0);
+  const isAmapMode = mapSettings.baseMap.mode === 'amap';
+  const amapEnv = getAmapConfig();
+
+  useEffect(() => {
+    latestMapSettingsRef.current = mapSettings;
+  }, [mapSettings]);
 
   useEffect(() => {
     if (onStageReady && stageRef.current) {
@@ -343,9 +364,141 @@ const Canvas: React.FC<CanvasProps> = ({
     return () => observer.disconnect();
   }, []);
 
+  useEffect(() => {
+    if (!isAmapMode) {
+      if (amapRef.current) {
+        amapRef.current.destroy?.();
+        amapRef.current = null;
+      }
+      setAmapReady(false);
+      setAmapError('');
+      return;
+    }
+
+    if (!amapEnv.key || !amapEnv.securityCode) {
+      setAmapError('请先配置 REACT_APP_AMAP_KEY 和 REACT_APP_AMAP_SECURITY_CODE');
+      setAmapReady(false);
+      return;
+    }
+
+    let disposed = false;
+    loadAmap()
+      .then((AMap) => {
+        if (disposed || !amapContainerRef.current) return;
+        if (!amapRef.current) {
+          const amapOptions = mapSettings.baseMap.amap || {
+            center: [116.397428, 39.90923] as [number, number],
+            zoom: 11,
+            style: 'normal' as const
+          };
+          const map = new AMap.Map(amapContainerRef.current, {
+            center: amapOptions.center,
+            zoom: amapOptions.zoom,
+            viewMode: '2D',
+            mapStyle: `amap://styles/${amapOptions.style}`,
+            resizeEnable: true
+          });
+          amapRef.current = map;
+          const syncOverlay = () => setMapRenderTick(tick => tick + 1);
+          const syncSettings = () => {
+            const center = map.getCenter();
+            const zoom = map.getZoom();
+            const latestSettings = latestMapSettingsRef.current;
+            onMapSettingsChange?.({
+              ...latestSettings,
+              baseMap: {
+                mode: 'amap',
+                amap: {
+                  ...(latestSettings.baseMap.amap || DEFAULT_AMAP_SETTINGS),
+                  center: [center.lng, center.lat],
+                  zoom
+                }
+              }
+            });
+          };
+          map.on('mapmove', syncOverlay);
+          map.on('zoomchange', syncOverlay);
+          map.on('moveend', syncSettings);
+          map.on('zoomend', syncSettings);
+        }
+        setAmapReady(true);
+        setAmapError('');
+        setMapRenderTick(tick => tick + 1);
+      })
+      .catch(error => {
+        if (!disposed) {
+          setAmapError(error?.message || '高德地图加载失败');
+          setAmapReady(false);
+        }
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [isAmapMode, amapEnv.key, amapEnv.securityCode]);
+
+  useEffect(() => {
+    const map = amapRef.current;
+    const amapOptions = mapSettings.baseMap.amap;
+    if (!isAmapMode || !map || !amapOptions) return;
+    map.setMapStyle?.(`amap://styles/${amapOptions.style}`);
+    const currentCenter = map.getCenter?.();
+    const currentZoom = map.getZoom?.();
+    const shouldMove =
+      !currentCenter ||
+      Math.abs(currentCenter.lng - amapOptions.center[0]) > 0.000001 ||
+      Math.abs(currentCenter.lat - amapOptions.center[1]) > 0.000001 ||
+      Math.abs((currentZoom || amapOptions.zoom) - amapOptions.zoom) > 0.01;
+    if (shouldMove) {
+      map.setZoomAndCenter?.(amapOptions.zoom, amapOptions.center);
+    }
+    setMapRenderTick(tick => tick + 1);
+  }, [
+    isAmapMode,
+    mapSettings.baseMap.amap?.style,
+    mapSettings.baseMap.amap?.zoom,
+    mapSettings.baseMap.amap?.center?.[0],
+    mapSettings.baseMap.amap?.center?.[1]
+  ]);
+
+  const getDisplayPoint = (station: Station) => {
+    void mapRenderTick;
+    const map = amapRef.current;
+    if (isAmapMode && amapReady && map && typeof station.lng === 'number' && typeof station.lat === 'number') {
+      const pixel = map.lngLatToContainer?.([station.lng, station.lat]);
+      if (pixel) {
+        return { x: pixel.x, y: pixel.y };
+      }
+    }
+    return { x: station.x, y: station.y };
+  };
+
+  const getPointerWorldPosition = (stage: any, pointer: { x: number; y: number }) => {
+    if (isAmapMode) return { x: pointer.x, y: pointer.y };
+    return {
+      x: (pointer.x - stage.x()) / stage.scaleX(),
+      y: (pointer.y - stage.y()) / stage.scaleY()
+    };
+  };
+
+  const getLngLatFromContainerPoint = (point: { x: number; y: number }) => {
+    const map = amapRef.current;
+    const AMap = (window as any).AMap;
+    if (!isAmapMode || !amapReady || !map || !AMap?.Pixel) return null;
+    const lngLat = map.containerToLngLat?.(new AMap.Pixel(point.x, point.y));
+    if (!lngLat) return null;
+    return { lng: lngLat.lng, lat: lngLat.lat };
+  };
+
   // 处理鼠标滚轮缩放
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
+    if (isAmapMode && amapRef.current) {
+      const currentZoom = amapRef.current.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11;
+      const nextZoom = e.evt.deltaY > 0 ? currentZoom - 0.35 : currentZoom + 0.35;
+      amapRef.current.setZoom?.(Math.max(3, Math.min(20, nextZoom)));
+      return;
+    }
     
     const stage = e.target.getStage();
     const oldScale = stage.scaleX();
@@ -386,6 +539,11 @@ const Canvas: React.FC<CanvasProps> = ({
     if (isDragging && activeTool === 'pan') {
       const stage = e.target.getStage();
       const pointer = stage.getPointerPosition();
+      if (isAmapMode && amapRef.current) {
+        amapRef.current.panBy?.(pointer.x - lastPointerPosition.x, pointer.y - lastPointerPosition.y);
+        setLastPointerPosition(pointer);
+        return;
+      }
       
       setPosition({
         x: position.x + (pointer.x - lastPointerPosition.x),
@@ -402,8 +560,7 @@ const Canvas: React.FC<CanvasProps> = ({
       
       // 转换为世界坐标
       const worldPos = {
-        x: (pointer.x - position.x) / scale,
-        y: (pointer.y - position.y) / scale
+        ...getPointerWorldPosition(stage, pointer)
       };
       
       setDrawingLine(prev => ({
@@ -442,23 +599,48 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 重置视图
   const resetView = () => {
+    if (isAmapMode && amapRef.current) {
+      const amapOptions = mapSettings.baseMap.amap || DEFAULT_AMAP_SETTINGS;
+      amapRef.current.setZoomAndCenter?.(amapOptions.zoom, amapOptions.center);
+      return;
+    }
     setScale(1);
     setPosition({ x: 0, y: 0 });
   };
 
   // 放大
   const zoomIn = () => {
+    if (isAmapMode && amapRef.current) {
+      amapRef.current.setZoom?.(Math.min(20, (amapRef.current.getZoom?.() || 11) + 1));
+      return;
+    }
     setScale(prev => Math.min(5, prev * 1.2));
   };
 
   // 缩小
   const zoomOut = () => {
+    if (isAmapMode && amapRef.current) {
+      amapRef.current.setZoom?.(Math.max(3, (amapRef.current.getZoom?.() || 11) - 1));
+      return;
+    }
     setScale(prev => Math.max(0.1, prev / 1.2));
   };
 
   // 适应视图
   const fitView = () => {
     if (stations.length === 0) return;
+    if (isAmapMode && amapRef.current) {
+      const lngLatStations = stations.filter(station => typeof station.lng === 'number' && typeof station.lat === 'number');
+      if (lngLatStations.length) {
+        const AMap = (window as any).AMap;
+        const bounds = new AMap.Bounds(
+          [Math.min(...lngLatStations.map(station => station.lng!)), Math.min(...lngLatStations.map(station => station.lat!))],
+          [Math.max(...lngLatStations.map(station => station.lng!)), Math.max(...lngLatStations.map(station => station.lat!))]
+        );
+        amapRef.current.setBounds?.(bounds, false, [80, 80, 80, 80]);
+      }
+      return;
+    }
     
     const minX = Math.min(...stations.map(s => s.x));
     const minY = Math.min(...stations.map(s => s.y));
@@ -576,8 +758,8 @@ const Canvas: React.FC<CanvasProps> = ({
         
         // 转换为世界坐标
         const worldPos = {
-          x: (pointer.x - position.x) / scale,
-          y: (pointer.y - position.y) / scale
+          ...getPointerWorldPosition(stage, pointer),
+          ...(getLngLatFromContainerPoint(pointer) || {})
         };
         
         setNewStation(worldPos);
@@ -593,26 +775,27 @@ const Canvas: React.FC<CanvasProps> = ({
     
     // 转换为世界坐标
     const worldPos = {
-      x: (pointer.x - position.x) / scale,
-      y: (pointer.y - position.y) / scale
+      ...getPointerWorldPosition(stage, pointer)
     };
     
     // 检查是否点击了站点
     const clickedStation = stations.find(station => {
+      const stationPoint = getDisplayPoint(station);
       const distance = Math.sqrt(
-        Math.pow(station.x - worldPos.x, 2) + Math.pow(station.y - worldPos.y, 2)
+        Math.pow(stationPoint.x - worldPos.x, 2) + Math.pow(stationPoint.y - worldPos.y, 2)
       );
       return distance <= 20;
     });
     
     if (clickedStation) {
       if (!drawingLine.startStation) {
+        const startPoint = getDisplayPoint(clickedStation);
         // 开始绘制
         setDrawingLine({
           startStation: clickedStation,
-          points: [clickedStation.x, clickedStation.y]
+          points: [startPoint.x, startPoint.y]
         });
-        setDrawingStartPoint({ x: clickedStation.x, y: clickedStation.y });
+        setDrawingStartPoint(startPoint);
         setIsDrawing(true);
       } else if (drawingLine.startStation.id !== clickedStation.id) {
         // 完成绘制
@@ -638,7 +821,8 @@ const Canvas: React.FC<CanvasProps> = ({
     }
 
     // 构建完整的路径点
-    const allPoints = [...drawingLine.points, endStation.x, endStation.y];
+    const endPoint = getDisplayPoint(endStation);
+    const allPoints = [...drawingLine.points, endPoint.x, endPoint.y];
     
     // 根据路径点确定站点顺序
     const pathStations = getStationsAlongPath(allPoints);
@@ -682,8 +866,9 @@ const Canvas: React.FC<CanvasProps> = ({
       
       for (const station of stations) {
         if (!usedStationIds.has(station.id)) {
+          const stationPoint = getDisplayPoint(station);
           const distance = Math.sqrt(
-            Math.pow(station.x - x, 2) + Math.pow(station.y - y, 2)
+            Math.pow(stationPoint.x - x, 2) + Math.pow(stationPoint.y - y, 2)
           );
           if (distance < minDistance && distance <= 60) { // 60 = 20 * 3 (站点半径的3倍)
             minDistance = distance;
@@ -711,6 +896,8 @@ const Canvas: React.FC<CanvasProps> = ({
         name: stationName.trim(),
         x: newStation.x,
         y: newStation.y,
+        lng: newStation.lng,
+        lat: newStation.lat
       };
 
       onAddStation(newStationData);
@@ -744,6 +931,16 @@ const Canvas: React.FC<CanvasProps> = ({
   const handleDragMove = (id: string, pos: { x: number; y: number }) => {
     const updatedStation = stations.find(s => s.id === id);
     if (updatedStation) {
+      if (isAmapMode) {
+        const lngLat = getLngLatFromContainerPoint(pos);
+        onUpdateStation({
+          ...updatedStation,
+          x: pos.x,
+          y: pos.y,
+          ...(lngLat || {})
+        });
+        return;
+      }
       const connectedStationIds = sections
         .filter(sec => sec.startStationId === id || sec.endStationId === id)
         .map(sec => (sec.startStationId === id ? sec.endStationId : sec.startStationId));
@@ -954,8 +1151,8 @@ const Canvas: React.FC<CanvasProps> = ({
     setWaypoints(prev => {
       const current = prev[sectionId] || [];
       const next = [...current];
-      const prevPoint = waypointIndex === 0 ? { x: startStation.x, y: startStation.y } : next[waypointIndex - 1];
-      const nextPoint = waypointIndex === next.length - 1 ? { x: endStation.x, y: endStation.y } : next[waypointIndex + 1];
+      const prevPoint = waypointIndex === 0 ? getDisplayPoint(startStation) : next[waypointIndex - 1];
+      const nextPoint = waypointIndex === next.length - 1 ? getDisplayPoint(endStation) : next[waypointIndex + 1];
 
       let snappedX = x;
       let snappedY = y;
@@ -1102,24 +1299,30 @@ const Canvas: React.FC<CanvasProps> = ({
     if (isDrawingMode) return; // 绘制模式下不处理线段点击
 
     // 计算新站点在线段上的位置（投影到线段上）
-    const dx = endStation.x - startStation.x;
-    const dy = endStation.y - startStation.y;
+    const startPoint = getDisplayPoint(startStation);
+    const endPoint = getDisplayPoint(endStation);
+    const dx = endPoint.x - startPoint.x;
+    const dy = endPoint.y - startPoint.y;
     const length = Math.sqrt(dx * dx + dy * dy);
     
     if (length === 0) return;
     
     // 计算点击位置到起点的向量
-    const vx = clickPosition.x - startStation.x;
-    const vy = clickPosition.y - startStation.y;
+    const vx = clickPosition.x - startPoint.x;
+    const vy = clickPosition.y - startPoint.y;
     
     // 计算投影比例
     const projection = (vx * dx + vy * dy) / (dx * dx + dy * dy);
     const clampedProjection = Math.max(0, Math.min(1, projection));
     
     // 计算新站点的位置
+    const projectedPoint = {
+      x: startPoint.x + clampedProjection * dx,
+      y: startPoint.y + clampedProjection * dy
+    };
     const newStationPosition = {
-      x: startStation.x + clampedProjection * dx,
-      y: startStation.y + clampedProjection * dy
+      ...projectedPoint,
+      ...(getLngLatFromContainerPoint(projectedPoint) || {})
     };
 
     setLineSegmentClick({
@@ -1175,10 +1378,12 @@ const Canvas: React.FC<CanvasProps> = ({
       const total = countMap.get(seg.normalizedKey) || 1;
       const currentIndex = indexMap.get(seg.normalizedKey) || 0;
       indexMap.set(seg.normalizedKey, currentIndex + 1);
+      const startPoint = getDisplayPoint(seg.start);
+      const endPoint = getDisplayPoint(seg.end);
 
-      const rawPoints = [seg.start.x, seg.start.y, ...seg.waypoints.flatMap(p => [p.x, p.y]), seg.end.x, seg.end.y];
-      const dx = seg.end.x - seg.start.x;
-      const dy = seg.end.y - seg.start.y;
+      const rawPoints = [startPoint.x, startPoint.y, ...seg.waypoints.flatMap(p => [p.x, p.y]), endPoint.x, endPoint.y];
+      const dx = endPoint.x - startPoint.x;
+      const dy = endPoint.y - startPoint.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
       const normal = { x: -dy / len, y: dx / len };
       const offset = (currentIndex - (total - 1) / 2) * 8;
@@ -1217,7 +1422,7 @@ const Canvas: React.FC<CanvasProps> = ({
             } else if (stage) {
               const pointer = stage.getPointerPosition();
               if (pointer) {
-                const worldPos = { x: (pointer.x - position.x) / scale, y: (pointer.y - position.y) / scale };
+                const worldPos = getPointerWorldPosition(stage, pointer);
                 handleLineSegmentClick(seg.line.id, seg.start, seg.end, worldPos);
               }
             }
@@ -1318,7 +1523,7 @@ const Canvas: React.FC<CanvasProps> = ({
         const start = stations.find(station => station.id === section.startStationId);
         const end = stations.find(station => station.id === section.endStationId);
         if (!start || !end) return [];
-        const points = [start, ...(waypoints[section.id] || []), end];
+        const points = [getDisplayPoint(start), ...(waypoints[section.id] || []), getDisplayPoint(end)];
         const segments: Array<[number, number, number, number]> = [];
         for (let i = 0; i < points.length - 1; i += 1) {
           segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
@@ -1329,18 +1534,19 @@ const Canvas: React.FC<CanvasProps> = ({
 
     return stations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
+      const stationPoint = getDisplayPoint(station);
       const labelWidth = Math.max(44, station.name.length * dotLabelStyle.fontSize);
       const labelHeight = Math.max(22, dotLabelStyle.fontSize + 10);
       const gap = 12;
       const candidates = [
-        { key: 'right', x: station.x + gap, y: station.y - labelHeight / 2 },
-        { key: 'left', x: station.x - labelWidth - gap, y: station.y - labelHeight / 2 },
-        { key: 'top', x: station.x - labelWidth / 2, y: station.y - labelHeight - gap },
-        { key: 'bottom', x: station.x - labelWidth / 2, y: station.y + gap },
-        { key: 'top-right', x: station.x + gap, y: station.y - labelHeight - gap },
-        { key: 'bottom-right', x: station.x + gap, y: station.y + gap },
-        { key: 'top-left', x: station.x - labelWidth - gap, y: station.y - labelHeight - gap },
-        { key: 'bottom-left', x: station.x - labelWidth - gap, y: station.y + gap }
+        { key: 'right', x: stationPoint.x + gap, y: stationPoint.y - labelHeight / 2 },
+        { key: 'left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y - labelHeight / 2 },
+        { key: 'top', x: stationPoint.x - labelWidth / 2, y: stationPoint.y - labelHeight - gap },
+        { key: 'bottom', x: stationPoint.x - labelWidth / 2, y: stationPoint.y + gap },
+        { key: 'top-right', x: stationPoint.x + gap, y: stationPoint.y - labelHeight - gap },
+        { key: 'bottom-right', x: stationPoint.x + gap, y: stationPoint.y + gap },
+        { key: 'top-left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y - labelHeight - gap },
+        { key: 'bottom-left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y + gap }
       ].filter(candidate => station.labelPosition === 'auto' || !station.labelPosition || candidate.key === station.labelPosition);
 
       const best = candidates
@@ -1351,7 +1557,8 @@ const Canvas: React.FC<CanvasProps> = ({
             if (rectsOverlap(rect, other)) score += 100;
           });
           stations.forEach(other => {
-            if (other.id !== station.id && rectsOverlap(rect, { x: other.x - 8, y: other.y - 8, width: 16, height: 16 })) {
+            const otherPoint = getDisplayPoint(other);
+            if (other.id !== station.id && rectsOverlap(rect, { x: otherPoint.x - 8, y: otherPoint.y - 8, width: 16, height: 16 })) {
               score += 60;
             }
           });
@@ -1380,12 +1587,15 @@ const Canvas: React.FC<CanvasProps> = ({
     if (!mapSettings.showLineNameLabels || lines.length === 0) return [];
     const occupied: LabelRect[] = [
       ...Object.values(labelPlacements),
-      ...stations.map(station => ({
-        x: station.x - stylePreset.interchangeRadius - 8,
-        y: station.y - stylePreset.interchangeRadius - 8,
-        width: (stylePreset.interchangeRadius + 8) * 2,
-        height: (stylePreset.interchangeRadius + 8) * 2
-      }))
+      ...stations.map(station => {
+        const point = getDisplayPoint(station);
+        return {
+          x: point.x - stylePreset.interchangeRadius - 8,
+          y: point.y - stylePreset.interchangeRadius - 8,
+          width: (stylePreset.interchangeRadius + 8) * 2,
+          height: (stylePreset.interchangeRadius + 8) * 2
+        };
+      })
     ];
 
     const placements: Array<{
@@ -1417,16 +1627,18 @@ const Canvas: React.FC<CanvasProps> = ({
       const best = terminalPairs
         .flatMap(({ terminal, neighbor, preference }) => {
           if (!terminal || !neighbor) return [];
-          const dx = terminal.x - neighbor.x;
-          const dy = terminal.y - neighbor.y;
+          const terminalPoint = getDisplayPoint(terminal);
+          const neighborPoint = getDisplayPoint(neighbor);
+          const dx = terminalPoint.x - neighborPoint.x;
+          const dy = terminalPoint.y - neighborPoint.y;
           const len = Math.hypot(dx, dy) || 1;
           const outward = { x: dx / len, y: dy / len };
           const normal = { x: -outward.y, y: outward.x };
           const baseDistance = Math.max(24, stylePreset.interchangeRadius + 14);
           return [0, labelHeight + 8, -(labelHeight + 8), labelHeight * 2 + 16, -(labelHeight * 2 + 16)].map(
             (sideOffset, index) => {
-              const centerX = terminal.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
-              const centerY = terminal.y + outward.y * (baseDistance + labelHeight / 2) + normal.y * sideOffset;
+              const centerX = terminalPoint.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
+              const centerY = terminalPoint.y + outward.y * (baseDistance + labelHeight / 2) + normal.y * sideOffset;
               return {
                 rect: {
                   x: centerX - labelWidth / 2,
@@ -1478,12 +1690,43 @@ const Canvas: React.FC<CanvasProps> = ({
         height: '100%',
         '--metro-canvas-bg': canvasBackgroundColor,
         backgroundColor: canvasBackgroundColor,
-        backgroundImage: canvasBackgroundImage ? `url(${canvasBackgroundImage})` : 'none',
+        backgroundImage: !isAmapMode && canvasBackgroundImage ? `url(${canvasBackgroundImage})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat'
       } as React.CSSProperties}
     >
+      {isAmapMode && (
+        <div
+          ref={amapContainerRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 0,
+            background: isDarkCanvas ? '#07111f' : '#eef6ff'
+          }}
+        />
+      )}
+      {isAmapMode && amapError && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 86,
+            left: 18,
+            zIndex: 1002,
+            maxWidth: 420,
+            padding: '10px 12px',
+            borderRadius: 8,
+            background: '#fff7ed',
+            border: '1px solid #fed7aa',
+            color: '#9a3412',
+            fontSize: 13,
+            boxShadow: '0 10px 28px rgba(15,23,42,0.12)'
+          }}
+        >
+          {amapError}
+        </div>
+      )}
       <div className="metro-canvas-tools">
         <div className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
           {[
@@ -1654,7 +1897,7 @@ const Canvas: React.FC<CanvasProps> = ({
         fontSize: '12px',
         color: '#666'
       }}>
-        {text.zoom}: {Math.round(scale * 100)}%
+        {text.zoom}: {isAmapMode ? `${Math.round((amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11) * 10) / 10}` : `${Math.round(scale * 100)}%`}
       </div>
 
       {/* 绘制模式使用说明 */}
@@ -1690,10 +1933,10 @@ const Canvas: React.FC<CanvasProps> = ({
         ref={stageRef}
         width={stageSize.width}
         height={stageSize.height}
-        scaleX={scale}
-        scaleY={scale}
-        x={position.x}
-        y={position.y}
+        scaleX={isAmapMode ? 1 : scale}
+        scaleY={isAmapMode ? 1 : scale}
+        x={isAmapMode ? 0 : position.x}
+        y={isAmapMode ? 0 : position.y}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={e => {
@@ -1718,8 +1961,7 @@ const Canvas: React.FC<CanvasProps> = ({
               const pointer = stage.getPointerPosition();
               if (pointer) {
                 const worldPos = {
-                  x: (pointer.x - position.x) / scale,
-                  y: (pointer.y - position.y) / scale
+                  ...getPointerWorldPosition(stage, pointer)
                 };
                 const sectionKey = selectedSection.sectionId;
                 const currentWaypoints = waypoints[sectionKey] || [];
@@ -1757,7 +1999,7 @@ const Canvas: React.FC<CanvasProps> = ({
             y={-10000}
             width={20000}
             height={20000}
-            fill={canvasBackgroundColor}
+            fill={isAmapMode ? 'rgba(0,0,0,0)' : canvasBackgroundColor}
             listening={false}
           />
           {/* 渲染线路连接线 */}
@@ -1858,11 +2100,12 @@ const Canvas: React.FC<CanvasProps> = ({
             const stationColor = getStationColor(station.id);
             const labelRect = labelPlacements[station.id];
             const isInterchangeStation = (stationLineCounts[station.id] || 0) > 1;
+            const stationPoint = getDisplayPoint(station);
             return (
               <Group
                 key={station.id}
-                x={station.x}
-                y={station.y}
+                x={stationPoint.x}
+                y={stationPoint.y}
                 draggable={activeTool === 'select' || activeTool === 'station'}
                 onDragMove={e =>
                   handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
@@ -1904,8 +2147,8 @@ const Canvas: React.FC<CanvasProps> = ({
                     {labelRect ? (
                       <Text
                         text={station.name}
-                        x={labelRect.x - station.x}
-                        y={labelRect.y - station.y}
+                        x={labelRect.x - stationPoint.x}
+                        y={labelRect.y - stationPoint.y}
                         width={labelRect.width}
                         height={labelRect.height}
                         fontSize={dotLabelStyle.fontSize}

@@ -15,7 +15,15 @@ const DEFAULT_MAP_SETTINGS = {
   mapStyle: 'classic-badge',
   canvasTheme: 'light',
   cityStyle: 'standard',
-  showLineNameLabels: true
+  showLineNameLabels: true,
+  baseMap: {
+    mode: 'plain',
+    amap: {
+      center: [116.397428, 39.90923],
+      zoom: 11,
+      style: 'normal'
+    }
+  }
 };
 
 const allowedOrigins = FRONTEND_ORIGIN
@@ -67,6 +75,8 @@ function sanitizeUser(user) {
 
 function normalizeMapSettings(settings) {
   const dotLabelStyle = settings && settings.dotLabelStyle ? settings.dotLabelStyle : {};
+  const baseMap = settings && settings.baseMap ? settings.baseMap : {};
+  const amap = baseMap && baseMap.amap ? baseMap.amap : {};
   const normalizeNumber = (value, fallback, min, max) => {
     const numberValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
     return Math.max(min, Math.min(max, numberValue));
@@ -86,6 +96,19 @@ function normalizeMapSettings(settings) {
         typeof dotLabelStyle.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(dotLabelStyle.color)
           ? dotLabelStyle.color
           : '#0f172a'
+    },
+    baseMap: {
+      mode: baseMap.mode === 'amap' ? 'amap' : 'plain',
+      amap: {
+        center:
+          Array.isArray(amap.center) &&
+          amap.center.length === 2 &&
+          amap.center.every(value => typeof value === 'number' && Number.isFinite(value))
+            ? [amap.center[0], amap.center[1]]
+            : DEFAULT_MAP_SETTINGS.baseMap.amap.center,
+        zoom: normalizeNumber(amap.zoom, DEFAULT_MAP_SETTINGS.baseMap.amap.zoom, 3, 20),
+        style: ['dark', 'grey', 'fresh'].includes(amap.style) ? amap.style : 'normal'
+      }
     }
   };
 }

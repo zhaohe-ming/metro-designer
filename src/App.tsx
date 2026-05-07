@@ -50,6 +50,14 @@ const i18n = {
     canvasTheme: '画布主题',
     lightCanvas: '浅色画布',
     darkCanvas: '深色画布',
+    baseMap: '底图模式',
+    plainCanvas: '纯画布',
+    amapBaseMap: '高德地图',
+    amapStyle: '高德样式',
+    amapNormal: '标准',
+    amapDark: '深色',
+    amapGrey: '灰色',
+    amapFresh: '清新',
     mapStyle: '地图样式',
     classicBadge: '经典圆标',
     dotLabel: '专业线网',
@@ -89,6 +97,14 @@ const i18n = {
     canvasTheme: 'Canvas theme',
     lightCanvas: 'Light canvas',
     darkCanvas: 'Dark canvas',
+    baseMap: 'Base map',
+    plainCanvas: 'Plain canvas',
+    amapBaseMap: 'Amap',
+    amapStyle: 'Amap style',
+    amapNormal: 'Normal',
+    amapDark: 'Dark',
+    amapGrey: 'Grey',
+    amapFresh: 'Fresh',
     mapStyle: 'Map style',
     classicBadge: 'Classic badge',
     dotLabel: 'Transit diagram',
@@ -1503,6 +1519,7 @@ const App: React.FC = () => {
                 onDeleteSection={handleDeleteSection}
                 onReorderStations={handleReorderStations}
                 onDeleteStation={handleDeleteStation}
+                onMapSettingsChange={(settings) => setMapSettings(normalizeMapSettings(settings))}
                 onStageReady={(stage) => {
                   stageRef.current = stage;
                 }}
@@ -1654,6 +1671,56 @@ const App: React.FC = () => {
                 <Radio.Button value="dark">{text.darkCanvas}</Radio.Button>
               </Radio.Group>
             </section>
+
+            <section className="metro-settings-section">
+              <div className="metro-settings-label">{text.baseMap}</div>
+              <Radio.Group
+                value={mapSettings.baseMap.mode}
+                onChange={(event) =>
+                  setMapSettings((prev) =>
+                    normalizeMapSettings({
+                      ...prev,
+                      baseMap: { ...prev.baseMap, mode: event.target.value }
+                    })
+                  )
+                }
+                optionType="button"
+                buttonStyle="solid"
+              >
+                <Radio.Button value="plain">{text.plainCanvas}</Radio.Button>
+                <Radio.Button value="amap">{text.amapBaseMap}</Radio.Button>
+              </Radio.Group>
+            </section>
+
+            {mapSettings.baseMap.mode === 'amap' && (
+              <section className="metro-settings-section">
+                <div className="metro-settings-label">{text.amapStyle}</div>
+                <Radio.Group
+                  value={mapSettings.baseMap.amap?.style || 'normal'}
+                  onChange={(event) =>
+                    setMapSettings((prev) =>
+                      normalizeMapSettings({
+                        ...prev,
+                        baseMap: {
+                          mode: 'amap',
+                          amap: {
+                            ...(prev.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!),
+                            style: event.target.value
+                          }
+                        }
+                      })
+                    )
+                  }
+                  optionType="button"
+                  buttonStyle="solid"
+                >
+                  <Radio.Button value="normal">{text.amapNormal}</Radio.Button>
+                  <Radio.Button value="dark">{text.amapDark}</Radio.Button>
+                  <Radio.Button value="grey">{text.amapGrey}</Radio.Button>
+                  <Radio.Button value="fresh">{text.amapFresh}</Radio.Button>
+                </Radio.Group>
+              </section>
+            )}
 
             <section className="metro-settings-section">
               <div className="metro-settings-label">{text.mapStyle}</div>

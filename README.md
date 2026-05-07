@@ -1,5 +1,23 @@
 ## Metro Designer
 
+### AMap base map config
+
+To use Settings -> Base map -> AMap, configure the Web JSAPI values first:
+
+1. Create a Web JS API application in AMap Open Platform.
+2. Get the application Key and security code.
+3. Create `.env.local` locally:
+
+```bash
+REACT_APP_AMAP_KEY=your_amap_key
+REACT_APP_AMAP_SECURITY_CODE=your_security_code
+```
+
+4. Add the same variables in Vercel Settings -> Environment Variables.
+5. Redeploy the frontend.
+
+When these variables are missing, the app keeps plain canvas mode available and shows a clear warning in AMap mode.
+
 ### 本地运行
 
 1. 安装依赖
