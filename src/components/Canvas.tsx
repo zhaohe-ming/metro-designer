@@ -1403,53 +1403,67 @@ const Canvas: React.FC<CanvasProps> = ({
         .filter(Boolean) as Station[];
       if (orderedStations.length < 2) return;
 
-      const anchorIndexes = Array.from(
-        new Set([
-          0,
-          Math.max(0, orderedStations.length - 2),
-          ...(orderedStations.length >= 5 ? [Math.floor((orderedStations.length - 2) / 2)] : [])
-        ])
-      );
-
       const labelWidth = Math.max(52, line.name.length * stylePreset.lineLabelFontSize + stylePreset.lineLabelPaddingX * 2);
       const labelHeight = stylePreset.lineLabelFontSize + stylePreset.lineLabelPaddingY * 2 + 2;
+      const terminalPairs = [
+        { terminal: orderedStations[0], neighbor: orderedStations[1], preference: 0 },
+        {
+          terminal: orderedStations[orderedStations.length - 1],
+          neighbor: orderedStations[orderedStations.length - 2],
+          preference: 4
+        }
+      ];
 
-      anchorIndexes.forEach((stationIndex, labelIndex) => {
-        const start = orderedStations[stationIndex];
-        const end = orderedStations[stationIndex + 1];
-        if (!start || !end) return;
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const len = Math.hypot(dx, dy) || 1;
-        const normal = { x: -dy / len, y: dx / len };
-        const mid = { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
-        const candidates = [18, -26, 34, -42].map(distance => ({
-          x: mid.x + normal.x * distance - labelWidth / 2,
-          y: mid.y + normal.y * distance - labelHeight / 2
-        }));
-
-        const best = candidates
-          .map(candidate => {
-            const rect = { x: candidate.x, y: candidate.y, width: labelWidth, height: labelHeight };
-            let score = 0;
-            occupied.forEach(other => {
-              if (rectsOverlap(rect, other)) score += 90;
-            });
-            if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height) {
-              score += 25;
+      const best = terminalPairs
+        .flatMap(({ terminal, neighbor, preference }) => {
+          if (!terminal || !neighbor) return [];
+          const dx = terminal.x - neighbor.x;
+          const dy = terminal.y - neighbor.y;
+          const len = Math.hypot(dx, dy) || 1;
+          const outward = { x: dx / len, y: dy / len };
+          const normal = { x: -outward.y, y: outward.x };
+          const baseDistance = Math.max(24, stylePreset.interchangeRadius + 14);
+          return [0, labelHeight + 8, -(labelHeight + 8), labelHeight * 2 + 16, -(labelHeight * 2 + 16)].map(
+            (sideOffset, index) => {
+              const centerX = terminal.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
+              const centerY = terminal.y + outward.y * (baseDistance + labelHeight / 2) + normal.y * sideOffset;
+              return {
+                rect: {
+                  x: centerX - labelWidth / 2,
+                  y: centerY - labelHeight / 2,
+                  width: labelWidth,
+                  height: labelHeight
+                },
+                score: preference + index * 2
+              };
             }
-            return { rect, score };
-          })
-          .sort((a, b) => a.score - b.score)[0];
+          );
+        })
+        .map(candidate => {
+          let score = candidate.score;
+          occupied.forEach(other => {
+            if (rectsOverlap(candidate.rect, other)) score += 90;
+          });
+          if (
+            candidate.rect.x < 0 ||
+            candidate.rect.y < 0 ||
+            candidate.rect.x + candidate.rect.width > stageSize.width ||
+            candidate.rect.y + candidate.rect.height > stageSize.height
+          ) {
+            score += 35;
+          }
+          return { rect: candidate.rect, score };
+        })
+        .sort((a, b) => a.score - b.score)[0];
 
-        if (!best) return;
+      if (best) {
         occupied.push(best.rect);
         placements.push({
-          key: `${line.id}_${labelIndex}`,
+          key: line.id,
           line,
           ...best.rect
         });
-      });
+      }
     });
 
     return placements;

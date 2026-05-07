@@ -889,52 +889,79 @@ const App: React.FC = () => {
 
     const drawLineLabels = () => {
       if (!settings.showLineNameLabels) return;
-      const occupied: Array<{ x: number; y: number; width: number; height: number }> = [];
+      const occupied: Array<{ x: number; y: number; width: number; height: number }> = allStations.map(station => {
+        const point = toCanvasPoint(station);
+        const radius = ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale + 8;
+        return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
+      });
       allLines.forEach(line => {
         const ordered = line.stationIds.map(id => stationById.get(id)).filter(Boolean) as Station[];
         if (ordered.length < 2) return;
-        const indexes = Array.from(new Set([0, Math.max(0, ordered.length - 2), ...(ordered.length >= 5 ? [Math.floor((ordered.length - 2) / 2)] : [])]));
-        indexes.forEach(index => {
-          const start = ordered[index];
-          const end = ordered[index + 1];
-          if (!start || !end) return;
-          const p1 = toCanvasPoint(start);
-          const p2 = toCanvasPoint(end);
-          const label = line.name;
-          ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
-          const labelWidth = Math.max(52, ctx.measureText(label).width + preset.lineLabelPaddingX * 2);
-          const labelHeight = preset.lineLabelFontSize + preset.lineLabelPaddingY * 2 + 2;
-          const dx = p2.x - p1.x;
-          const dy = p2.y - p1.y;
-          const len = Math.hypot(dx, dy) || 1;
-          const normal = { x: -dy / len, y: dx / len };
-          const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-          const candidates = [18, -24, 34, -40].map(distance => ({
-            x: mid.x + normal.x * distance - labelWidth / 2,
-            y: mid.y + normal.y * distance - labelHeight / 2,
-            width: labelWidth,
-            height: labelHeight
-          }));
-          const best = candidates.find(candidate => !occupied.some(other => (
-            candidate.x < other.x + other.width &&
-            candidate.x + candidate.width > other.x &&
-            candidate.y < other.y + other.height &&
-            candidate.y + candidate.height > other.y
-          ))) || candidates[0];
-          occupied.push(best);
-          ctx.save();
-          roundRect(ctx, best.x, best.y, best.width, best.height, best.height / 2);
-          ctx.fillStyle = preset.lineLabelFill;
-          ctx.strokeStyle = line.color;
-          ctx.lineWidth = preset.lineLabelStrokeWidth;
-          ctx.fill();
-          ctx.stroke();
-          ctx.fillStyle = preset.lineLabelText;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'middle';
-          ctx.fillText(label, best.x + best.width / 2, best.y + best.height / 2);
-          ctx.restore();
-        });
+        const label = line.name;
+        ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+        const labelWidth = Math.max(52, ctx.measureText(label).width + preset.lineLabelPaddingX * 2);
+        const labelHeight = preset.lineLabelFontSize + preset.lineLabelPaddingY * 2 + 2;
+        const terminalPairs = [
+          { terminal: ordered[0], neighbor: ordered[1], preference: 0 },
+          { terminal: ordered[ordered.length - 1], neighbor: ordered[ordered.length - 2], preference: 4 }
+        ];
+        const best = terminalPairs
+          .flatMap(({ terminal, neighbor, preference }) => {
+            if (!terminal || !neighbor) return [];
+            const terminalPoint = toCanvasPoint(terminal);
+            const neighborPoint = toCanvasPoint(neighbor);
+            const dx = terminalPoint.x - neighborPoint.x;
+            const dy = terminalPoint.y - neighborPoint.y;
+            const len = Math.hypot(dx, dy) || 1;
+            const outward = { x: dx / len, y: dy / len };
+            const normal = { x: -outward.y, y: outward.x };
+            const baseDistance = Math.max(28, preset.interchangeRadius * mapScale + 18);
+            return [0, labelHeight + 8, -(labelHeight + 8), labelHeight * 2 + 16, -(labelHeight * 2 + 16)].map(
+              (sideOffset, index) => {
+                const centerX = terminalPoint.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
+                const centerY = terminalPoint.y + outward.y * (baseDistance + labelHeight / 2) + normal.y * sideOffset;
+                return {
+                  x: centerX - labelWidth / 2,
+                  y: centerY - labelHeight / 2,
+                  width: labelWidth,
+                  height: labelHeight,
+                  score: preference + index * 2
+                };
+              }
+            );
+          })
+          .map(candidate => {
+            let score = candidate.score;
+            occupied.forEach(other => {
+              if (
+                candidate.x < other.x + other.width &&
+                candidate.x + candidate.width > other.x &&
+                candidate.y < other.y + other.height &&
+                candidate.y + candidate.height > other.y
+              ) {
+                score += 90;
+              }
+            });
+            if (candidate.x < 0 || candidate.y < 0 || candidate.x + candidate.width > width || candidate.y + candidate.height > height) {
+              score += 35;
+            }
+            return { ...candidate, score };
+          })
+          .sort((a, b) => a.score - b.score)[0];
+        if (!best) return;
+        occupied.push(best);
+        ctx.save();
+        roundRect(ctx, best.x, best.y, best.width, best.height, best.height / 2);
+        ctx.fillStyle = preset.lineLabelFill;
+        ctx.strokeStyle = line.color;
+        ctx.lineWidth = preset.lineLabelStrokeWidth;
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = preset.lineLabelText;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, best.x + best.width / 2, best.y + best.height / 2);
+        ctx.restore();
       });
     };
 
