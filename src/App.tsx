@@ -686,9 +686,7 @@ const App: React.FC = () => {
     const fps = 30;
     const width = 1280;
     const height = 720;
-    const titleFrames = Math.round(fps * 1.2);
-    const secondsPerSegment = 3;
-    const segmentFrames = fps * secondsPerSegment;
+    const titleFrames = Math.round(fps * 0.8);
     const outroFrames = fps;
     const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
     const preset = getCityStylePreset(settings);
@@ -812,8 +810,45 @@ const App: React.FC = () => {
       return;
     }
 
+    type VideoPoint = { x: number; y: number };
+    type RectBox = { x: number; y: number; width: number; height: number };
+    type LabelPlacement = RectBox & { textX: number; textY: number };
+
+    const getPathMetrics = (points: VideoPoint[]) => {
+      const lengths = points.slice(1).map((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y));
+      const cumulative = [0];
+      lengths.forEach(length => cumulative.push(cumulative[cumulative.length - 1] + length));
+      return { points, lengths, cumulative, totalLength: cumulative[cumulative.length - 1] || 1 };
+    };
+
+    const getPointAtDistance = (metrics: ReturnType<typeof getPathMetrics>, distance: number) => {
+      const clamped = Math.max(0, Math.min(metrics.totalLength, distance));
+      for (let index = 1; index < metrics.points.length; index += 1) {
+        const segmentStart = metrics.cumulative[index - 1];
+        const segmentEnd = metrics.cumulative[index];
+        if (clamped <= segmentEnd || index === metrics.points.length - 1) {
+          const ratio = segmentEnd === segmentStart ? 0 : (clamped - segmentStart) / (segmentEnd - segmentStart);
+          const previous = metrics.points[index - 1];
+          const current = metrics.points[index];
+          return {
+            x: previous.x + (current.x - previous.x) * ratio,
+            y: previous.y + (current.y - previous.y) * ratio
+          };
+        }
+      }
+      return metrics.points[metrics.points.length - 1];
+    };
+
+    const easeInOut = (value: number) => {
+      const clamped = Math.max(0, Math.min(1, value));
+      return clamped < 0.5 ? 4 * clamped * clamped * clamped : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
+    };
+
+    const rectsOverlap = (a: RectBox, b: RectBox) =>
+      a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
     const drawLinePath = (
-      points: Array<{ x: number; y: number }>,
+      points: VideoPoint[],
       color: string,
       progress = 1,
       alpha = 1,
@@ -847,6 +882,25 @@ const App: React.FC = () => {
         }
       }
       ctx.stroke();
+      ctx.restore();
+    };
+
+    const drawMovingHead = (point: VideoPoint, color: string, pulse: number) => {
+      const radius = 8 + Math.sin(pulse * Math.PI * 2) * 1.5;
+      ctx.save();
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 18;
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, 3.5, 0, Math.PI * 2);
+      ctx.fill();
       ctx.restore();
     };
 
@@ -887,9 +941,9 @@ const App: React.FC = () => {
       ctx.restore();
     };
 
-    const drawLineLabels = () => {
+    const drawLineLabels = (alpha = 0.82) => {
       if (!settings.showLineNameLabels) return;
-      const occupied: Array<{ x: number; y: number; width: number; height: number }> = allStations.map(station => {
+      const occupied: RectBox[] = allStations.map(station => {
         const point = toCanvasPoint(station);
         const radius = ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale + 8;
         return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
@@ -951,6 +1005,7 @@ const App: React.FC = () => {
         if (!best) return;
         occupied.push(best);
         ctx.save();
+        ctx.globalAlpha = alpha;
         roundRect(ctx, best.x, best.y, best.width, best.height, best.height / 2);
         ctx.fillStyle = preset.lineLabelFill;
         ctx.strokeStyle = line.color;
@@ -965,7 +1020,109 @@ const App: React.FC = () => {
       });
     };
 
-    const drawBaseMap = (openedCount: number, currentProgress = 0) => {
+    const createStationLabelPlacements = (stationIds: string[]) => {
+      const uniqueStations = stationIds
+        .map(id => stationById.get(id))
+        .filter(Boolean)
+        .filter((station, index, list) => list.findIndex(item => item!.id === station!.id) === index) as Station[];
+      const placements = new Map<string, LabelPlacement>();
+      const occupied: RectBox[] = allStations.map(station => {
+        const point = toCanvasPoint(station);
+        const radius = ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale + 6;
+        return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
+      });
+
+      ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+      uniqueStations.forEach(station => {
+        const point = toCanvasPoint(station);
+        const textWidth = Math.max(24, ctx.measureText(station.name).width);
+        const labelWidth = textWidth + 18;
+        const labelHeight = settings.dotLabelStyle.fontSize + 12;
+        const stationRadius =
+          ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale;
+        const distance = stationRadius + 20;
+        const candidates = [
+          { x: point.x - labelWidth / 2, y: point.y - distance - labelHeight },
+          { x: point.x + distance, y: point.y - labelHeight / 2 },
+          { x: point.x - labelWidth / 2, y: point.y + distance },
+          { x: point.x - distance - labelWidth, y: point.y - labelHeight / 2 },
+          { x: point.x + distance * 0.72, y: point.y - distance * 0.72 - labelHeight },
+          { x: point.x + distance * 0.72, y: point.y + distance * 0.72 },
+          { x: point.x - distance * 0.72 - labelWidth, y: point.y + distance * 0.72 },
+          { x: point.x - distance * 0.72 - labelWidth, y: point.y - distance * 0.72 - labelHeight }
+        ];
+        const best = candidates
+          .map((candidate, index) => {
+            const rect = { ...candidate, width: labelWidth, height: labelHeight };
+            let score = index;
+            occupied.forEach(other => {
+              if (rectsOverlap(rect, other)) score += 80;
+            });
+            if (rect.x < 16 || rect.y < 16 || rect.x + rect.width > width - 16 || rect.y + rect.height > height - 88) {
+              score += 40;
+            }
+            return { ...rect, score };
+          })
+          .sort((a, b) => a.score - b.score)[0];
+        if (!best) return;
+        const placement = {
+          x: best.x,
+          y: best.y,
+          width: best.width,
+          height: best.height,
+          textX: best.x + best.width / 2,
+          textY: best.y + best.height / 2
+        };
+        placements.set(station.id, placement);
+        occupied.push(placement);
+      });
+
+      return placements;
+    };
+
+    const segmentPlans = animationSegments.map(item => {
+      const points = pathToPoints(item.stationIds);
+      const metrics = getPathMetrics(points);
+      const durationSeconds = Math.min(8, Math.max(3.8, 2.6 + metrics.totalLength / 260));
+      return {
+        ...item,
+        points,
+        metrics,
+        durationFrames: Math.round(durationSeconds * fps),
+        revealFrames: Math.round(fps * 0.55),
+        holdFrames: Math.round(fps * 0.55),
+        labelPlacements: createStationLabelPlacements(item.stationIds)
+      };
+    });
+
+    type SegmentPlan = typeof segmentPlans[number];
+
+    const drawStationLabel = (station: Station, placement: LabelPlacement, reveal: number, alpha: number) => {
+      const visibleLength = Math.max(0, Math.min(station.name.length, Math.ceil(station.name.length * reveal)));
+      if (visibleLength <= 0 || alpha <= 0) return;
+      const text = station.name.slice(0, visibleLength);
+      ctx.save();
+      ctx.globalAlpha = alpha * Math.max(0.15, reveal);
+      roundRect(ctx, placement.x, placement.y, placement.width, placement.height, placement.height / 2);
+      ctx.fillStyle = isDarkCanvas ? 'rgba(15, 23, 42, 0.86)' : 'rgba(255, 255, 255, 0.9)';
+      ctx.strokeStyle = isDarkCanvas ? 'rgba(148, 163, 184, 0.34)' : 'rgba(148, 163, 184, 0.32)';
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = settings.dotLabelStyle.color || primaryText;
+      ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, placement.textX, placement.textY);
+      ctx.restore();
+    };
+
+    const drawBaseMap = (
+      openedCount: number,
+      currentPlan?: SegmentPlan,
+      currentDistance = 0,
+      segmentFrame = 0
+    ) => {
       ctx.clearRect(0, 0, width, height);
       ctx.fillStyle = canvasThemeGradient(ctx);
       ctx.fillRect(0, 0, width, height);
@@ -977,41 +1134,61 @@ const App: React.FC = () => {
         drawLinePath([toCanvasPoint(start), toCanvasPoint(end)], mutedLineColor, 1, 0.8, preset.lineWidth);
       });
 
-      animationSegments.slice(0, openedCount).forEach(item => {
-        drawLinePath(pathToPoints(item.stationIds), item.line.color, 1, 1);
+      segmentPlans.slice(0, openedCount).forEach(item => {
+        drawLinePath(item.points, item.line.color, 1, 0.78, preset.lineWidth);
       });
 
-      const current = animationSegments[openedCount];
-      if (current) {
-        drawLinePath(pathToPoints(current.stationIds), current.line.color, currentProgress, 1, preset.lineWidth + 1);
+      if (currentPlan) {
+        drawLinePath(currentPlan.points, currentPlan.line.color, currentDistance / currentPlan.metrics.totalLength, 1, preset.lineWidth + 1);
       }
 
       const activeStationColors = new Map<string, string>();
-      animationSegments.slice(0, openedCount).forEach(item => {
+      segmentPlans.slice(0, openedCount).forEach(item => {
         item.stationIds.forEach(id => activeStationColors.set(id, item.line.color));
       });
-      if (current) {
-        const currentIds = current.stationIds;
-        const activeUntil = Math.max(1, Math.ceil(currentIds.length * currentProgress));
-        currentIds.slice(0, activeUntil).forEach(id => activeStationColors.set(id, current.line.color));
+      if (currentPlan) {
+        currentPlan.stationIds.forEach((id, index) => {
+          if ((currentPlan.metrics.cumulative[index] || 0) <= currentDistance + 1) {
+            activeStationColors.set(id, currentPlan.line.color);
+          }
+        });
       }
 
       allStations.forEach(station => drawStation(station, activeStationColors.get(station.id)));
-      if (current) {
-        const endId = current.stationIds[current.stationIds.length - 1];
-        const end = stationById.get(endId);
-        if (end) drawStation(end, current.line.color, Math.sin(currentProgress * Math.PI));
+      if (currentPlan) {
+        const head = getPointAtDistance(currentPlan.metrics, currentDistance);
+        drawMovingHead(head, currentPlan.line.color, segmentFrame / fps);
       }
-      drawLineLabels();
+      drawLineLabels(currentPlan ? 0.5 : 0.82);
+
+      segmentPlans.slice(0, openedCount).forEach(item => {
+        item.stationIds.forEach(id => {
+          const station = stationById.get(id);
+          const placement = item.labelPlacements.get(id);
+          if (station && placement) drawStationLabel(station, placement, 1, 0.52);
+        });
+      });
+
+      if (currentPlan) {
+        currentPlan.stationIds.forEach((id, index) => {
+          const station = stationById.get(id);
+          const placement = currentPlan.labelPlacements.get(id);
+          if (!station || !placement) return;
+          const arrivalDistance = currentPlan.metrics.cumulative[index] || 0;
+          const arrivalProgressFrame = Math.round((arrivalDistance / currentPlan.metrics.totalLength) * currentPlan.durationFrames);
+          const reveal = index === 0 ? 1 : Math.max(0, Math.min(1, (segmentFrame - arrivalProgressFrame) / currentPlan.revealFrames));
+          drawStationLabel(station, placement, reveal, 1);
+        });
+      }
     };
 
-    const drawInfoPanel = (item: ReturnType<typeof resolveSegmentPath>, progress: number) => {
+    const drawInfoPanel = (item: SegmentPlan, progress: number) => {
       const startStation = stationById.get(item.stationIds[0]);
       const endStation = stationById.get(item.stationIds[item.stationIds.length - 1]);
-      const panelWidth = 430;
-      const panelHeight = 118;
-      const x = 42;
-      const y = height - panelHeight - 36;
+      const panelWidth = 390;
+      const panelHeight = 104;
+      const x = 34;
+      const y = height - panelHeight - 28;
       ctx.save();
       roundRect(ctx, x, y, panelWidth, panelHeight, 14);
       ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.86)' : 'rgba(255, 255, 255, 0.9)';
@@ -1035,18 +1212,18 @@ const App: React.FC = () => {
       ctx.font = '500 16px "Microsoft YaHei", "PingFang SC", Arial';
       ctx.fillText(`${startStation?.name || '-'}  →  ${endStation?.name || '-'}`, x + 96, y + 64);
       ctx.fillStyle = isDarkCanvas ? '#1e293b' : '#e2e8f0';
-      roundRect(ctx, x + 20, y + 88, panelWidth - 40, 8, 4);
+      roundRect(ctx, x + 20, y + 78, panelWidth - 40, 7, 4);
       ctx.fill();
       ctx.fillStyle = item.line.color;
-      roundRect(ctx, x + 20, y + 88, (panelWidth - 40) * progress, 8, 4);
+      roundRect(ctx, x + 20, y + 78, (panelWidth - 40) * progress, 7, 4);
       ctx.fill();
       ctx.restore();
     };
 
     const drawTitle = () => {
-      drawBaseMap(0, 0);
+      drawBaseMap(0);
       ctx.save();
-      ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.72)' : 'rgba(255, 255, 255, 0.72)';
+      ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.54)' : 'rgba(255, 255, 255, 0.56)';
       ctx.fillRect(0, 0, width, height);
       ctx.fillStyle = primaryText;
       ctx.textAlign = 'center';
@@ -1065,16 +1242,23 @@ const App: React.FC = () => {
         return;
       }
       const animatedFrame = frame - titleFrames;
-      const segmentIndex = Math.min(animationSegments.length - 1, Math.floor(animatedFrame / segmentFrames));
-      const segmentFrame = animatedFrame - segmentIndex * segmentFrames;
-      if (animatedFrame >= animationSegments.length * segmentFrames) {
-        drawBaseMap(animationSegments.length, 1);
+      let cursor = 0;
+      const segmentIndex = segmentPlans.findIndex(item => {
+        const total = item.durationFrames + item.holdFrames;
+        if (animatedFrame >= cursor && animatedFrame < cursor + total) return true;
+        cursor += total;
+        return false;
+      });
+      if (segmentIndex < 0) {
+        drawBaseMap(segmentPlans.length);
         return;
       }
-      const progress = Math.min(1, segmentFrame / segmentFrames);
-      const easedProgress = 1 - Math.pow(1 - progress, 3);
-      const item = animationSegments[segmentIndex];
-      drawBaseMap(segmentIndex, easedProgress);
+      const item = segmentPlans[segmentIndex];
+      const segmentFrame = animatedFrame - cursor;
+      const progress = Math.min(1, segmentFrame / item.durationFrames);
+      const easedProgress = easeInOut(progress);
+      const currentDistance = item.metrics.totalLength * easedProgress;
+      drawBaseMap(segmentIndex, item, currentDistance, segmentFrame);
       drawInfoPanel(item, easedProgress);
     };
 
@@ -1093,7 +1277,7 @@ const App: React.FC = () => {
       }
     };
 
-    const totalFrames = titleFrames + animationSegments.length * segmentFrames + outroFrames;
+    const totalFrames = titleFrames + segmentPlans.reduce((sum, item) => sum + item.durationFrames + item.holdFrames, 0) + outroFrames;
     let frame = 0;
     const stopPromise: Promise<Blob> = new Promise((resolve) => {
       recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
