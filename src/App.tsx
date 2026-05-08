@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Avatar, Button, ColorPicker, Divider, Form, Input, Layout, List, Popconfirm, Radio, Slider, Space, message } from 'antd';
+import { Avatar, Button, ColorPicker, Divider, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, message } from 'antd';
 import { api, clearToken, getToken, setToken } from './api';
 import AuthPanel from './components/AuthPanel';
 import Canvas from './components/Canvas';
@@ -8,7 +8,7 @@ import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoSegmentInput } from './components/VideoExportModal';
 import { getCityStylePreset } from './stylePresets';
-import { DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings } from './types';
+import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings } from './types';
 
 const { Header, Sider, Content } = Layout;
 
@@ -533,6 +533,32 @@ const App: React.FC = () => {
     message.info('已退出登录');
   };
 
+  const handleBaseMapModeChange = (nextMode: BaseMapMode) => {
+    if (nextMode === mapSettings.baseMap.mode) return;
+
+    const switchingToPlain = mapSettings.baseMap.mode === 'amap' && nextMode === 'plain';
+    Modal.confirm({
+      title: switchingToPlain ? '切换到纯画布？' : '切换到高德地图？',
+      content: switchingToPlain
+        ? '将把当前高德视图中的站点位置固化为普通画布坐标。切换后不会继续跟随真实地图缩放，但当前视觉位置会尽量保持。'
+        : '高德地图使用真实经纬度定位。已有经纬度的站点会贴合底图；没有经纬度的旧站点需要拖动一次或重新定位后才会绑定真实位置。',
+      okText: '确认切换',
+      cancelText: '取消',
+      onOk: () => {
+        setCurrentLineId(null);
+        setMapSettings((prev) =>
+          normalizeMapSettings({
+            ...prev,
+            baseMap: {
+              ...prev.baseMap,
+              mode: nextMode
+            }
+          })
+        );
+      }
+    });
+  };
+
   const handleUpdateProfile = async (values: {
     username: string;
     avatar?: string;
@@ -543,10 +569,12 @@ const App: React.FC = () => {
 
     try {
       const avatarInput = values.avatar?.trim();
+      const nextPassword =
+        values.password && values.confirm && values.password === values.confirm ? values.password : undefined;
       const payload = {
         username: values.username || userProfile.username,
         avatar: avatarInput !== undefined ? avatarInput : userProfile.avatar || '',
-        password: values.password || undefined
+        password: nextPassword
       };
 
       const { user } = await api.updateMe(payload);
@@ -1519,6 +1547,7 @@ const App: React.FC = () => {
                 onDeleteSection={handleDeleteSection}
                 onReorderStations={handleReorderStations}
                 onDeleteStation={handleDeleteStation}
+                onUpdateStations={setStations}
                 onMapSettingsChange={(settings) => setMapSettings(normalizeMapSettings(settings))}
                 onStageReady={(stage) => {
                   stageRef.current = stage;
@@ -1676,14 +1705,7 @@ const App: React.FC = () => {
               <div className="metro-settings-label">{text.baseMap}</div>
               <Radio.Group
                 value={mapSettings.baseMap.mode}
-                onChange={(event) =>
-                  setMapSettings((prev) =>
-                    normalizeMapSettings({
-                      ...prev,
-                      baseMap: { ...prev.baseMap, mode: event.target.value }
-                    })
-                  )
-                }
+                onChange={(event) => handleBaseMapModeChange(event.target.value)}
                 optionType="button"
                 buttonStyle="solid"
               >
@@ -1883,6 +1905,7 @@ const App: React.FC = () => {
 
           <Form
             layout="vertical"
+            autoComplete="off"
             initialValues={{
               username: userProfile.username,
               avatar: userProfile.avatar,
@@ -1905,7 +1928,7 @@ const App: React.FC = () => {
               <Input value={userProfile.phone} disabled />
             </Form.Item>
             <Form.Item label="新密码（可选）" name="password" rules={[{ min: 6, message: '密码长度至少 6 位' }]}>
-              <Input.Password placeholder="不修改可留空" />
+              <Input.Password placeholder="不修改可留空" autoComplete="new-password" />
             </Form.Item>
             <Form.Item
               label="确认新密码"
@@ -1914,7 +1937,14 @@ const App: React.FC = () => {
               rules={[
                 ({ getFieldValue }) => ({
                   validator(_, value) {
-                    if (!value || getFieldValue('password') === value) {
+                    const password = getFieldValue('password');
+                    if (!password && !value) {
+                      return Promise.resolve();
+                    }
+                    if (password && !value) {
+                      return Promise.reject(new Error('请再次输入新密码'));
+                    }
+                    if (password === value) {
                       return Promise.resolve();
                     }
                     return Promise.reject(new Error('两次输入的密码不一致'));
@@ -1922,7 +1952,7 @@ const App: React.FC = () => {
                 })
               ]}
             >
-              <Input.Password placeholder="请再次输入新密码" />
+              <Input.Password placeholder="请再次输入新密码" autoComplete="new-password" />
             </Form.Item>
             <Form.Item>
               <Space style={{ width: '100%', justifyContent: 'flex-end' }}>

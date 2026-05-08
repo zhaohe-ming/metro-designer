@@ -7,7 +7,7 @@ function normalizeAuthPayload<T extends { phone: string; password: string }>(pay
   return {
     ...payload,
     phone: payload.phone.trim(),
-    password: payload.password.trim()
+    password: payload.password
   };
 }
 

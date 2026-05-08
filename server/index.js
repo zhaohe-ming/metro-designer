@@ -73,6 +73,10 @@ function sanitizeUser(user) {
   };
 }
 
+function normalizePhone(value) {
+  return String(value || '').replace(/\s+/g, '').trim();
+}
+
 function normalizeMapSettings(settings) {
   const dotLabelStyle = settings && settings.dotLabelStyle ? settings.dotLabelStyle : {};
   const baseMap = settings && settings.baseMap ? settings.baseMap : {};
@@ -131,14 +135,14 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.post('/api/auth/register', async (req, res) => {
-  const phone = String(req.body?.phone || '').trim();
+  const phone = normalizePhone(req.body?.phone);
   const password = String(req.body?.password || '').trim();
   const username = String(req.body?.username || '').trim();
   if (!phone || !password || !username) {
     return res.status(400).json({ message: '参数不完整' });
   }
   const db = readDb();
-  if (db.users.some(u => String(u.phone || '').trim() === phone)) {
+  if (db.users.some(u => normalizePhone(u.phone) === phone)) {
     return res.status(409).json({ message: '手机号已注册' });
   }
   const passwordHash = await bcrypt.hash(password, 10);
@@ -157,16 +161,17 @@ app.post('/api/auth/register', async (req, res) => {
 });
 
 app.post('/api/auth/login', async (req, res) => {
-  const phone = String(req.body?.phone || '').trim();
+  const phone = normalizePhone(req.body?.phone);
   const password = String(req.body?.password || '');
   const trimmedPassword = password.trim();
   if (!phone || !password) return res.status(400).json({ message: '参数不完整' });
   const db = readDb();
-  const user = db.users.find(u => String(u.phone || '').trim() === phone);
+  const user = db.users.find(u => normalizePhone(u.phone) === phone);
   if (!user) return res.status(401).json({ message: '手机号或密码错误' });
   const ok =
-    await bcrypt.compare(password, user.passwordHash) ||
-    (trimmedPassword !== password && await bcrypt.compare(trimmedPassword, user.passwordHash));
+    (user.passwordHash && await bcrypt.compare(password, user.passwordHash)) ||
+    (user.passwordHash && trimmedPassword !== password && await bcrypt.compare(trimmedPassword, user.passwordHash)) ||
+    (typeof user.password === 'string' && (password === user.password || trimmedPassword === user.password.trim()));
   if (!ok) return res.status(401).json({ message: '手机号或密码错误' });
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
   res.json({ token, user: sanitizeUser(user) });

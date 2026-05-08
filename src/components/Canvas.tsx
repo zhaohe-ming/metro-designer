@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
 import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
 import { MapSettings, Station, Line as LineType, Section, LINE_COLORS } from '../types';
@@ -83,6 +83,7 @@ interface CanvasProps {
   onDeleteSection: (sectionId: string) => void;
   onReorderStations: (lineId: string, stationIds: string[]) => void;
   onDeleteStation: (stationId: string) => void;
+  onUpdateStations?: (stations: Station[]) => void;
   onMapSettingsChange?: (settings: MapSettings) => void;
   onStageReady?: (stage: any) => void;
 }
@@ -101,6 +102,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onDeleteSection,
   onReorderStations,
   onDeleteStation,
+  onUpdateStations,
   onMapSettingsChange,
   onStageReady
 }) => {
@@ -280,6 +282,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const amapInteractionEndTimerRef = useRef<number | null>(null);
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
+  const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
   const [amapReady, setAmapReady] = useState(false);
   const [amapError, setAmapError] = useState('');
   const [mapRenderTick, setMapRenderTick] = useState(0);
@@ -552,6 +555,45 @@ const Canvas: React.FC<CanvasProps> = ({
     if (!lngLat) return null;
     return { lng: lngLat.lng, lat: lngLat.lat };
   };
+
+  const projectLngLatToContainerPoint = (lng?: number, lat?: number) => {
+    const map = amapRef.current;
+    if (!map || typeof lng !== 'number' || typeof lat !== 'number') return null;
+    const pixel = map.lngLatToContainer?.([lng, lat]);
+    return pixel ? { x: pixel.x, y: pixel.y } : null;
+  };
+
+  useLayoutEffect(() => {
+    const previousMode = previousBaseMapModeRef.current;
+    if (previousMode === 'amap' && !isAmapMode && amapRef.current) {
+      const frozenStations = stations.map(station => {
+        const point = projectLngLatToContainerPoint(station.lng, station.lat);
+        return point ? { ...station, ...point } : station;
+      });
+
+      onUpdateStations?.(frozenStations);
+      setWaypoints(prev =>
+        Object.fromEntries(
+          Object.entries(prev).map(([sectionId, points]) => [
+            sectionId,
+            points.map(point => {
+              const projected = projectLngLatToContainerPoint(point.lng, point.lat);
+              return projected ? { ...point, ...projected } : point;
+            })
+          ])
+        )
+      );
+      setScale(1);
+      setPosition({ x: 0, y: 0 });
+      setIsMapInteracting(false);
+      setSelectedSection(null);
+      setAddingWaypoint(false);
+      setActiveCalibrationGuides([]);
+      setSectionContextMenu({ visible: false, x: 0, y: 0, sectionKey: null, waypointIndex: null, waypointOnly: false });
+      setCanvasContextMenu({ visible: false, x: 0, y: 0 });
+    }
+    previousBaseMapModeRef.current = mapSettings.baseMap.mode;
+  }, [isAmapMode, mapSettings.baseMap.mode, onUpdateStations, stations]);
 
   // 处理鼠标滚轮缩放
   const handleWheel = (e: any) => {
