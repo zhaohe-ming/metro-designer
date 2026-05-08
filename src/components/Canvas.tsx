@@ -64,7 +64,7 @@ const DEFAULT_AMAP_SETTINGS = {
 };
 
 type CanvasTool = 'select' | 'station' | 'line' | 'section' | 'pan';
-type Waypoint = { x: number; y: number; hidden?: boolean };
+type Waypoint = { x: number; y: number; lng?: number; lat?: number; hidden?: boolean };
 
 interface CanvasProps {
   currentLineId: string | null;
@@ -277,11 +277,13 @@ const Canvas: React.FC<CanvasProps> = ({
   const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
   const amapRef = useRef<any>(null);
   const amapOverlayFrameRef = useRef<number | null>(null);
+  const amapInteractionEndTimerRef = useRef<number | null>(null);
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const [amapReady, setAmapReady] = useState(false);
   const [amapError, setAmapError] = useState('');
   const [mapRenderTick, setMapRenderTick] = useState(0);
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
   const isAmapMode = mapSettings.baseMap.mode === 'amap';
   const amapEnv = getAmapConfig();
 
@@ -368,10 +370,15 @@ const Canvas: React.FC<CanvasProps> = ({
 
   useEffect(() => {
     if (!isAmapMode) {
+      if (amapInteractionEndTimerRef.current !== null) {
+        window.clearTimeout(amapInteractionEndTimerRef.current);
+        amapInteractionEndTimerRef.current = null;
+      }
       if (amapRef.current) {
         amapRef.current.destroy?.();
         amapRef.current = null;
       }
+      setIsMapInteracting(false);
       setAmapReady(false);
       setAmapError('');
       return;
@@ -424,10 +431,32 @@ const Canvas: React.FC<CanvasProps> = ({
               }
             });
           };
+          const startMapInteraction = () => {
+            if (amapInteractionEndTimerRef.current !== null) {
+              window.clearTimeout(amapInteractionEndTimerRef.current);
+              amapInteractionEndTimerRef.current = null;
+            }
+            setIsMapInteracting(true);
+            scheduleOverlayRender();
+          };
+          const finishMapInteraction = () => {
+            syncSettings();
+            scheduleOverlayRender();
+            if (amapInteractionEndTimerRef.current !== null) {
+              window.clearTimeout(amapInteractionEndTimerRef.current);
+            }
+            amapInteractionEndTimerRef.current = window.setTimeout(() => {
+              amapInteractionEndTimerRef.current = null;
+              setIsMapInteracting(false);
+              scheduleOverlayRender();
+            }, 120);
+          };
+          map.on('movestart', startMapInteraction);
+          map.on('zoomstart', startMapInteraction);
           map.on('mapmove', scheduleOverlayRender);
           map.on('zoomchange', scheduleOverlayRender);
-          map.on('moveend', syncSettings);
-          map.on('zoomend', syncSettings);
+          map.on('moveend', finishMapInteraction);
+          map.on('zoomend', finishMapInteraction);
         }
         setAmapReady(true);
         setAmapError('');
@@ -445,6 +474,10 @@ const Canvas: React.FC<CanvasProps> = ({
       if (amapOverlayFrameRef.current !== null) {
         window.cancelAnimationFrame(amapOverlayFrameRef.current);
         amapOverlayFrameRef.current = null;
+      }
+      if (amapInteractionEndTimerRef.current !== null) {
+        window.clearTimeout(amapInteractionEndTimerRef.current);
+        amapInteractionEndTimerRef.current = null;
       }
     };
   }, [isAmapMode, amapEnv.key, amapEnv.securityCode]);
@@ -473,16 +506,34 @@ const Canvas: React.FC<CanvasProps> = ({
     mapSettings.baseMap.amap?.center?.[1]
   ]);
 
-  const getDisplayPoint = (station: Station) => {
+  const stationDisplayPoints = (() => {
     void mapRenderTick;
     const map = amapRef.current;
-    if (isAmapMode && amapReady && map && typeof station.lng === 'number' && typeof station.lat === 'number') {
-      const pixel = map.lngLatToContainer?.([station.lng, station.lat]);
+    return stations.reduce<Record<string, { x: number; y: number }>>((result, station) => {
+      if (isAmapMode && amapReady && map && typeof station.lng === 'number' && typeof station.lat === 'number') {
+        const pixel = map.lngLatToContainer?.([station.lng, station.lat]);
+        if (pixel) {
+          result[station.id] = { x: pixel.x, y: pixel.y };
+          return result;
+        }
+      }
+      result[station.id] = { x: station.x, y: station.y };
+      return result;
+    }, {});
+  })();
+
+  const getDisplayPoint = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
+
+  const getWaypointDisplayPoint = (point: Waypoint) => {
+    void mapRenderTick;
+    const map = amapRef.current;
+    if (isAmapMode && amapReady && map && typeof point.lng === 'number' && typeof point.lat === 'number') {
+      const pixel = map.lngLatToContainer?.([point.lng, point.lat]);
       if (pixel) {
         return { x: pixel.x, y: pixel.y };
       }
     }
-    return { x: station.x, y: station.y };
+    return { x: point.x, y: point.y };
   };
 
   const getPointerWorldPosition = (stage: any, pointer: { x: number; y: number }) => {
@@ -1167,8 +1218,8 @@ const Canvas: React.FC<CanvasProps> = ({
     setWaypoints(prev => {
       const current = prev[sectionId] || [];
       const next = [...current];
-      const prevPoint = waypointIndex === 0 ? getDisplayPoint(startStation) : next[waypointIndex - 1];
-      const nextPoint = waypointIndex === next.length - 1 ? getDisplayPoint(endStation) : next[waypointIndex + 1];
+      const prevPoint = waypointIndex === 0 ? getDisplayPoint(startStation) : getWaypointDisplayPoint(next[waypointIndex - 1]);
+      const nextPoint = waypointIndex === next.length - 1 ? getDisplayPoint(endStation) : getWaypointDisplayPoint(next[waypointIndex + 1]);
 
       let snappedX = x;
       let snappedY = y;
@@ -1194,7 +1245,12 @@ const Canvas: React.FC<CanvasProps> = ({
         snappedY = bestSnap.y;
       }
 
-      next[waypointIndex] = { ...next[waypointIndex], x: snappedX, y: snappedY };
+      next[waypointIndex] = {
+        ...next[waypointIndex],
+        x: snappedX,
+        y: snappedY,
+        ...(getLngLatFromContainerPoint({ x: snappedX, y: snappedY }) || {})
+      };
       computedGuides = guideLines.map(g => [g[0], g[1], g[2], g[3]]);
       return { ...prev, [sectionId]: next };
     });
@@ -1397,7 +1453,8 @@ const Canvas: React.FC<CanvasProps> = ({
       const startPoint = getDisplayPoint(seg.start);
       const endPoint = getDisplayPoint(seg.end);
 
-      const rawPoints = [startPoint.x, startPoint.y, ...seg.waypoints.flatMap(p => [p.x, p.y]), endPoint.x, endPoint.y];
+      const waypointPoints = seg.waypoints.map(point => getWaypointDisplayPoint(point));
+      const rawPoints = [startPoint.x, startPoint.y, ...waypointPoints.flatMap(p => [p.x, p.y]), endPoint.x, endPoint.y];
       const dx = endPoint.x - startPoint.x;
       const dy = endPoint.y - startPoint.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -1418,8 +1475,8 @@ const Canvas: React.FC<CanvasProps> = ({
           lineCap="round"
           lineJoin="round"
           shadowColor={seg.line.color}
-          shadowBlur={stylePreset.lineShadowBlur}
-          shadowOpacity={Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
+          shadowBlur={isMapInteracting && isAmapMode ? 0 : stylePreset.lineShadowBlur}
+          shadowOpacity={isMapInteracting && isAmapMode ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
           onClick={e => {
             if (lastIsRightClickRef.current) {
@@ -1512,11 +1569,10 @@ const Canvas: React.FC<CanvasProps> = ({
   const canvasPalette = CANVAS_THEME_PALETTES[mapSettings.canvasTheme];
   const dotLabelStyle = mapSettings.dotLabelStyle;
   const amapStyle = mapSettings.baseMap.amap?.style || 'normal';
+  const isLightAmapRender = isAmapMode && isMapInteracting;
   const isMutedAmapStyle = isAmapMode && (amapStyle === 'dark' || amapStyle === 'grey');
   const isFreshAmapStyle = isAmapMode && amapStyle === 'fresh';
   const readableLabelText = isMutedAmapStyle ? '#ffffff' : isFreshAmapStyle ? '#0f172a' : dotLabelStyle.color || canvasPalette.labelText;
-  const readableLabelBack = isMutedAmapStyle ? 'rgba(15, 23, 42, 0.76)' : 'rgba(255, 255, 255, 0.84)';
-  const readableLabelStroke = isMutedAmapStyle ? 'rgba(226, 232, 240, 0.26)' : 'rgba(15, 23, 42, 0.12)';
   const readableLabelShadow = isMutedAmapStyle ? 'rgba(0, 0, 0, 0.92)' : 'rgba(255, 255, 255, 0.98)';
 
   type LabelRect = { x: number; y: number; width: number; height: number };
@@ -1540,13 +1596,14 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const labelPlacements = (() => {
+    if (isLightAmapRender) return {};
     const occupied: LabelRect[] = [];
     const lineSegments = sections
       .map(section => {
         const start = stations.find(station => station.id === section.startStationId);
         const end = stations.find(station => station.id === section.endStationId);
         if (!start || !end) return [];
-        const points = [getDisplayPoint(start), ...(waypoints[section.id] || []), getDisplayPoint(end)];
+        const points = [getDisplayPoint(start), ...(waypoints[section.id] || []).map(point => getWaypointDisplayPoint(point)), getDisplayPoint(end)];
         const segments: Array<[number, number, number, number]> = [];
         for (let i = 0; i < points.length - 1; i += 1) {
           segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
@@ -1607,7 +1664,7 @@ const Canvas: React.FC<CanvasProps> = ({
   })();
 
   const lineNamePlacements = (() => {
-    if (!mapSettings.showLineNameLabels || lines.length === 0) return [];
+    if (isLightAmapRender || !mapSettings.showLineNameLabels || lines.length === 0) return [];
     const occupied: LabelRect[] = [
       ...Object.values(labelPlacements),
       ...stations.map(station => {
@@ -1984,7 +2041,8 @@ const Canvas: React.FC<CanvasProps> = ({
               const pointer = stage.getPointerPosition();
               if (pointer) {
                 const worldPos = {
-                  ...getPointerWorldPosition(stage, pointer)
+                  ...getPointerWorldPosition(stage, pointer),
+                  ...(getLngLatFromContainerPoint(pointer) || {})
                 };
                 const sectionKey = selectedSection.sectionId;
                 const currentWaypoints = waypoints[sectionKey] || [];
@@ -2037,8 +2095,8 @@ const Canvas: React.FC<CanvasProps> = ({
                 stroke={label.line.color}
                 strokeWidth={isAmapMode ? Math.max(2.5, stylePreset.lineLabelStrokeWidth) : stylePreset.lineLabelStrokeWidth}
                 shadowColor={label.line.color}
-                shadowBlur={isAmapMode ? 10 : 4}
-                shadowOpacity={isAmapMode ? 0.28 : 0.16}
+                shadowBlur={isAmapMode ? 8 : 4}
+                shadowOpacity={isAmapMode ? 0.22 : 0.16}
               />
               <Text
                 text={label.line.name}
@@ -2068,41 +2126,44 @@ const Canvas: React.FC<CanvasProps> = ({
               .map((pt, idx) => ({ pt, idx }))
               .filter(({ pt }) => !pt.hidden);
             if (!visiblePoints.length) return null;
-            return visiblePoints.map(({ pt, idx }) => (
-              <Circle
-                key={`wp_${section.id}_${idx}`}
-                x={pt.x}
-                y={pt.y}
-                radius={6}
-                fill={canvasPalette.waypointFill}
-                stroke={canvasPalette.waypointStroke}
-                strokeWidth={2}
-                shadowColor={canvasPalette.waypointShadow}
-                shadowBlur={5}
-                draggable
-                onDragMove={e => {
-                  updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
-                }}
-                onDragEnd={() => {
-                  setActiveCalibrationGuides([]);
-                }}
-                onContextMenu={e => {
-                  e.evt.preventDefault();
-                  lastIsRightClickRef.current = true;
-                  const stage = e.target.getStage();
-                  if (!stage) return;
-                  const pointer = stage.getPointerPosition();
-                  setSectionContextMenu({
-                    visible: true,
-                    x: pointer?.x || 0,
-                    y: pointer?.y || 0,
-                    sectionKey: section.id,
-                    waypointIndex: idx,
-                    waypointOnly: true
-                  });
-                }}
-              />
-            ));
+            return visiblePoints.map(({ pt, idx }) => {
+              const waypointPoint = getWaypointDisplayPoint(pt);
+              return (
+                <Circle
+                  key={`wp_${section.id}_${idx}`}
+                  x={waypointPoint.x}
+                  y={waypointPoint.y}
+                  radius={6}
+                  fill={canvasPalette.waypointFill}
+                  stroke={canvasPalette.waypointStroke}
+                  strokeWidth={2}
+                  shadowColor={canvasPalette.waypointShadow}
+                  shadowBlur={isLightAmapRender ? 0 : 5}
+                  draggable
+                  onDragMove={e => {
+                    updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
+                  }}
+                  onDragEnd={() => {
+                    setActiveCalibrationGuides([]);
+                  }}
+                  onContextMenu={e => {
+                    e.evt.preventDefault();
+                    lastIsRightClickRef.current = true;
+                    const stage = e.target.getStage();
+                    if (!stage) return;
+                    const pointer = stage.getPointerPosition();
+                    setSectionContextMenu({
+                      visible: true,
+                      x: pointer?.x || 0,
+                      y: pointer?.y || 0,
+                      sectionKey: section.id,
+                      waypointIndex: idx,
+                      waypointOnly: true
+                    });
+                  }}
+                />
+              );
+            });
           })}
           
           {/* 渲染正在绘制的线 */}
@@ -2148,7 +2209,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={stationColor}
                           strokeWidth={stylePreset.interchangeStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={6}
+                          shadowBlur={isLightAmapRender ? 0 : 6}
                         />
                         <Circle
                           radius={stylePreset.interchangeInnerRadius}
@@ -2164,24 +2225,11 @@ const Canvas: React.FC<CanvasProps> = ({
                         stroke={canvasPalette.stationStroke}
                         strokeWidth={stylePreset.normalStationStrokeWidth}
                         shadowColor={canvasPalette.dotShadow}
-                        shadowBlur={4}
+                        shadowBlur={isLightAmapRender ? 0 : 4}
                       />
                     )}
                     {labelRect ? (
                       <Group x={labelRect.x - stationPoint.x} y={labelRect.y - stationPoint.y} listening={false}>
-                        {isAmapMode ? (
-                          <Rect
-                            width={labelRect.width}
-                            height={labelRect.height}
-                            cornerRadius={labelRect.height / 2}
-                            fill={readableLabelBack}
-                            stroke={readableLabelStroke}
-                            strokeWidth={1}
-                            shadowColor={isMutedAmapStyle ? 'rgba(0,0,0,0.42)' : 'rgba(15,23,42,0.14)'}
-                            shadowBlur={8}
-                            shadowOpacity={1}
-                          />
-                        ) : null}
                         <Text
                           text={station.name}
                           width={labelRect.width}
@@ -2206,23 +2254,25 @@ const Canvas: React.FC<CanvasProps> = ({
                       stroke={canvasPalette.stationStroke}
                       strokeWidth={isInterchangeStation ? 4 : 2}
                       shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
-                      shadowBlur={isDarkCanvas ? 7 : 4}
+                      shadowBlur={isLightAmapRender ? 0 : isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2, y: 2 }}
                     />
-                    <Text
-                      text={station.name}
-                      fontSize={12}
-                      fill={canvasPalette.stationText}
-                      align="center"
-                      verticalAlign="middle"
-                      width={40}
-                      height={40}
-                      offsetX={20}
-                      offsetY={20}
-                      shadowColor={isAmapMode ? 'rgba(2,6,23,0.95)' : isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
-                      shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
-                      shadowOffset={{ x: 1, y: 1 }}
-                    />
+                    {!isLightAmapRender ? (
+                      <Text
+                        text={station.name}
+                        fontSize={12}
+                        fill={canvasPalette.stationText}
+                        align="center"
+                        verticalAlign="middle"
+                        width={40}
+                        height={40}
+                        offsetX={20}
+                        offsetY={20}
+                        shadowColor={isAmapMode ? 'rgba(2,6,23,0.95)' : isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
+                        shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
+                        shadowOffset={{ x: 1, y: 1 }}
+                      />
+                    ) : null}
                   </>
                 )}
               </Group>
