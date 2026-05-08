@@ -276,6 +276,8 @@ const Canvas: React.FC<CanvasProps> = ({
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
   const amapRef = useRef<any>(null);
+  const amapOverlayFrameRef = useRef<number | null>(null);
+  const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const [amapReady, setAmapReady] = useState(false);
   const [amapError, setAmapError] = useState('');
@@ -386,6 +388,13 @@ const Canvas: React.FC<CanvasProps> = ({
       .then((AMap) => {
         if (disposed || !amapContainerRef.current) return;
         if (!amapRef.current) {
+          const scheduleOverlayRender = () => {
+            if (amapOverlayFrameRef.current !== null) return;
+            amapOverlayFrameRef.current = window.requestAnimationFrame(() => {
+              amapOverlayFrameRef.current = null;
+              setMapRenderTick(tick => tick + 1);
+            });
+          };
           const amapOptions = mapSettings.baseMap.amap || {
             center: [116.397428, 39.90923] as [number, number],
             zoom: 11,
@@ -399,7 +408,6 @@ const Canvas: React.FC<CanvasProps> = ({
             resizeEnable: true
           });
           amapRef.current = map;
-          const syncOverlay = () => setMapRenderTick(tick => tick + 1);
           const syncSettings = () => {
             const center = map.getCenter();
             const zoom = map.getZoom();
@@ -416,8 +424,8 @@ const Canvas: React.FC<CanvasProps> = ({
               }
             });
           };
-          map.on('mapmove', syncOverlay);
-          map.on('zoomchange', syncOverlay);
+          map.on('mapmove', scheduleOverlayRender);
+          map.on('zoomchange', scheduleOverlayRender);
           map.on('moveend', syncSettings);
           map.on('zoomend', syncSettings);
         }
@@ -434,6 +442,10 @@ const Canvas: React.FC<CanvasProps> = ({
 
     return () => {
       disposed = true;
+      if (amapOverlayFrameRef.current !== null) {
+        window.cancelAnimationFrame(amapOverlayFrameRef.current);
+        amapOverlayFrameRef.current = null;
+      }
     };
   }, [isAmapMode, amapEnv.key, amapEnv.securityCode]);
 
@@ -529,7 +541,10 @@ const Canvas: React.FC<CanvasProps> = ({
     if (e.target === e.target.getStage()) {
       const pos = e.target.getPointerPosition();
       setIsDragging(activeTool === 'pan');
-      setLastPointerPosition(pos);
+      lastPointerPositionRef.current = pos;
+      if (!isAmapMode) {
+        setLastPointerPosition(pos);
+      }
       setMouseDownPosition(pos);
     }
   };
@@ -540,8 +555,9 @@ const Canvas: React.FC<CanvasProps> = ({
       const stage = e.target.getStage();
       const pointer = stage.getPointerPosition();
       if (isAmapMode && amapRef.current) {
-        amapRef.current.panBy?.(pointer.x - lastPointerPosition.x, pointer.y - lastPointerPosition.y);
-        setLastPointerPosition(pointer);
+        const lastPointer = lastPointerPositionRef.current;
+        amapRef.current.panBy?.(pointer.x - lastPointer.x, pointer.y - lastPointer.y);
+        lastPointerPositionRef.current = pointer;
         return;
       }
       
