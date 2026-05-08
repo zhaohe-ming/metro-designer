@@ -1495,6 +1495,13 @@ const Canvas: React.FC<CanvasProps> = ({
   const isDarkCanvas = mapSettings.canvasTheme === 'dark';
   const canvasPalette = CANVAS_THEME_PALETTES[mapSettings.canvasTheme];
   const dotLabelStyle = mapSettings.dotLabelStyle;
+  const amapStyle = mapSettings.baseMap.amap?.style || 'normal';
+  const isMutedAmapStyle = isAmapMode && (amapStyle === 'dark' || amapStyle === 'grey');
+  const isFreshAmapStyle = isAmapMode && amapStyle === 'fresh';
+  const readableLabelText = isMutedAmapStyle ? '#ffffff' : isFreshAmapStyle ? '#0f172a' : dotLabelStyle.color || canvasPalette.labelText;
+  const readableLabelBack = isMutedAmapStyle ? 'rgba(15, 23, 42, 0.76)' : 'rgba(255, 255, 255, 0.84)';
+  const readableLabelStroke = isMutedAmapStyle ? 'rgba(226, 232, 240, 0.26)' : 'rgba(15, 23, 42, 0.12)';
+  const readableLabelShadow = isMutedAmapStyle ? 'rgba(0, 0, 0, 0.92)' : 'rgba(255, 255, 255, 0.98)';
 
   type LabelRect = { x: number; y: number; width: number; height: number };
 
@@ -2010,12 +2017,12 @@ const Canvas: React.FC<CanvasProps> = ({
                 width={label.width}
                 height={label.height}
                 cornerRadius={label.height / 2}
-                fill={stylePreset.lineLabelFill}
+                fill={isMutedAmapStyle ? 'rgba(255,255,255,0.94)' : stylePreset.lineLabelFill}
                 stroke={label.line.color}
-                strokeWidth={stylePreset.lineLabelStrokeWidth}
+                strokeWidth={isAmapMode ? Math.max(2.5, stylePreset.lineLabelStrokeWidth) : stylePreset.lineLabelStrokeWidth}
                 shadowColor={label.line.color}
-                shadowBlur={4}
-                shadowOpacity={0.16}
+                shadowBlur={isAmapMode ? 10 : 4}
+                shadowOpacity={isAmapMode ? 0.28 : 0.16}
               />
               <Text
                 text={label.line.name}
@@ -2025,7 +2032,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 verticalAlign="middle"
                 fontSize={stylePreset.lineLabelFontSize}
                 fontStyle={`${stylePreset.lineLabelFontWeight}`}
-                fill={stylePreset.lineLabelText}
+                fill={isMutedAmapStyle ? '#0f172a' : stylePreset.lineLabelText}
               />
             </Group>
           ))}
@@ -2145,21 +2152,34 @@ const Canvas: React.FC<CanvasProps> = ({
                       />
                     )}
                     {labelRect ? (
-                      <Text
-                        text={station.name}
-                        x={labelRect.x - stationPoint.x}
-                        y={labelRect.y - stationPoint.y}
-                        width={labelRect.width}
-                        height={labelRect.height}
-                        fontSize={dotLabelStyle.fontSize}
-                        fontStyle={`${dotLabelStyle.fontWeight}`}
-                        fill={dotLabelStyle.color || canvasPalette.labelText}
-                        align="center"
-                        verticalAlign="middle"
-                        shadowColor={canvasPalette.labelShadow}
-                        shadowBlur={isDarkCanvas ? 5 : 2}
-                        shadowOpacity={1}
-                      />
+                      <Group x={labelRect.x - stationPoint.x} y={labelRect.y - stationPoint.y} listening={false}>
+                        {isAmapMode ? (
+                          <Rect
+                            width={labelRect.width}
+                            height={labelRect.height}
+                            cornerRadius={labelRect.height / 2}
+                            fill={readableLabelBack}
+                            stroke={readableLabelStroke}
+                            strokeWidth={1}
+                            shadowColor={isMutedAmapStyle ? 'rgba(0,0,0,0.42)' : 'rgba(15,23,42,0.14)'}
+                            shadowBlur={8}
+                            shadowOpacity={1}
+                          />
+                        ) : null}
+                        <Text
+                          text={station.name}
+                          width={labelRect.width}
+                          height={labelRect.height}
+                          fontSize={dotLabelStyle.fontSize}
+                          fontStyle={`${dotLabelStyle.fontWeight}`}
+                          fill={readableLabelText}
+                          align="center"
+                          verticalAlign="middle"
+                          shadowColor={isAmapMode ? readableLabelShadow : canvasPalette.labelShadow}
+                          shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 5 : 2}
+                          shadowOpacity={1}
+                        />
+                      </Group>
                     ) : null}
                   </>
                 ) : (
@@ -2183,8 +2203,8 @@ const Canvas: React.FC<CanvasProps> = ({
                       height={40}
                       offsetX={20}
                       offsetY={20}
-                      shadowColor={isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
-                      shadowBlur={isDarkCanvas ? 3 : 2}
+                      shadowColor={isAmapMode ? 'rgba(2,6,23,0.95)' : isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
+                      shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
                       shadowOffset={{ x: 1, y: 1 }}
                     />
                   </>
