@@ -196,9 +196,6 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onLogin, onRegister }) => {
               </Form>
             )}
 
-            <div className="auth-form-footer">
-              当前为本地演示账户体系，数据会保存到本地服务。后续可继续扩展短信验证、云端同步与团队协作。
-            </div>
           </div>
         </section>
       </div>

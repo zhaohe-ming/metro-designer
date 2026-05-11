@@ -151,6 +151,7 @@ const App: React.FC = () => {
   const [saveMapVisible, setSaveMapVisible] = useState(false);
   const [mapsVisible, setMapsVisible] = useState(false);
   const [mapsLoading, setMapsLoading] = useState(false);
+  const [saveMapSaving, setSaveMapSaving] = useState(false);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [mapName, setMapName] = useState('');
@@ -617,34 +618,40 @@ const App: React.FC = () => {
   };
 
   const handleOpenSaveMap = () => {
+    if (saveMapSaving) return;
     setMapName(currentMap?.name || '');
     setSaveMapVisible(true);
   };
 
   const handleSaveMap = async () => {
+    if (saveMapSaving) return;
+    const trimmed = mapName.trim();
+    const fallbackName = currentMap?.name || `我的地图 ${new Date().toLocaleString()}`;
+    const name = trimmed || fallbackName;
+    const wasVisible = saveMapVisible;
+    setSaveMapSaving(true);
+    setSaveMapVisible(false);
+    message.loading({ content: '正在保存地图...', key: 'save-map', duration: 0 });
     try {
-      const trimmed = mapName.trim();
-      const fallbackName = currentMap?.name || `我的地图 ${new Date().toLocaleString()}`;
-      const name = trimmed || fallbackName;
-
       if (currentMap) {
         const { map } = await api.updateMap(currentMap.id, { name, lines, stations, sections, mapSettings });
         setCurrentMap(map);
         upsertSavedMap(map);
-        setSaveMapVisible(false);
         setMapName('');
-        message.success('地图已覆盖保存');
+        message.success({ content: '地图已覆盖保存', key: 'save-map' });
         return;
       }
 
       const { map } = await api.createMap({ name, lines, stations, sections, mapSettings });
       setCurrentMap(map);
       upsertSavedMap(map);
-      setSaveMapVisible(false);
       setMapName('');
-      message.success('地图已保存');
+      message.success({ content: '地图已保存', key: 'save-map' });
     } catch (error: any) {
-      message.error(error.message || '保存地图失败');
+      if (wasVisible) setSaveMapVisible(true);
+      message.error({ content: error.message || '保存地图失败', key: 'save-map' });
+    } finally {
+      setSaveMapSaving(false);
     }
   };
 
@@ -1473,7 +1480,7 @@ const App: React.FC = () => {
 
             <section className="metro-user-panel">
               <div className="metro-action-buttons">
-                <Button className="metro-action-btn metro-action-btn--primary" size="small" onClick={handleOpenSaveMap}>
+                <Button className="metro-action-btn metro-action-btn--primary" size="small" loading={saveMapSaving} onClick={handleOpenSaveMap}>
                   {currentMap ? text.overwriteSave : text.saveMap}
                 </Button>
                 <Button className="metro-action-btn" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
@@ -1589,7 +1596,7 @@ const App: React.FC = () => {
             <section className="metro-info-section">
               <div className="metro-info-section__label">Actions</div>
               <div className="metro-info-actions">
-                <Button className="metro-info-action metro-info-action--primary" size="small" onClick={handleOpenSaveMap}>
+                <Button className="metro-info-action metro-info-action--primary" size="small" loading={saveMapSaving} onClick={handleOpenSaveMap}>
                   {currentMap ? '覆盖保存' : '保存地图'}
                 </Button>
                 <Button className="metro-info-action" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
@@ -1613,6 +1620,7 @@ const App: React.FC = () => {
           open={saveMapVisible}
           onCancel={() => setSaveMapVisible(false)}
           onOk={handleSaveMap}
+          confirmLoading={saveMapSaving}
           okText={currentMap ? '覆盖保存' : '保存'}
           cancelText="取消"
         >
