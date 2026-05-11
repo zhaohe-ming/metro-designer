@@ -11,6 +11,8 @@ const DEFAULT_CANVAS_BACKGROUND_COLOR = '#fafbfc';
 const GUIDE_THRESHOLD_DEG = 10;
 const SNAP_THRESHOLD_DEG = 2;
 const SNAP_ANGLES = [0, 45, 90, 135];
+const MAX_WAYPOINTS_PER_SECTION = 6;
+const SECTION_HIT_STROKE_WIDTH = 22;
 const CANVAS_THEME_PALETTES = {
   light: {
     background: '#fbfdff',
@@ -1508,7 +1510,58 @@ const Canvas: React.FC<CanvasProps> = ({
         shiftedPoints.push(rawPoints[i] + normal.x * offset, rawPoints[i + 1] + normal.y * offset);
       }
 
+      const handleSectionLineClick = (e: any) => {
+        if (lastIsRightClickRef.current) {
+          lastIsRightClickRef.current = false;
+          return;
+        }
+        if (!e.evt || e.evt.button !== 0) return;
+        const stage = e.target.getStage();
+        if (isSectionMode) {
+          setSelectedSection({
+            sectionId: seg.section.id,
+            lineId: seg.line.id,
+            startStation: seg.start,
+            endStation: seg.end
+          });
+        } else if (stage) {
+          const pointer = stage.getPointerPosition();
+          if (pointer) {
+            const worldPos = getPointerWorldPosition(stage, pointer);
+            handleLineSegmentClick(seg.line.id, seg.start, seg.end, worldPos);
+          }
+        }
+      };
+
+      const handleSectionLineContextMenu = (e: any) => {
+        e.evt.preventDefault();
+        lastIsRightClickRef.current = true;
+        const stage = e.target.getStage();
+        if (!stage) return;
+        const pointer = stage.getPointerPosition();
+        setSectionContextMenu({
+          visible: true,
+          x: pointer?.x || 0,
+          y: pointer?.y || 0,
+          sectionKey: seg.section.id,
+          waypointIndex: null,
+          waypointOnly: false
+        });
+      };
+
       result.push(
+        <Line
+          key={`${seg.section.id}_${currentIndex}_hit`}
+          points={shiftedPoints}
+          stroke="rgba(0,0,0,0.001)"
+          strokeWidth={Math.max(SECTION_HIT_STROKE_WIDTH, stylePreset.lineWidth + 12)}
+          hitStrokeWidth={Math.max(SECTION_HIT_STROKE_WIDTH, stylePreset.lineWidth + 12)}
+          lineCap="round"
+          lineJoin="round"
+          tension={0}
+          onClick={handleSectionLineClick}
+          onContextMenu={handleSectionLineContextMenu}
+        />,
         <Line
           key={`${seg.section.id}_${currentIndex}`}
           points={shiftedPoints}
@@ -1520,43 +1573,8 @@ const Canvas: React.FC<CanvasProps> = ({
           shadowBlur={isMapInteracting && isAmapMode ? 0 : stylePreset.lineShadowBlur}
           shadowOpacity={isMapInteracting && isAmapMode ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
-          onClick={e => {
-            if (lastIsRightClickRef.current) {
-              lastIsRightClickRef.current = false;
-              return;
-            }
-            if (!e.evt || e.evt.button !== 0) return;
-            const stage = e.target.getStage();
-            if (isSectionMode) {
-              setSelectedSection({
-                sectionId: seg.section.id,
-                lineId: seg.line.id,
-                startStation: seg.start,
-                endStation: seg.end
-              });
-            } else if (stage) {
-              const pointer = stage.getPointerPosition();
-              if (pointer) {
-                const worldPos = getPointerWorldPosition(stage, pointer);
-                handleLineSegmentClick(seg.line.id, seg.start, seg.end, worldPos);
-              }
-            }
-          }}
-          onContextMenu={e => {
-            e.evt.preventDefault();
-            lastIsRightClickRef.current = true;
-            const stage = e.target.getStage();
-            if (!stage) return;
-            const pointer = stage.getPointerPosition();
-            setSectionContextMenu({
-              visible: true,
-              x: pointer?.x || 0,
-              y: pointer?.y || 0,
-              sectionKey: seg.section.id,
-              waypointIndex: null,
-              waypointOnly: false
-            });
-          }}
+          onClick={handleSectionLineClick}
+          onContextMenu={handleSectionLineContextMenu}
         />
       );
 
@@ -1883,13 +1901,17 @@ const Canvas: React.FC<CanvasProps> = ({
       <div style={{ position: 'absolute', top: 60, left: 16, zIndex: 1001, background: '#fff', padding: '8px 12px', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
         <span>区间绘制模式：</span>
         <Switch checked={isSectionMode} onChange={checked => { setIsSectionMode(checked); setSelectedSection(null); }} checkedChildren="开启" unCheckedChildren="关闭" />
-        {isSectionMode && <span style={{ fontSize: '12px', color: '#666' }}>点击区间线条添加途经点（最多3个）</span>}
+        {isSectionMode && <span style={{ fontSize: '12px', color: '#666' }}>点击区间线条添加途经点（最多{MAX_WAYPOINTS_PER_SECTION}个）</span>}
       </div>
       {isSectionMode && selectedSection && (
         <DraggableModal
           title={`添加途经点（${selectedSection.startStation.name} → ${selectedSection.endStation.name}）`}
           open={!addingWaypoint}
           onOk={() => {
+            if ((waypoints[selectedSection.sectionId]?.length || 0) >= MAX_WAYPOINTS_PER_SECTION) {
+              message.warning(`最多只能添加${MAX_WAYPOINTS_PER_SECTION}个途经点`);
+              return;
+            }
             setAddingWaypoint(true);
           }}
           onCancel={() => {
@@ -1900,7 +1922,7 @@ const Canvas: React.FC<CanvasProps> = ({
           cancelText="完成"
         >
           <div style={{ marginBottom: 12, color: '#666', fontSize: 14 }}>
-            点击“添加途经点”后，在区间内点击画布添加途经点，最多3个，途经点仅用于折线显示
+            点击“添加途经点”后，在区间内点击画布添加途经点，最多{MAX_WAYPOINTS_PER_SECTION}个，途经点仅用于折线显示
           </div>
           <div>
             已添加途经点数：{(waypoints[selectedSection.sectionId]?.length || 0)}
@@ -2088,26 +2110,25 @@ const Canvas: React.FC<CanvasProps> = ({
                 };
                 const sectionKey = selectedSection.sectionId;
                 const currentWaypoints = waypoints[sectionKey] || [];
-                if (currentWaypoints.length < 2) {
-                  setWaypoints({
-                    ...waypoints,
-                    [sectionKey]: [...currentWaypoints, worldPos]
-                  });
-                  setAddingWaypoint(false); // 添加后关闭画布添加状态
-                } else if (currentWaypoints.length === 2) {
-                  // 添加第3个后自动关闭区间选择
-                  setWaypoints({
-                    ...waypoints,
-                    [sectionKey]: [...currentWaypoints, worldPos]
-                  });
+                if (currentWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
+                  message.warning(`最多只能添加${MAX_WAYPOINTS_PER_SECTION}个途经点`);
                   setAddingWaypoint(false);
                   setSelectedSection(null);
-                  message.success('已添加3个途经点');
-                } else {
-                  message.warning('最多只能添加3个途经点');
-                  setAddingWaypoint(false);
-                  setSelectedSection(null);
+                  return;
                 }
+                const nextWaypoints = [...currentWaypoints, worldPos];
+                setWaypoints({
+                  ...waypoints,
+                  [sectionKey]: nextWaypoints
+                });
+                setAddingWaypoint(false);
+                if (nextWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
+                  setSelectedSection(null);
+                  message.success(`已达到最多${MAX_WAYPOINTS_PER_SECTION}个途经点`);
+                } else {
+                  message.success('已添加途经点');
+                }
+                return;
               }
             }
             return;
