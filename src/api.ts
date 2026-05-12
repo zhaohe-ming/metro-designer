@@ -61,6 +61,23 @@ async function request<T>(path: string, options: RequestInit = {}, auth = false)
   return data as T;
 }
 
+async function requestBlob(path: string, options: RequestInit = {}, auth = false): Promise<Blob> {
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string> | undefined)
+  };
+  if (auth) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const url = `${API_BASE_URL}${path}`;
+  const res = await fetch(url, { ...options, headers });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.message || '请求失败');
+  }
+  return res.blob();
+}
+
 export const api = {
   login: (payload: { phone: string; password: string }) =>
     request<{ token: string; user: UserDto }>('/api/auth/login', {
@@ -84,5 +101,22 @@ export const api = {
     request<{ map: MapSummary }>('/api/maps', { method: 'POST', body: JSON.stringify(payload) }, true),
   updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[]; mapSettings?: MapSettings }) =>
     request<{ map: MapSummary }>(`/api/maps/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, true),
-  deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, true)
+  deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, true),
+  getAmapStaticMap: (params: {
+    center: [number, number];
+    zoom: number;
+    width: number;
+    height: number;
+    style?: string;
+  }) => {
+    const query = new URLSearchParams({
+      lng: String(params.center[0]),
+      lat: String(params.center[1]),
+      zoom: String(params.zoom),
+      width: String(params.width),
+      height: String(params.height),
+      style: params.style || 'normal'
+    });
+    return requestBlob(`/api/amap/static-map?${query.toString()}`, {}, true);
+  }
 };

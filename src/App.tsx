@@ -723,7 +723,6 @@ const App: React.FC = () => {
     allSections: Section[],
     settings: MapSettings
   ) => {
-    void stage;
     if (!segments.length) {
       message.warning('请至少填写一个开通区间');
       return;
@@ -735,18 +734,33 @@ const App: React.FC = () => {
     }
 
     const fps = 30;
-    const width = 1280;
-    const height = 720;
+    const roundEven = (value: number) => Math.max(2, Math.round(value / 2) * 2);
+    const stageWidth = Math.max(1, Number(stage?.width?.() || 1280));
+    const stageHeight = Math.max(1, Number(stage?.height?.() || 720));
+    const aspectRatio = Math.max(0.45, Math.min(2.4, stageWidth / stageHeight));
+    const maxVideoEdge = 1280;
+    const minVideoEdge = 540;
+    const width = aspectRatio >= 1
+      ? roundEven(maxVideoEdge)
+      : roundEven(Math.max(minVideoEdge, maxVideoEdge * aspectRatio));
+    const height = aspectRatio >= 1
+      ? roundEven(Math.max(minVideoEdge, maxVideoEdge / aspectRatio))
+      : roundEven(maxVideoEdge);
     const titleFrames = Math.round(fps * 0.8);
     const outroFrames = fps;
     const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
     const preset = getCityStylePreset(settings);
     const isDarkCanvas = settings.canvasTheme === 'dark';
-    const mutedLineColor = isDarkCanvas ? '#334155' : '#d8e0eb';
-    const mutedStationFill = isDarkCanvas ? '#0f172a' : '#ffffff';
-    const mutedStationStroke = isDarkCanvas ? '#475569' : '#cbd5e1';
-    const primaryText = isDarkCanvas ? '#f8fafc' : '#0f172a';
-    const secondaryText = isDarkCanvas ? '#cbd5e1' : '#475569';
+    const isAmapVideo = settings.baseMap.mode === 'amap';
+    const amapStyle = settings.baseMap.amap?.style || 'normal';
+    const isMutedAmapStyle = isAmapVideo && (amapStyle === 'dark' || amapStyle === 'grey');
+    const usesDarkVideoSurface = isDarkCanvas || isMutedAmapStyle;
+    const mutedLineColor = usesDarkVideoSurface ? 'rgba(148, 163, 184, 0.46)' : 'rgba(100, 116, 139, 0.28)';
+    const mutedStationFill = usesDarkVideoSurface ? '#0f172a' : '#ffffff';
+    const mutedStationStroke = usesDarkVideoSurface ? '#94a3b8' : '#cbd5e1';
+    const primaryText = usesDarkVideoSurface ? '#f8fafc' : '#0f172a';
+    const secondaryText = usesDarkVideoSurface ? '#cbd5e1' : '#475569';
+    const textHalo = usesDarkVideoSurface ? 'rgba(2, 6, 23, 0.95)' : 'rgba(255, 255, 255, 0.98)';
     const stationById = new Map(allStations.map(station => [station.id, station]));
     const stationLineCounts = allStations.reduce<Record<string, number>>((result, station) => {
       result[station.id] = allLines.filter(line => line.stationIds.includes(station.id)).length;
@@ -799,6 +813,10 @@ const App: React.FC = () => {
     };
 
     const animationSegments = sortedSegments.map(resolveSegmentPath);
+    const lngLatStations = allStations.filter(station => typeof station.lng === 'number' && typeof station.lat === 'number');
+    if (isAmapVideo && lngLatStations.length !== allStations.length) {
+      message.warning('部分站点缺少经纬度，视频中会使用画布坐标兜底，可能无法完全贴合高德底图');
+    }
     const minX = Math.min(...allStations.map(station => station.x));
     const minY = Math.min(...allStations.map(station => station.y));
     const maxX = Math.max(...allStations.map(station => station.x));
@@ -806,15 +824,35 @@ const App: React.FC = () => {
     const padding = 96;
     const mapWidth = Math.max(1, maxX - minX);
     const mapHeight = Math.max(1, maxY - minY);
-    const mapScale = Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight, 2.2);
+    const plainMapScale = Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight, 2.2);
+    const mapScale = isAmapVideo ? Math.max(0.72, Math.min(1.35, Math.min(width, height) / 720)) : plainMapScale;
     const mapOffset = {
-      x: (width - mapWidth * mapScale) / 2 - minX * mapScale,
-      y: (height - mapHeight * mapScale) / 2 - minY * mapScale - 10
+      x: (width - mapWidth * plainMapScale) / 2 - minX * plainMapScale,
+      y: (height - mapHeight * plainMapScale) / 2 - minY * plainMapScale - 10
     };
-    const toCanvasPoint = (station: Station) => ({
-      x: station.x * mapScale + mapOffset.x,
-      y: station.y * mapScale + mapOffset.y
-    });
+    const amapOptions = settings.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!;
+    const mercatorProject = (lng: number, lat: number, zoom: number) => {
+      const sin = Math.sin((Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI) / 180);
+      const worldSize = 256 * Math.pow(2, zoom);
+      return {
+        x: ((lng + 180) / 360) * worldSize,
+        y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldSize
+      };
+    };
+    const amapCenterPoint = mercatorProject(amapOptions.center[0], amapOptions.center[1], amapOptions.zoom);
+    const toCanvasPoint = (station: Station) => {
+      if (isAmapVideo && typeof station.lng === 'number' && typeof station.lat === 'number') {
+        const point = mercatorProject(station.lng, station.lat, amapOptions.zoom);
+        return {
+          x: width / 2 + point.x - amapCenterPoint.x,
+          y: height / 2 + point.y - amapCenterPoint.y
+        };
+      }
+      return {
+        x: station.x * plainMapScale + mapOffset.x,
+        y: station.y * plainMapScale + mapOffset.y
+      };
+    };
     const pathToPoints = (stationIds: string[]) =>
       stationIds.map(id => stationById.get(id)).filter(Boolean).map(station => toCanvasPoint(station!));
 
@@ -860,6 +898,33 @@ const App: React.FC = () => {
       message.error('浏览器不支持导出视频');
       return;
     }
+
+    const loadImageFromBlob = (blob: Blob) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const url = URL.createObjectURL(blob);
+        const image = new Image();
+        image.onload = () => {
+          URL.revokeObjectURL(url);
+          resolve(image);
+        };
+        image.onerror = () => {
+          URL.revokeObjectURL(url);
+          reject(new Error('高德静态地图图片加载失败'));
+        };
+        image.src = url;
+      });
+
+    const amapBackgroundImage = isAmapVideo
+      ? await api
+          .getAmapStaticMap({
+            center: amapOptions.center,
+            zoom: amapOptions.zoom,
+            width,
+            height,
+            style: amapOptions.style
+          })
+          .then(loadImageFromBlob)
+      : null;
 
     type VideoPoint = { x: number; y: number };
     type RectBox = { x: number; y: number; width: number; height: number };
@@ -1057,15 +1122,16 @@ const App: React.FC = () => {
         occupied.push(best);
         ctx.save();
         ctx.globalAlpha = alpha;
-        roundRect(ctx, best.x, best.y, best.width, best.height, best.height / 2);
-        ctx.fillStyle = preset.lineLabelFill;
-        ctx.strokeStyle = line.color;
-        ctx.lineWidth = preset.lineLabelStrokeWidth;
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = preset.lineLabelText;
+        ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
+        ctx.lineWidth = usesDarkVideoSurface ? 4 : 5;
+        ctx.strokeStyle = textHalo;
+        ctx.shadowColor = textHalo;
+        ctx.shadowBlur = 4;
+        ctx.strokeText(label, best.x + best.width / 2, best.y + best.height / 2);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = line.color;
         ctx.fillText(label, best.x + best.width / 2, best.y + best.height / 2);
         ctx.restore();
       });
@@ -1154,16 +1220,16 @@ const App: React.FC = () => {
       const text = station.name.slice(0, visibleLength);
       ctx.save();
       ctx.globalAlpha = alpha * Math.max(0.15, reveal);
-      roundRect(ctx, placement.x, placement.y, placement.width, placement.height, placement.height / 2);
-      ctx.fillStyle = isDarkCanvas ? 'rgba(15, 23, 42, 0.86)' : 'rgba(255, 255, 255, 0.9)';
-      ctx.strokeStyle = isDarkCanvas ? 'rgba(148, 163, 184, 0.34)' : 'rgba(148, 163, 184, 0.32)';
-      ctx.lineWidth = 1;
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = settings.dotLabelStyle.color || primaryText;
       ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+      ctx.lineWidth = usesDarkVideoSurface ? 4 : 5;
+      ctx.strokeStyle = textHalo;
+      ctx.shadowColor = textHalo;
+      ctx.shadowBlur = 4;
+      ctx.strokeText(text, placement.textX, placement.textY);
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = isMutedAmapStyle ? '#ffffff' : settings.dotLabelStyle.color || primaryText;
       ctx.fillText(text, placement.textX, placement.textY);
       ctx.restore();
     };
@@ -1175,8 +1241,12 @@ const App: React.FC = () => {
       segmentFrame = 0
     ) => {
       ctx.clearRect(0, 0, width, height);
-      ctx.fillStyle = canvasThemeGradient(ctx);
-      ctx.fillRect(0, 0, width, height);
+      if (amapBackgroundImage) {
+        ctx.drawImage(amapBackgroundImage, 0, 0, width, height);
+      } else {
+        ctx.fillStyle = canvasThemeGradient(ctx);
+        ctx.fillRect(0, 0, width, height);
+      }
 
       allSections.forEach(section => {
         const start = stationById.get(section.startStationId);

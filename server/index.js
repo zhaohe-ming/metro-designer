@@ -12,6 +12,7 @@ const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'metro_designer_change_me';
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
+const AMAP_WEB_SERVICE_KEY = process.env.AMAP_WEB_SERVICE_KEY || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 
@@ -451,6 +452,51 @@ function auth(req, res, next) {
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, storage: pgPool ? 'postgres' : 'json' });
 });
+
+app.get('/api/amap/static-map', auth, asyncHandler(async (req, res) => {
+  if (!AMAP_WEB_SERVICE_KEY) {
+    return res.status(400).json({ message: '高德静态地图服务未配置 AMAP_WEB_SERVICE_KEY' });
+  }
+
+  const lng = Number(req.query.lng);
+  const lat = Number(req.query.lat);
+  const zoom = Math.max(3, Math.min(20, Number(req.query.zoom) || DEFAULT_MAP_SETTINGS.baseMap.amap.zoom));
+  const width = Math.max(320, Math.min(1280, Math.round(Number(req.query.width) || 1280)));
+  const height = Math.max(240, Math.min(1280, Math.round(Number(req.query.height) || 720)));
+  const style = ['dark', 'grey', 'fresh'].includes(req.query.style) ? String(req.query.style) : 'normal';
+
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+    return res.status(400).json({ message: '高德静态地图中心点无效' });
+  }
+
+  const styleMap = {
+    normal: 'normal',
+    dark: 'dark',
+    grey: 'grey',
+    fresh: 'fresh'
+  };
+  const query = new URLSearchParams({
+    location: `${lng},${lat}`,
+    zoom: String(Math.round(zoom)),
+    size: `${width}*${height}`,
+    scale: '1',
+    key: AMAP_WEB_SERVICE_KEY
+  });
+  if (styleMap[style]) query.set('style', styleMap[style]);
+
+  const upstream = await fetch(`https://restapi.amap.com/v3/staticmap?${query.toString()}`);
+  const contentType = upstream.headers.get('content-type') || '';
+  if (!upstream.ok || !contentType.startsWith('image/')) {
+    const text = await upstream.text().catch(() => '');
+    console.error('AMap static map failed:', upstream.status, text.slice(0, 300));
+    return res.status(502).json({ message: '高德静态地图获取失败，请检查 Web Service Key 和配额' });
+  }
+
+  const arrayBuffer = await upstream.arrayBuffer();
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'private, max-age=300');
+  res.send(Buffer.from(arrayBuffer));
+}));
 
 app.post('/api/auth/register', asyncHandler(async (req, res) => {
   const phone = normalizePhone(req.body?.phone);
