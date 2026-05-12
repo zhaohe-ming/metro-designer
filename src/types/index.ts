@@ -9,11 +9,20 @@ export interface Station {
   labelPosition?: 'auto' | 'top' | 'right' | 'bottom' | 'left' | 'hidden';
 }
 
+export interface Waypoint {
+  x: number;
+  y: number;
+  lng?: number;
+  lat?: number;
+  hidden?: boolean;
+}
+
 export interface Section {
   id: string;
   lineId: string;
   startStationId: string;
   endStationId: string;
+  waypoints?: Waypoint[];
 }
 
 export interface Line {
@@ -119,6 +128,40 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
       }
     }
   };
+};
+
+const normalizeWaypoint = (raw: any): Waypoint | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = typeof raw.x === 'number' && Number.isFinite(raw.x) ? raw.x : null;
+  const y = typeof raw.y === 'number' && Number.isFinite(raw.y) ? raw.y : null;
+  if (x === null || y === null) return null;
+  const waypoint: Waypoint = { x, y };
+  if (typeof raw.lng === 'number' && Number.isFinite(raw.lng)) waypoint.lng = raw.lng;
+  if (typeof raw.lat === 'number' && Number.isFinite(raw.lat)) waypoint.lat = raw.lat;
+  if (raw.hidden === true) waypoint.hidden = true;
+  return waypoint;
+};
+
+export const normalizeSections = (rawSections: any): Section[] => {
+  if (!Array.isArray(rawSections)) return [];
+  return rawSections
+    .map((section): Section | null => {
+      if (!section || typeof section !== 'object') return null;
+      if (!section.id || !section.lineId || !section.startStationId || !section.endStationId) return null;
+      const waypointsInput = Array.isArray(section.waypoints) ? section.waypoints : [];
+      const waypoints = waypointsInput
+        .map(normalizeWaypoint)
+        .filter((point: Waypoint | null): point is Waypoint => point !== null);
+      const normalized: Section = {
+        id: String(section.id),
+        lineId: String(section.lineId),
+        startStationId: String(section.startStationId),
+        endStationId: String(section.endStationId)
+      };
+      if (waypoints.length) normalized.waypoints = waypoints;
+      return normalized;
+    })
+    .filter((section: Section | null): section is Section => section !== null);
 };
 
 export const LINE_COLORS = [

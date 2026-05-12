@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
 import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
-import { MapSettings, Station, Line as LineType, Section, LINE_COLORS } from '../types';
+import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import DraggableModal from './DraggableModal';
@@ -66,7 +66,6 @@ const DEFAULT_AMAP_SETTINGS = {
 };
 
 type CanvasTool = 'select' | 'station' | 'line' | 'section' | 'pan';
-type Waypoint = { x: number; y: number; lng?: number; lat?: number; hidden?: boolean };
 
 interface CanvasProps {
   currentLineId: string | null;
@@ -86,8 +85,10 @@ interface CanvasProps {
   onReorderStations: (lineId: string, stationIds: string[]) => void;
   onDeleteStation: (stationId: string) => void;
   onUpdateStations?: (stations: Station[]) => void;
+  onUpdateSection?: (sectionId: string, patch: Partial<Section>) => void;
   onMapSettingsChange?: (settings: MapSettings) => void;
   onStageReady?: (stage: any) => void;
+  onBeginInteraction?: () => void;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -105,8 +106,10 @@ const Canvas: React.FC<CanvasProps> = ({
   onReorderStations,
   onDeleteStation,
   onUpdateStations,
+  onUpdateSection,
   onMapSettingsChange,
-  onStageReady
+  onStageReady,
+  onBeginInteraction
 }) => {
   const text = language === 'en-US'
     ? {
@@ -206,8 +209,18 @@ const Canvas: React.FC<CanvasProps> = ({
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [isSectionMode, setIsSectionMode] = useState(false); // 区间绘制模式
   const [selectedSection, setSelectedSection] = useState<{ sectionId: string; lineId: string; startStation: Station; endStation: Station } | null>(null);
-  const [waypoints, setWaypoints] = useState<{ [key: string]: Waypoint[] }>({}); // key: lineId_startId_endId
   const [addingWaypoint, setAddingWaypoint] = useState(false);
+
+  // 从 sections 中读取某区间的途经点
+  const getSectionWaypoints = (sectionId: string): Waypoint[] =>
+    sections.find(section => section.id === sectionId)?.waypoints || [];
+
+  // 写回某区间的途经点（保存前快照交给上层 onBeginInteraction 决定）
+  const writeSectionWaypoints = (sectionId: string, nextWaypoints: Waypoint[]) => {
+    if (!onUpdateSection) return;
+    const patch: Partial<Section> = { waypoints: nextWaypoints.length ? nextWaypoints : undefined };
+    onUpdateSection(sectionId, patch);
+  };
   const [isDrawing, setIsDrawing] = useState(false);
   const [drawingLine, setDrawingLine] = useState<{ startStation: Station | null; points: number[] }>({
     startStation: null,
@@ -574,17 +587,16 @@ const Canvas: React.FC<CanvasProps> = ({
       });
 
       onUpdateStations?.(frozenStations);
-      setWaypoints(prev =>
-        Object.fromEntries(
-          Object.entries(prev).map(([sectionId, points]) => [
-            sectionId,
-            points.map(point => {
-              const projected = projectLngLatToContainerPoint(point.lng, point.lat);
-              return projected ? { ...point, ...projected } : point;
-            })
-          ])
-        )
-      );
+      if (onUpdateSection) {
+        sections.forEach(section => {
+          if (!section.waypoints?.length) return;
+          const nextWaypoints = section.waypoints.map(point => {
+            const projected = projectLngLatToContainerPoint(point.lng, point.lat);
+            return projected ? { ...point, ...projected } : point;
+          });
+          onUpdateSection(section.id, { waypoints: nextWaypoints });
+        });
+      }
       setScale(1);
       setPosition({ x: 0, y: 0 });
       setIsMapInteracting(false);
@@ -595,7 +607,7 @@ const Canvas: React.FC<CanvasProps> = ({
       setCanvasContextMenu({ visible: false, x: 0, y: 0 });
     }
     previousBaseMapModeRef.current = mapSettings.baseMap.mode;
-  }, [isAmapMode, mapSettings.baseMap.mode, onUpdateStations, stations]);
+  }, [isAmapMode, mapSettings.baseMap.mode, onUpdateStations, onUpdateSection, sections, stations]);
 
   // 处理鼠标滚轮缩放
   const handleWheel = (e: any) => {
@@ -1258,84 +1270,71 @@ const Canvas: React.FC<CanvasProps> = ({
     const endStation = stations.find(s => s.id === section.endStationId);
     if (!startStation || !endStation) return;
 
-    let computedGuides: number[][] = [];
-    setWaypoints(prev => {
-      const current = prev[sectionId] || [];
-      const next = [...current];
-      const prevPoint = waypointIndex === 0 ? getDisplayPoint(startStation) : getWaypointDisplayPoint(next[waypointIndex - 1]);
-      const nextPoint = waypointIndex === next.length - 1 ? getDisplayPoint(endStation) : getWaypointDisplayPoint(next[waypointIndex + 1]);
+    const current = section.waypoints || [];
+    if (!current[waypointIndex]) return;
+    const next = [...current];
 
-      let snappedX = x;
-      let snappedY = y;
-      const guideLines: number[][] = [];
+    const prevPoint = waypointIndex === 0 ? getDisplayPoint(startStation) : getWaypointDisplayPoint(next[waypointIndex - 1]);
+    const nextPoint = waypointIndex === next.length - 1 ? getDisplayPoint(endStation) : getWaypointDisplayPoint(next[waypointIndex + 1]);
 
-      const prevGuide = buildAxisGuide(prevPoint.x, prevPoint.y, x, y);
-      const nextGuide = buildAxisGuide(x, y, nextPoint.x, nextPoint.y);
+    let snappedX = x;
+    let snappedY = y;
+    const guideLines: number[][] = [];
 
-      if (prevGuide) {
-        guideLines.push(prevGuide);
-      }
-      if (nextGuide) {
-        guideLines.push([x, y, nextGuide[2], nextGuide[3]]);
-      }
+    const prevGuide = buildAxisGuide(prevPoint.x, prevPoint.y, x, y);
+    const nextGuide = buildAxisGuide(x, y, nextPoint.x, nextPoint.y);
 
-      const snapCandidates = [
-        getDirectionalSnap(prevPoint.x, prevPoint.y, x, y, SNAP_THRESHOLD_DEG),
-        getDirectionalSnap(nextPoint.x, nextPoint.y, x, y, SNAP_THRESHOLD_DEG)
-      ].filter(Boolean) as Array<{ x: number; y: number; diff: number }>;
-      const bestSnap = snapCandidates.sort((a, b) => a.diff - b.diff)[0];
-      if (bestSnap) {
-        snappedX = bestSnap.x;
-        snappedY = bestSnap.y;
-      }
+    if (prevGuide) guideLines.push(prevGuide);
+    if (nextGuide) guideLines.push([x, y, nextGuide[2], nextGuide[3]]);
 
-      next[waypointIndex] = {
-        ...next[waypointIndex],
-        x: snappedX,
-        y: snappedY,
-        ...(getLngLatFromContainerPoint({ x: snappedX, y: snappedY }) || {})
-      };
-      computedGuides = guideLines.map(g => [g[0], g[1], g[2], g[3]]);
-      return { ...prev, [sectionId]: next };
-    });
+    const snapCandidates = [
+      getDirectionalSnap(prevPoint.x, prevPoint.y, x, y, SNAP_THRESHOLD_DEG),
+      getDirectionalSnap(nextPoint.x, nextPoint.y, x, y, SNAP_THRESHOLD_DEG)
+    ].filter(Boolean) as Array<{ x: number; y: number; diff: number }>;
+    const bestSnap = snapCandidates.sort((a, b) => a.diff - b.diff)[0];
+    if (bestSnap) {
+      snappedX = bestSnap.x;
+      snappedY = bestSnap.y;
+    }
+
+    next[waypointIndex] = {
+      ...next[waypointIndex],
+      x: snappedX,
+      y: snappedY,
+      ...(getLngLatFromContainerPoint({ x: snappedX, y: snappedY }) || {})
+    };
+    writeSectionWaypoints(sectionId, next);
 
     if (withGuide) {
-      setActiveCalibrationGuides(computedGuides);
+      setActiveCalibrationGuides(guideLines.map(g => [g[0], g[1], g[2], g[3]]));
     }
   };
 
   const hideWaypoint = (sectionId: string, waypointIndex: number) => {
-    setWaypoints(prev => {
-      const current = prev[sectionId] || [];
-      return {
-        ...prev,
-        [sectionId]: current.map((point, index) =>
-          index === waypointIndex ? { ...point, hidden: true } : point
-        )
-      };
-    });
+    onBeginInteraction?.();
+    const current = getSectionWaypoints(sectionId);
+    writeSectionWaypoints(
+      sectionId,
+      current.map((point, index) => (index === waypointIndex ? { ...point, hidden: true } : point))
+    );
   };
 
   const showWaypoint = (sectionId: string, waypointIndex: number) => {
-    setWaypoints(prev => {
-      const current = prev[sectionId] || [];
-      return {
-        ...prev,
-        [sectionId]: current.map((point, index) =>
-          index === waypointIndex ? { ...point, hidden: false } : point
-        )
-      };
-    });
+    onBeginInteraction?.();
+    const current = getSectionWaypoints(sectionId);
+    writeSectionWaypoints(
+      sectionId,
+      current.map((point, index) => (index === waypointIndex ? { ...point, hidden: false } : point))
+    );
   };
 
   const deleteWaypoint = (sectionId: string, waypointIndex: number) => {
-    setWaypoints(prev => {
-      const current = prev[sectionId] || [];
-      return {
-        ...prev,
-        [sectionId]: current.filter((_, index) => index !== waypointIndex)
-      };
-    });
+    onBeginInteraction?.();
+    const current = getSectionWaypoints(sectionId);
+    writeSectionWaypoints(
+      sectionId,
+      current.filter((_, index) => index !== waypointIndex)
+    );
   };
 
   const handleCanvasContextMenu = (e: any) => {
@@ -1472,7 +1471,7 @@ const Canvas: React.FC<CanvasProps> = ({
           line,
           start,
           end,
-          waypoints: waypoints[section.id] || [],
+          waypoints: section.waypoints || [],
           normalizedKey: [section.startStationId, section.endStationId].sort().join('_')
         };
       })
@@ -1663,7 +1662,7 @@ const Canvas: React.FC<CanvasProps> = ({
         const start = stations.find(station => station.id === section.startStationId);
         const end = stations.find(station => station.id === section.endStationId);
         if (!start || !end) return [];
-        const points = [getDisplayPoint(start), ...(waypoints[section.id] || []).map(point => getWaypointDisplayPoint(point)), getDisplayPoint(end)];
+        const points = [getDisplayPoint(start), ...((section.waypoints || []).map(point => getWaypointDisplayPoint(point))), getDisplayPoint(end)];
         const segments: Array<[number, number, number, number]> = [];
         for (let i = 0; i < points.length - 1; i += 1) {
           segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
@@ -1908,7 +1907,7 @@ const Canvas: React.FC<CanvasProps> = ({
           title={`添加途经点（${selectedSection.startStation.name} → ${selectedSection.endStation.name}）`}
           open={!addingWaypoint}
           onOk={() => {
-            if ((waypoints[selectedSection.sectionId]?.length || 0) >= MAX_WAYPOINTS_PER_SECTION) {
+            if (getSectionWaypoints(selectedSection.sectionId).length >= MAX_WAYPOINTS_PER_SECTION) {
               message.warning(`最多只能添加${MAX_WAYPOINTS_PER_SECTION}个途经点`);
               return;
             }
@@ -1925,12 +1924,12 @@ const Canvas: React.FC<CanvasProps> = ({
             点击“添加途经点”后，在区间内点击画布添加途经点，最多{MAX_WAYPOINTS_PER_SECTION}个，途经点仅用于折线显示
           </div>
           <div>
-            已添加途经点数：{(waypoints[selectedSection.sectionId]?.length || 0)}
+            已添加途经点数：{getSectionWaypoints(selectedSection.sectionId).length}
           </div>
           {/* 列出已添加途经点并可删除 */}
           {(() => {
             const sectionKey = selectedSection.sectionId;
-            const points = waypoints[sectionKey] || [];
+            const points = getSectionWaypoints(sectionKey);
             if (points.length === 0) return null;
             return (
               <div style={{ marginTop: 12 }}>
@@ -1944,12 +1943,10 @@ const Canvas: React.FC<CanvasProps> = ({
                       size="small"
                       icon={<span style={{fontWeight:'bold',color:'#ff4d4f'}}>🗑️</span>}
                       onClick={() => {
+                        onBeginInteraction?.();
                         const newArr = [...points];
                         newArr.splice(idx, 1);
-                        setWaypoints({
-                          ...waypoints,
-                          [sectionKey]: newArr
-                        });
+                        writeSectionWaypoints(sectionKey, newArr);
                       }}
                     >删除</Button>
                   </div>
@@ -2109,18 +2106,16 @@ const Canvas: React.FC<CanvasProps> = ({
                   ...(getLngLatFromContainerPoint(pointer) || {})
                 };
                 const sectionKey = selectedSection.sectionId;
-                const currentWaypoints = waypoints[sectionKey] || [];
+                const currentWaypoints = getSectionWaypoints(sectionKey);
                 if (currentWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
                   message.warning(`最多只能添加${MAX_WAYPOINTS_PER_SECTION}个途经点`);
                   setAddingWaypoint(false);
                   setSelectedSection(null);
                   return;
                 }
+                onBeginInteraction?.();
                 const nextWaypoints = [...currentWaypoints, worldPos];
-                setWaypoints({
-                  ...waypoints,
-                  [sectionKey]: nextWaypoints
-                });
+                writeSectionWaypoints(sectionKey, nextWaypoints);
                 setAddingWaypoint(false);
                 if (nextWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
                   setSelectedSection(null);
@@ -2184,7 +2179,7 @@ const Canvas: React.FC<CanvasProps> = ({
             />
           ))}
           {sections.map(section => {
-            const points = waypoints[section.id] || [];
+            const points = section.waypoints || [];
             const visiblePoints = points
               .map((pt, idx) => ({ pt, idx }))
               .filter(({ pt }) => !pt.hidden);
@@ -2203,6 +2198,9 @@ const Canvas: React.FC<CanvasProps> = ({
                   shadowColor={canvasPalette.waypointShadow}
                   shadowBlur={isLightAmapRender ? 0 : 5}
                   draggable
+                  onDragStart={() => {
+                    onBeginInteraction?.();
+                  }}
                   onDragMove={e => {
                     updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
                   }}
@@ -2254,6 +2252,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 x={stationPoint.x}
                 y={stationPoint.y}
                 draggable={activeTool === 'select' || activeTool === 'station'}
+                onDragStart={() => onBeginInteraction?.()}
                 onDragMove={e =>
                   handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
                 }
@@ -2542,7 +2541,8 @@ const Canvas: React.FC<CanvasProps> = ({
        {sectionContextMenu.visible && sectionContextMenu.sectionKey ? (() => {
          const sectionKey = sectionContextMenu.sectionKey!;
          const pointIndex = sectionContextMenu.waypointIndex;
-         const currentPoint = pointIndex === null ? null : waypoints[sectionKey]?.[pointIndex];
+         const sectionWaypoints = getSectionWaypoints(sectionKey);
+         const currentPoint = pointIndex === null ? null : sectionWaypoints[pointIndex];
          const closeSectionMenu = () => {
            setSectionContextMenu({ ...sectionContextMenu, visible: false, waypointOnly: false });
            setSelectedSection(null);
@@ -2597,8 +2597,8 @@ const Canvas: React.FC<CanvasProps> = ({
              ) : (
                <>
                  <div style={{ fontWeight: 700 }}>区间途经点管理</div>
-                 {(waypoints[sectionKey]?.length ?? 0) > 0 ? (
-                   waypoints[sectionKey].map((pt, idx) => (
+                 {sectionWaypoints.length > 0 ? (
+                   sectionWaypoints.map((pt, idx) => (
                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 6, alignItems: 'center' }}>
                        <span style={{ color: canvasPalette.menuText }}>途经点 {idx + 1}</span>
                        <Button

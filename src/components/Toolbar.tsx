@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Button, ColorPicker, Input, message, Select } from 'antd';
-import { DownloadOutlined, PictureOutlined, PlusOutlined } from '@ant-design/icons';
+import { Button, ColorPicker, Input, message, Select, Tooltip } from 'antd';
+import { DownloadOutlined, PictureOutlined, PlusOutlined, RedoOutlined, UndoOutlined } from '@ant-design/icons';
 import { LINE_COLORS, Line } from '../types';
 import DraggableModal from './DraggableModal';
 
@@ -12,6 +12,10 @@ interface ToolbarProps {
   onSelectLine: (id: string) => void;
   onExportImage?: () => void;
   onOpenVideoModal?: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -21,7 +25,11 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onAddLine,
   onSelectLine,
   onExportImage,
-  onOpenVideoModal
+  onOpenVideoModal,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo
 }) => {
   const text = language === 'en-US'
     ? {
@@ -52,6 +60,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
         moreColors: '使用更多颜色',
         lineNameRequired: '请输入线路名称'
       };
+  const undoText = language === 'en-US' ? 'Undo (Ctrl+Z)' : '撤销 (Ctrl+Z)';
+  const redoText = language === 'en-US' ? 'Redo (Ctrl+Shift+Z)' : '重做 (Ctrl+Shift+Z)';
   const [addingLine, setAddingLine] = useState(false);
   const [newLineName, setNewLineName] = useState('');
   const [selectedColor, setSelectedColor] = useState(LINE_COLORS[0]);
@@ -108,6 +118,26 @@ const Toolbar: React.FC<ToolbarProps> = ({
         </div>
 
         <div className="metro-toolbar__right">
+          {onUndo ? (
+            <Tooltip title={undoText}>
+              <Button
+                className="metro-toolbar__secondary"
+                onClick={onUndo}
+                disabled={!canUndo}
+                icon={<UndoOutlined />}
+              />
+            </Tooltip>
+          ) : null}
+          {onRedo ? (
+            <Tooltip title={redoText}>
+              <Button
+                className="metro-toolbar__secondary"
+                onClick={onRedo}
+                disabled={!canRedo}
+                icon={<RedoOutlined />}
+              />
+            </Tooltip>
+          ) : null}
           {onExportImage ? (
             <Button className="metro-toolbar__secondary" onClick={onExportImage} icon={<PictureOutlined />}>
               {text.exportImage}

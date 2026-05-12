@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Avatar, Button, ColorPicker, Divider, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, message } from 'antd';
 import { api, clearToken, getToken, setToken } from './api';
 import AuthPanel from './components/AuthPanel';
@@ -8,7 +8,18 @@ import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoSegmentInput } from './components/VideoExportModal';
 import { getCityStylePreset } from './stylePresets';
-import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings } from './types';
+import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
+
+const MAX_HISTORY = 50;
+type DocSnapshot = { lines: Line[]; sections: Section[]; stations: Station[] };
+const cloneDoc = (doc: DocSnapshot): DocSnapshot => ({
+  lines: doc.lines.map(line => ({ ...line, stationIds: [...line.stationIds], sectionIds: [...line.sectionIds] })),
+  sections: doc.sections.map(section => ({
+    ...section,
+    waypoints: section.waypoints ? section.waypoints.map(point => ({ ...point })) : undefined
+  })),
+  stations: doc.stations.map(station => ({ ...station }))
+});
 
 const { Header, Sider, Content } = Layout;
 
@@ -162,9 +173,78 @@ const App: React.FC = () => {
   const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
   const [mapSettings, setMapSettings] = useState<MapSettings>(DEFAULT_MAP_SETTINGS);
+  const [past, setPast] = useState<DocSnapshot[]>([]);
+  const [future, setFuture] = useState<DocSnapshot[]>([]);
+  const isApplyingHistoryRef = useRef(false);
+  const linesRef = useRef(lines);
+  const sectionsRef = useRef(sections);
+  const stationsRef = useRef(stations);
+  useEffect(() => { linesRef.current = lines; }, [lines]);
+  useEffect(() => { sectionsRef.current = sections; }, [sections]);
+  useEffect(() => { stationsRef.current = stations; }, [stations]);
+
+  const pushHistory = useCallback(() => {
+    if (isApplyingHistoryRef.current) return;
+    const snapshot = cloneDoc({
+      lines: linesRef.current,
+      sections: sectionsRef.current,
+      stations: stationsRef.current
+    });
+    setPast(prev => {
+      const next = [...prev, snapshot];
+      return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
+    });
+    setFuture([]);
+  }, []);
+
+  const resetHistory = useCallback(() => {
+    setPast([]);
+    setFuture([]);
+  }, []);
+
+  const handleUndo = useCallback(() => {
+    setPast(prevPast => {
+      if (prevPast.length === 0) return prevPast;
+      const previous = prevPast[prevPast.length - 1];
+      const current = cloneDoc({
+        lines: linesRef.current,
+        sections: sectionsRef.current,
+        stations: stationsRef.current
+      });
+      isApplyingHistoryRef.current = true;
+      setLines(previous.lines);
+      setSections(previous.sections);
+      setStations(previous.stations);
+      setFuture(prevFuture => [current, ...prevFuture].slice(0, MAX_HISTORY));
+      Promise.resolve().then(() => { isApplyingHistoryRef.current = false; });
+      return prevPast.slice(0, -1);
+    });
+  }, []);
+
+  const handleRedo = useCallback(() => {
+    setFuture(prevFuture => {
+      if (prevFuture.length === 0) return prevFuture;
+      const upcoming = prevFuture[0];
+      const current = cloneDoc({
+        lines: linesRef.current,
+        sections: sectionsRef.current,
+        stations: stationsRef.current
+      });
+      isApplyingHistoryRef.current = true;
+      setLines(upcoming.lines);
+      setSections(upcoming.sections);
+      setStations(upcoming.stations);
+      setPast(prevPast => [...prevPast, current].slice(-MAX_HISTORY));
+      Promise.resolve().then(() => { isApplyingHistoryRef.current = false; });
+      return prevFuture.slice(1);
+    });
+  }, []);
+
   const stageRef = useRef<any>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const text = i18n[language];
+  const canUndo = past.length > 0;
+  const canRedo = future.length > 0;
   const resolvedInterfaceTheme = interfaceTheme === 'system' ? systemTheme : interfaceTheme;
 
   const revokeBlobUrl = (url?: string) => {
@@ -251,12 +331,48 @@ const App: React.FC = () => {
     boot();
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      const accel = event.ctrlKey || event.metaKey;
+      if (!accel) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) {
+        event.preventDefault();
+        handleUndo();
+      } else if ((key === 'z' && event.shiftKey) || key === 'y') {
+        event.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo]);
+
+  const handleUpdateSection = (sectionId: string, patch: Partial<Section>) => {
+    setSections(prev =>
+      prev.map(section => {
+        if (section.id !== sectionId) return section;
+        const next: Section = { ...section, ...patch };
+        if ('waypoints' in patch && (!patch.waypoints || patch.waypoints.length === 0)) {
+          delete (next as Partial<Section>).waypoints;
+        }
+        return next;
+      })
+    );
+  };
+
   const handleAddLine = (name: string, color: string) => {
     if (lines.some((line) => line.color === color)) {
       message.error('该颜色已被其他线路占用，请选择其他颜色');
       return false;
     }
 
+    pushHistory();
     const newLine: Line = {
       id: Date.now().toString(),
       name,
@@ -280,10 +396,12 @@ const App: React.FC = () => {
   };
 
   const handleAddStation = (station: Station) => {
+    pushHistory();
     setStations((prev) => [...prev, station]);
   };
 
   const handleUpdateStation = (updatedStation: Station) => {
+    // 注意：拖拽期间会触发多次。Canvas 在 onDragStart 时已调 onBeginInteraction 推入一次快照。
     setStations((prev) => prev.map((station) => (station.id === updatedStation.id ? updatedStation : station)));
   };
 
@@ -293,6 +411,7 @@ const App: React.FC = () => {
       message.warning('站点名称不能为空');
       return;
     }
+    pushHistory();
     setStations((prev) => prev.map((station) => (station.id === stationId ? { ...station, name: trimmed } : station)));
     message.success('站点名称已更新');
   };
@@ -311,6 +430,8 @@ const App: React.FC = () => {
     const mode = options?.mode || 'default';
     const currentLine = lines.find((line) => line.id === currentLineId);
     if (!currentLine) return;
+
+    pushHistory();
 
     let nextLine: Line = { ...currentLine };
     let nextSections = [...sections];
@@ -378,6 +499,7 @@ const App: React.FC = () => {
   };
 
   const handleRemoveStationFromLine = (lineId: string, stationId: string) => {
+    pushHistory();
     setLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line;
@@ -403,6 +525,7 @@ const App: React.FC = () => {
   };
 
   const handleReorderStations = (lineId: string, stationIds: string[]) => {
+    pushHistory();
     setLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line;
@@ -412,6 +535,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteLine = (lineId: string) => {
+    pushHistory();
     const deletingLine = lines.find((line) => line.id === lineId);
     if (deletingLine) {
       setSections((prev) => prev.filter((section) => !deletingLine.sectionIds.includes(section.id)));
@@ -430,17 +554,20 @@ const App: React.FC = () => {
       return false;
     }
 
+    pushHistory();
     setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, color: newColor } : line)));
     message.success('线路颜色已更新');
     return true;
   };
 
   const handleChangeLineName = (lineId: string, newName: string) => {
+    pushHistory();
     setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, name: newName } : line)));
     message.success('线路名称已更新');
   };
 
   const handleDeleteStation = (stationId: string) => {
+    pushHistory();
     setLines((prev) =>
       prev.map((line) => {
         const nextSectionIds = line.sectionIds.filter((sectionId) => {
@@ -466,6 +593,7 @@ const App: React.FC = () => {
     const target = sections.find((section) => section.id === sectionId);
     if (!target) return;
 
+    pushHistory();
     setSections((prev) => prev.filter((section) => section.id !== sectionId));
     setLines((prev) =>
       prev.map((line) => {
@@ -480,6 +608,7 @@ const App: React.FC = () => {
   };
 
   const handleReorderLines = (newOrder: string[]) => {
+    pushHistory();
     const nextLines = newOrder.map((lineId) => lines.find((line) => line.id === lineId)).filter(Boolean) as Line[];
     setLines(nextLines);
     message.success('线路顺序已更新');
@@ -531,6 +660,7 @@ const App: React.FC = () => {
     setProfileVisible(false);
     setSettingsVisible(false);
     setMapName('');
+    resetHistory();
     message.info('已退出登录');
   };
 
@@ -661,7 +791,7 @@ const App: React.FC = () => {
       const loadedLines = normalizeLoadedLines(map.lines || []);
 
       setLines(loadedLines);
-      setSections(Array.isArray(map.sections) ? map.sections : []);
+      setSections(normalizeSections(map.sections));
       setStations(Array.isArray(map.stations) ? map.stations : []);
       setMapSettings(normalizeMapSettings(map.mapSettings));
       setCurrentLineId(loadedLines[0]?.id || null);
@@ -673,6 +803,7 @@ const App: React.FC = () => {
       });
       setMapName(map.name);
       setMapsVisible(false);
+      resetHistory();
       message.success('地图已加载');
     } catch (error: any) {
       message.error(error.message || '加载地图失败');
@@ -688,6 +819,7 @@ const App: React.FC = () => {
         setCurrentMap(null);
         setMapSettings(DEFAULT_MAP_SETTINGS);
         setMapName('');
+        resetHistory();
       }
 
       message.success('地图已删除');
@@ -1545,6 +1677,10 @@ const App: React.FC = () => {
                 onSelectLine={handleSelectLine}
                 onExportImage={handleExportImage}
                 onOpenVideoModal={() => setVideoModalOpen(true)}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                canUndo={canUndo}
+                canRedo={canRedo}
               />
             </section>
 
@@ -1625,6 +1761,8 @@ const App: React.FC = () => {
                 onReorderStations={handleReorderStations}
                 onDeleteStation={handleDeleteStation}
                 onUpdateStations={setStations}
+                onUpdateSection={handleUpdateSection}
+                onBeginInteraction={pushHistory}
                 onMapSettingsChange={(settings) => setMapSettings(normalizeMapSettings(settings))}
                 onStageReady={(stage) => {
                   stageRef.current = stage;
