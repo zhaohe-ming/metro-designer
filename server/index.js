@@ -9,12 +9,26 @@ const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
-const JWT_SECRET = process.env.JWT_SECRET || 'metro_designer_change_me';
+const RAW_JWT_SECRET = (process.env.JWT_SECRET || '').trim();
+if (!RAW_JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    // 生产环境强制要求；否则签出的 token 一旦默认值泄露就等于敞开后门
+    console.error('[FATAL] JWT_SECRET must be set in production');
+    process.exit(1);
+  }
+  console.warn(
+    '[WARN] JWT_SECRET is not set. Falling back to a random per-process secret. ' +
+    'All issued tokens will be invalidated on restart. Set JWT_SECRET in .env to persist sessions.'
+  );
+}
+const JWT_SECRET = RAW_JWT_SECRET || crypto.randomBytes(48).toString('hex');
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const AMAP_WEB_SERVICE_KEY = process.env.AMAP_WEB_SERVICE_KEY || '';
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
+// 头像图片以 dataURL 形式落库，限一个合理上限避免拖慢用户列表/me 接口
+const MAX_AVATAR_LENGTH = 200_000; // ≈ 150KB 二进制
 
 const DEFAULT_MAP_SETTINGS = {
   mapStyle: 'classic-badge',
@@ -521,11 +535,14 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   const trimmedPassword = password.trim();
   if (!phone || !password) return res.status(400).json({ message: '参数不完整' });
   const user = await storage.findUserByPhone(phone);
-  if (!user) return res.status(401).json({ message: '手机号或密码错误' });
+  if (!user || !user.passwordHash) {
+    return res.status(401).json({ message: '手机号或密码错误' });
+  }
+  // 同时尝试原值和去空格值，覆盖部分输入法在前后留空格的情况；
+  // 不再保留任何明文密码兜底分支。
   const ok =
-    (user.passwordHash && await bcrypt.compare(password, user.passwordHash)) ||
-    (user.passwordHash && trimmedPassword !== password && await bcrypt.compare(trimmedPassword, user.passwordHash)) ||
-    (typeof user.password === 'string' && (password === user.password || trimmedPassword === user.password.trim()));
+    (await bcrypt.compare(password, user.passwordHash)) ||
+    (trimmedPassword !== password && (await bcrypt.compare(trimmedPassword, user.passwordHash)));
   if (!ok) return res.status(401).json({ message: '手机号或密码错误' });
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
   res.json({ token, user: sanitizeUser(user) });
@@ -544,7 +561,12 @@ app.put('/api/me', auth, asyncHandler(async (req, res) => {
 
   const updates = {};
   if (typeof username === 'string' && username.trim()) updates.username = username.trim();
-  if (typeof avatar === 'string') updates.avatar = avatar;
+  if (typeof avatar === 'string') {
+    if (avatar.length > MAX_AVATAR_LENGTH) {
+      return res.status(413).json({ message: '头像过大，请使用 150KB 以内的图片' });
+    }
+    updates.avatar = avatar;
+  }
   if (typeof password === 'string' && password.trim()) {
     updates.passwordHash = await bcrypt.hash(password.trim(), 10);
   }

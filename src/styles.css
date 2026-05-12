@@ -2275,3 +2275,116 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     padding: 32px 18px 42px;
   }
 }
+
+/* ========================================================================== */
+/* 深色模式补丁：登录页 + 信息面板 + 画布舞台 + 单选按钮反色等遗留色差          */
+/* ========================================================================== */
+
+/* 登录页：未登录时不在 .metro-app-shell 内，无法继承变量，这里独立设置 */
+.auth-layout[data-interface-theme="dark"] {
+  --metro-bg: #0f172a;
+  --metro-surface: #111827;
+  --metro-surface-muted: #172033;
+  --metro-border: #29364d;
+  --metro-border-strong: #3b82f6;
+  --metro-text: #dbeafe;
+  --metro-text-soft: #94a3b8;
+  --metro-heading: #f8fafc;
+  --metro-blue: #3b82f6;
+  --metro-blue-soft: rgba(59, 130, 246, 0.18);
+  background: #0f172a;
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-card {
+  background: #111827 !important;
+  border-color: #29364d !important;
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-card__info {
+  background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%);
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-card__form {
+  background: #0f172a !important;
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-switcher__btn {
+  background: #172033;
+  border-color: #29364d;
+  color: #cbd5e1;
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-switcher__btn.is-active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-form :where(.ant-input),
+.auth-layout[data-interface-theme="dark"] .auth-form :where(.ant-input-affix-wrapper),
+.auth-layout[data-interface-theme="dark"] .auth-form :where(.ant-input-password) {
+  background: #172033 !important;
+  border-color: #29364d !important;
+  color: #dbeafe !important;
+}
+
+.auth-layout[data-interface-theme="dark"] .auth-form :where(.ant-input::placeholder),
+.auth-layout[data-interface-theme="dark"] .auth-form :where(.ant-input-affix-wrapper input::placeholder) {
+  color: #64748b !important;
+}
+
+/* 画布舞台底层：原本写死了白色，深色模式下应跟着暗 */
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-stage {
+  background: #0f172a;
+  border-color: #29364d;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.08);
+}
+
+/* 信息面板：dark 时让按钮 + 区块文案保持可读 */
+.metro-app-shell[data-interface-theme="dark"] .metro-info-action.ant-btn {
+  background: #172033;
+  border-color: #29364d;
+  color: #dbeafe;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-info-action--primary.ant-btn {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #ffffff;
+}
+
+/* 工具栏左侧的工具组按钮（select/station/...）在深色画布下保留可点击感 */
+.metro-app-shell[data-interface-theme="dark"] .metro-tool-button.is-active {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+/* 修复：原有 dark 单选按钮被写成「白底深字」，在深色 Modal 上是亮岛，改成与底色一致 */
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper) {
+  background: #172033 !important;
+  border-color: #29364d !important;
+  color: #dbeafe !important;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover) {
+  background: #1e293b !important;
+  color: #ffffff !important;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper-checked) {
+  background: #3b82f6 !important;
+  border-color: #3b82f6 !important;
+  color: #ffffff !important;
+}
+
+body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled)::before) {
+  background-color: #3b82f6 !important;
+}
+
+/* AntD App 透明包裹层不要影响布局 */
+.metro-antd-root.ant-app {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color: inherit;
+}

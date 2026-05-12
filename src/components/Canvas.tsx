@@ -4,6 +4,7 @@ import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { getAmapConfig, loadAmap } from '../amapLoader';
+import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
 
 const STATION_RADIUS = 18;
@@ -1015,7 +1016,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const handleAddStation = () => {
     if (newStation && stationName.trim()) {
       const newStationData: Station = {
-        id: Date.now().toString(),
+        id: createId(),
         name: stationName.trim(),
         x: newStation.x,
         y: newStation.y,

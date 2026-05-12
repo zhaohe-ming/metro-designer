@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Avatar, Button, ColorPicker, Divider, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, message } from 'antd';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, App as AntdApp, message, theme as antdTheme } from 'antd';
 import { api, clearToken, getToken, setToken } from './api';
+import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
 import Canvas from './components/Canvas';
 import DraggableModal from './components/DraggableModal';
@@ -374,7 +375,7 @@ const App: React.FC = () => {
 
     pushHistory();
     const newLine: Line = {
-      id: Date.now().toString(),
+      id: createId(),
       name,
       color,
       stationIds: [],
@@ -453,7 +454,7 @@ const App: React.FC = () => {
       if (exists) return;
 
       const newSection: Section = {
-        id: `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        id: createId(),
         lineId: nextLine.id,
         startStationId: startId,
         endStationId: endId
@@ -1640,15 +1641,32 @@ const App: React.FC = () => {
   const activeLineStationCount = activeLine?.stationIds.length || 0;
   const activeLineSectionCount = activeLine?.sectionIds.length || 0;
 
+  const antdThemeConfig = useMemo(
+    () => ({
+      algorithm: resolvedInterfaceTheme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
+      token: {
+        colorPrimary: '#2563eb',
+        borderRadius: 8
+      }
+    }),
+    [resolvedInterfaceTheme]
+  );
+
   if (!userProfile) {
     return (
-      <div className="auth-layout">
-        <AuthPanel onLogin={handleLogin} onRegister={handleRegister} />
-      </div>
+      <ConfigProvider theme={antdThemeConfig}>
+        <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
+          <div className="auth-layout" data-interface-theme={resolvedInterfaceTheme}>
+            <AuthPanel onLogin={handleLogin} onRegister={handleRegister} />
+          </div>
+        </AntdApp>
+      </ConfigProvider>
     );
   }
 
   return (
+    <ConfigProvider theme={antdThemeConfig}>
+      <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
       <Layout className="metro-workbench">
         <Header className="metro-header">
@@ -2190,6 +2208,8 @@ const App: React.FC = () => {
         </DraggableModal>
       </Layout>
     </div>
+      </AntdApp>
+    </ConfigProvider>
   );
 };
 
