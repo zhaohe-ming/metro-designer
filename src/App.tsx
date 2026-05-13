@@ -12,14 +12,33 @@ import { getCityStylePreset } from './stylePresets';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 
 const MAX_HISTORY = 50;
-type DocSnapshot = { lines: Line[]; sections: Section[]; stations: Station[] };
+const LAST_MAP_KEY = 'metro_last_map_id';
+type DocSnapshot = {
+  lines: Line[];
+  sections: Section[];
+  stations: Station[];
+  mapSettings: MapSettings;
+};
 const cloneDoc = (doc: DocSnapshot): DocSnapshot => ({
   lines: doc.lines.map(line => ({ ...line, stationIds: [...line.stationIds], sectionIds: [...line.sectionIds] })),
   sections: doc.sections.map(section => ({
     ...section,
     waypoints: section.waypoints ? section.waypoints.map(point => ({ ...point })) : undefined
   })),
-  stations: doc.stations.map(station => ({ ...station }))
+  stations: doc.stations.map(station => ({ ...station })),
+  mapSettings: {
+    ...doc.mapSettings,
+    dotLabelStyle: { ...doc.mapSettings.dotLabelStyle },
+    baseMap: {
+      ...doc.mapSettings.baseMap,
+      amap: doc.mapSettings.baseMap.amap
+        ? {
+            ...doc.mapSettings.baseMap.amap,
+            center: [doc.mapSettings.baseMap.amap.center[0], doc.mapSettings.baseMap.amap.center[1]]
+          }
+        : undefined
+    }
+  }
 });
 
 const { Header, Sider, Content } = Layout;
@@ -180,16 +199,19 @@ const App: React.FC = () => {
   const linesRef = useRef(lines);
   const sectionsRef = useRef(sections);
   const stationsRef = useRef(stations);
+  const mapSettingsRef = useRef(mapSettings);
   useEffect(() => { linesRef.current = lines; }, [lines]);
   useEffect(() => { sectionsRef.current = sections; }, [sections]);
   useEffect(() => { stationsRef.current = stations; }, [stations]);
+  useEffect(() => { mapSettingsRef.current = mapSettings; }, [mapSettings]);
 
   const pushHistory = useCallback(() => {
     if (isApplyingHistoryRef.current) return;
     const snapshot = cloneDoc({
       lines: linesRef.current,
       sections: sectionsRef.current,
-      stations: stationsRef.current
+      stations: stationsRef.current,
+      mapSettings: mapSettingsRef.current
     });
     setPast(prev => {
       const next = [...prev, snapshot];
@@ -210,16 +232,30 @@ const App: React.FC = () => {
       const current = cloneDoc({
         lines: linesRef.current,
         sections: sectionsRef.current,
-        stations: stationsRef.current
+        stations: stationsRef.current,
+        mapSettings: mapSettingsRef.current
       });
       isApplyingHistoryRef.current = true;
       setLines(previous.lines);
       setSections(previous.sections);
       setStations(previous.stations);
+      setMapSettings(previous.mapSettings);
       setFuture(prevFuture => [current, ...prevFuture].slice(0, MAX_HISTORY));
       Promise.resolve().then(() => { isApplyingHistoryRef.current = false; });
       return prevPast.slice(0, -1);
     });
+  }, []);
+
+  // 渐进型设置交互（Slider 拖、ColorPicker 拖）：只在交互开始时压一次历史，
+  // 后续 onChange 不再重复压。onChangeComplete 时复位标志。
+  const settingsInteractionRef = useRef(false);
+  const beginSettingsInteraction = useCallback(() => {
+    if (settingsInteractionRef.current) return;
+    settingsInteractionRef.current = true;
+    pushHistory();
+  }, [pushHistory]);
+  const endSettingsInteraction = useCallback(() => {
+    settingsInteractionRef.current = false;
   }, []);
 
   const handleRedo = useCallback(() => {
@@ -229,12 +265,14 @@ const App: React.FC = () => {
       const current = cloneDoc({
         lines: linesRef.current,
         sections: sectionsRef.current,
-        stations: stationsRef.current
+        stations: stationsRef.current,
+        mapSettings: mapSettingsRef.current
       });
       isApplyingHistoryRef.current = true;
       setLines(upcoming.lines);
       setSections(upcoming.sections);
       setStations(upcoming.stations);
+      setMapSettings(upcoming.mapSettings);
       setPast(prevPast => [...prevPast, current].slice(-MAX_HISTORY));
       Promise.resolve().then(() => { isApplyingHistoryRef.current = false; });
       return prevFuture.slice(1);
@@ -325,6 +363,17 @@ const App: React.FC = () => {
         const { user } = await api.me();
         setUserProfile({ ...user, password: '' });
         refreshSavedMaps(false);
+        // 自动恢复上次编辑的方案。任何一步失败就清掉指针并保持空白工作台。
+        let lastMapId: string | null = null;
+        try { lastMapId = localStorage.getItem(LAST_MAP_KEY); } catch { /* ignore */ }
+        if (lastMapId) {
+          try {
+            const { map } = await api.getMap(lastMapId);
+            applyLoadedMap(map);
+          } catch {
+            try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
+          }
+        }
       } catch {
         clearToken();
       }
@@ -650,6 +699,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     revokeBlobUrl(userProfile?.avatar);
     clearToken();
+    try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
     setUserProfile(null);
     setLines([]);
     setSections([]);
@@ -677,6 +727,7 @@ const App: React.FC = () => {
       okText: '确认切换',
       cancelText: '取消',
       onOk: () => {
+        pushHistory();
         setCurrentLineId(null);
         setMapSettings((prev) =>
           normalizeMapSettings({
@@ -769,6 +820,7 @@ const App: React.FC = () => {
         setCurrentMap(map);
         upsertSavedMap(map);
         setMapName('');
+        try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
         message.success({ content: '地图已覆盖保存', key: 'save-map' });
         return;
       }
@@ -777,6 +829,7 @@ const App: React.FC = () => {
       setCurrentMap(map);
       upsertSavedMap(map);
       setMapName('');
+      try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
       message.success({ content: '地图已保存', key: 'save-map' });
     } catch (error: any) {
       if (wasVisible) setSaveMapVisible(true);
@@ -786,25 +839,34 @@ const App: React.FC = () => {
     }
   };
 
+  // 把服务端返回的 map 应用到本地状态，纯 setter 操作，便于复用（boot 自动加载也调它）
+  const applyLoadedMap = (map: any) => {
+    const loadedLines = normalizeLoadedLines(map.lines || []);
+    setLines(loadedLines);
+    setSections(normalizeSections(map.sections));
+    setStations(Array.isArray(map.stations) ? map.stations : []);
+    setMapSettings(normalizeMapSettings(map.mapSettings));
+    setCurrentLineId(loadedLines[0]?.id || null);
+    setCurrentMap({
+      id: map.id,
+      name: map.name,
+      createdAt: map.createdAt,
+      updatedAt: map.updatedAt
+    });
+    setMapName(map.name);
+    resetHistory();
+    try {
+      localStorage.setItem(LAST_MAP_KEY, map.id);
+    } catch {
+      /* localStorage 满了 / 隐私模式 / 其他失败都不影响主流程 */
+    }
+  };
+
   const handleLoadMap = async (mapId: string) => {
     try {
       const { map } = await api.getMap(mapId);
-      const loadedLines = normalizeLoadedLines(map.lines || []);
-
-      setLines(loadedLines);
-      setSections(normalizeSections(map.sections));
-      setStations(Array.isArray(map.stations) ? map.stations : []);
-      setMapSettings(normalizeMapSettings(map.mapSettings));
-      setCurrentLineId(loadedLines[0]?.id || null);
-      setCurrentMap({
-        id: map.id,
-        name: map.name,
-        createdAt: map.createdAt,
-        updatedAt: map.updatedAt
-      });
-      setMapName(map.name);
+      applyLoadedMap(map);
       setMapsVisible(false);
-      resetHistory();
       message.success('地图已加载');
     } catch (error: any) {
       message.error(error.message || '加载地图失败');
@@ -822,6 +884,12 @@ const App: React.FC = () => {
         setMapName('');
         resetHistory();
       }
+      // 删的就是上次记住的那张：清掉指针，避免下次启动尝试加载不存在的方案
+      try {
+        if (localStorage.getItem(LAST_MAP_KEY) === mapId) {
+          localStorage.removeItem(LAST_MAP_KEY);
+        }
+      } catch { /* ignore */ }
 
       message.success('地图已删除');
     } catch (error: any) {
@@ -1924,9 +1992,10 @@ const App: React.FC = () => {
               <div className="metro-settings-label">{text.canvasTheme}</div>
               <Radio.Group
                 value={mapSettings.canvasTheme}
-                onChange={(event) =>
-                  setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: event.target.value }))
-                }
+                onChange={(event) => {
+                  pushHistory();
+                  setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: event.target.value }));
+                }}
                 optionType="button"
                 buttonStyle="solid"
               >
@@ -1953,7 +2022,8 @@ const App: React.FC = () => {
                 <div className="metro-settings-label">{text.amapStyle}</div>
                 <Radio.Group
                   value={mapSettings.baseMap.amap?.style || 'normal'}
-                  onChange={(event) =>
+                  onChange={(event) => {
+                    pushHistory();
                     setMapSettings((prev) =>
                       normalizeMapSettings({
                         ...prev,
@@ -1965,8 +2035,8 @@ const App: React.FC = () => {
                           }
                         }
                       })
-                    )
-                  }
+                    );
+                  }}
                   optionType="button"
                   buttonStyle="solid"
                 >
@@ -1982,9 +2052,10 @@ const App: React.FC = () => {
               <div className="metro-settings-label">{text.mapStyle}</div>
               <Radio.Group
                 value={mapSettings.mapStyle}
-                onChange={(event) =>
-                  setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: event.target.value }))
-                }
+                onChange={(event) => {
+                  pushHistory();
+                  setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: event.target.value }));
+                }}
                 optionType="button"
                 buttonStyle="solid"
               >
@@ -1997,9 +2068,10 @@ const App: React.FC = () => {
               <div className="metro-settings-label">{text.cityStyle}</div>
               <Radio.Group
                 value={mapSettings.cityStyle}
-                onChange={(event) =>
-                  setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: event.target.value }))
-                }
+                onChange={(event) => {
+                  pushHistory();
+                  setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: event.target.value }));
+                }}
                 optionType="button"
                 buttonStyle="solid"
               >
@@ -2014,11 +2086,12 @@ const App: React.FC = () => {
               <div className="metro-settings-label">{text.showLineNameLabels}</div>
               <Radio.Group
                 value={mapSettings.showLineNameLabels ? 'show' : 'hide'}
-                onChange={(event) =>
+                onChange={(event) => {
+                  pushHistory();
                   setMapSettings((prev) =>
                     normalizeMapSettings({ ...prev, showLineNameLabels: event.target.value === 'show' })
-                  )
-                }
+                  );
+                }}
                 optionType="button"
                 buttonStyle="solid"
               >
@@ -2039,14 +2112,16 @@ const App: React.FC = () => {
                   max={24}
                   step={1}
                   value={mapSettings.dotLabelStyle.fontSize}
-                  onChange={(value) =>
+                  onChange={(value) => {
+                    beginSettingsInteraction();
                     setMapSettings((prev) =>
                       normalizeMapSettings({
                         ...prev,
                         dotLabelStyle: { ...prev.dotLabelStyle, fontSize: value }
                       })
-                    )
-                  }
+                    );
+                  }}
+                  onChangeComplete={endSettingsInteraction}
                 />
               </div>
               <div className="metro-settings-control">
@@ -2059,21 +2134,24 @@ const App: React.FC = () => {
                   max={900}
                   step={10}
                   value={mapSettings.dotLabelStyle.fontWeight}
-                  onChange={(value) =>
+                  onChange={(value) => {
+                    beginSettingsInteraction();
                     setMapSettings((prev) =>
                       normalizeMapSettings({
                         ...prev,
                         dotLabelStyle: { ...prev.dotLabelStyle, fontWeight: value }
                       })
-                    )
-                  }
+                    );
+                  }}
+                  onChangeComplete={endSettingsInteraction}
                 />
               </div>
               <div className="metro-settings-color-row">
                 <span>{text.dotLabelColor}</span>
                 <ColorPicker
                   value={mapSettings.dotLabelStyle.color}
-                  onChange={(color) =>
+                  onChange={(color) => {
+                    beginSettingsInteraction();
                     setMapSettings((prev) =>
                       normalizeMapSettings({
                         ...prev,
@@ -2082,22 +2160,24 @@ const App: React.FC = () => {
                           color: color.toHexString()
                         }
                       })
-                    )
-                  }
+                    );
+                  }}
+                  onChangeComplete={endSettingsInteraction}
                   showText
                 />
               </div>
               <div className="metro-settings-reset-row">
                 <Button
                   size="small"
-                  onClick={() =>
+                  onClick={() => {
+                    pushHistory();
                     setMapSettings((prev) =>
                       normalizeMapSettings({
                         ...prev,
                         dotLabelStyle: DEFAULT_MAP_SETTINGS.dotLabelStyle
                       })
-                    )
-                  }
+                    );
+                  }}
                 >
                   {text.resetDefault}
                 </Button>

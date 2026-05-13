@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
-import { Input, Button, message, Switch, Space, ColorPicker, Select } from 'antd';
+import { Input, Button, message, Space, ColorPicker, Select } from 'antd';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { getAmapConfig, loadAmap } from '../amapLoader';
@@ -159,8 +159,6 @@ const Canvas: React.FC<CanvasProps> = ({
       };
   // 记录鼠标按下位置
   const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null);
-  // 导出按钮悬浮提示
-  const [showExportTip, setShowExportTip] = useState(false);
   const [canvasBackgroundColor, setCanvasBackgroundColor] = useState<string>(() =>
     getDefaultCanvasBackground(mapSettings.canvasTheme)
   );
@@ -525,8 +523,9 @@ const Canvas: React.FC<CanvasProps> = ({
     mapSettings.baseMap.amap?.center?.[1]
   ]);
 
-  const stationDisplayPoints = (() => {
-    void mapRenderTick;
+  // 站点像素坐标缓存：AMap 模式下根据经纬度投影，否则用 station.x/y。
+  // 依赖 mapRenderTick 是为了在 AMap pan/zoom 后强制重算（amapRef.current 不会触发 React 重渲染）。
+  const stationDisplayPoints = useMemo(() => {
     const map = amapRef.current;
     return stations.reduce<Record<string, { x: number; y: number }>>((result, station) => {
       if (isAmapMode && amapReady && map && typeof station.lng === 'number' && typeof station.lat === 'number') {
@@ -539,7 +538,7 @@ const Canvas: React.FC<CanvasProps> = ({
       result[station.id] = { x: station.x, y: station.y };
       return result;
     }, {});
-  })();
+  }, [stations, isAmapMode, amapReady, mapRenderTick]);
 
   const getDisplayPoint = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
 
@@ -785,83 +784,6 @@ const Canvas: React.FC<CanvasProps> = ({
       x: (stageWidth - contentWidth * newScale) / 2 - minX * newScale,
       y: (stageHeight - contentHeight * newScale) / 2 - minY * newScale
     });
-  };
-
-  // 导出图片功能
-  const exportImage = () => {
-    if (!stageRef.current) {
-      message.error('无法获取画布');
-      return;
-    }
-
-    try {
-      // 获取当前画布状态
-      const stage = stageRef.current;
-      const currentScale = stage.scaleX();
-      const currentX = stage.x();
-      const currentY = stage.y();
-
-      // 临时重置缩放和位置以获取完整视图
-      stage.scale({ x: 1, y: 1 });
-      stage.position({ x: 0, y: 0 });
-
-      // 获取画布尺寸
-      const stageWidth = stage.width();
-      const stageHeight = stage.height();
-
-      // 计算所有站点的边界
-      let minX = 0, minY = 0, maxX = stageWidth, maxY = stageHeight;
-      if (stations.length > 0) {
-        minX = Math.min(...stations.map(s => s.x));
-        minY = Math.min(...stations.map(s => s.y));
-        maxX = Math.max(...stations.map(s => s.x));
-        maxY = Math.max(...stations.map(s => s.y));
-      }
-
-      // 添加边距
-      const padding = 100;
-      const contentWidth = maxX - minX + padding * 2;
-      const contentHeight = maxY - minY + padding * 2;
-
-      // 设置导出尺寸
-      const exportWidth = Math.max(contentWidth, 800);
-      const exportHeight = Math.max(contentHeight, 600);
-
-      // 调整画布尺寸
-      stage.width(exportWidth);
-      stage.height(exportHeight);
-
-      // 居中内容
-      const centerX = (exportWidth - (maxX - minX)) / 2;
-      const centerY = (exportHeight - (maxY - minY)) / 2;
-      stage.position({ x: centerX - minX, y: centerY - minY });
-
-      // 导出为图片
-      const dataURL = stage.toDataURL({
-        pixelRatio: 2, // 提高图片质量
-        mimeType: 'image/png',
-        quality: 1
-      });
-
-      // 创建下载链接
-      const link = document.createElement('a');
-      link.download = `metro-line-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
-      link.href = dataURL;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      // 恢复原始状态
-      stage.scale({ x: currentScale, y: currentScale });
-      stage.position({ x: currentX, y: currentY });
-      stage.width(stageWidth);
-      stage.height(stageHeight);
-
-      message.success('图片导出成功！');
-    } catch (error) {
-      console.error('导出图片失败:', error);
-      message.error('导出图片失败，请重试');
-    }
   };
 
   // 画布点击，弹窗输入站名
@@ -1454,10 +1376,13 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const stylePreset = getCityStylePreset(mapSettings);
-  const stationLineCounts = stations.reduce<Record<string, number>>((result, station) => {
-    result[station.id] = lines.filter(line => line.stationIds.includes(station.id)).length;
-    return result;
-  }, {});
+  // 每个站点出现在多少条线路里（≥2 即换乘站）。O(stations × lines)，量大时这个缓存意义明显。
+  const stationLineCounts = useMemo(() => {
+    return stations.reduce<Record<string, number>>((result, station) => {
+      result[station.id] = lines.filter(line => line.stationIds.includes(station.id)).length;
+      return result;
+    }, {});
+  }, [stations, lines]);
 
   // 渲染线路连接线（网状结构）
   const renderLines = () => {
@@ -1655,15 +1580,26 @@ const Canvas: React.FC<CanvasProps> = ({
     return lines.find(line => line.stationIds.includes(stationId))?.color || '#64748b';
   };
 
-  const labelPlacements = (() => {
-    if (isLightAmapRender) return {};
+  // 站名标注布局：O(stations × candidates × stations) 量级，必须缓存。
+  // 依赖经过精挑：stationDisplayPoints 已捕获 mapRenderTick / AMap 状态等隐式输入。
+  const labelPlacements = useMemo(() => {
+    if (isLightAmapRender) return {} as Record<string, LabelRect>;
+    const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
+    const waypointPointOf = (point: Waypoint) => {
+      const map = amapRef.current;
+      if (isAmapMode && amapReady && map && typeof point.lng === 'number' && typeof point.lat === 'number') {
+        const pixel = map.lngLatToContainer?.([point.lng, point.lat]);
+        if (pixel) return { x: pixel.x, y: pixel.y };
+      }
+      return { x: point.x, y: point.y };
+    };
     const occupied: LabelRect[] = [];
     const lineSegments = sections
       .map(section => {
         const start = stations.find(station => station.id === section.startStationId);
         const end = stations.find(station => station.id === section.endStationId);
         if (!start || !end) return [];
-        const points = [getDisplayPoint(start), ...((section.waypoints || []).map(point => getWaypointDisplayPoint(point))), getDisplayPoint(end)];
+        const points = [pointOf(start), ...((section.waypoints || []).map(waypointPointOf)), pointOf(end)];
         const segments: Array<[number, number, number, number]> = [];
         for (let i = 0; i < points.length - 1; i += 1) {
           segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
@@ -1674,7 +1610,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
     return stations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
-      const stationPoint = getDisplayPoint(station);
+      const stationPoint = pointOf(station);
       const labelWidth = Math.max(44, station.name.length * dotLabelStyle.fontSize);
       const labelHeight = Math.max(22, dotLabelStyle.fontSize + 10);
       const gap = 12;
@@ -1697,7 +1633,7 @@ const Canvas: React.FC<CanvasProps> = ({
             if (rectsOverlap(rect, other)) score += 100;
           });
           stations.forEach(other => {
-            const otherPoint = getDisplayPoint(other);
+            const otherPoint = pointOf(other);
             if (other.id !== station.id && rectsOverlap(rect, { x: otherPoint.x - 8, y: otherPoint.y - 8, width: 16, height: 16 })) {
               score += 60;
             }
@@ -1721,14 +1657,27 @@ const Canvas: React.FC<CanvasProps> = ({
       }
       return result;
     }, {});
-  })();
+  }, [
+    isLightAmapRender,
+    sections,
+    stations,
+    dotLabelStyle.fontSize,
+    stageSize.width,
+    stageSize.height,
+    stationDisplayPoints,
+    isAmapMode,
+    amapReady,
+    mapRenderTick
+  ]);
 
-  const lineNamePlacements = (() => {
+  // 线路名标签布局：依赖 labelPlacements + stationDisplayPoints，跟着它们重算就够了
+  const lineNamePlacements = useMemo(() => {
     if (isLightAmapRender || !mapSettings.showLineNameLabels || lines.length === 0) return [];
+    const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
     const occupied: LabelRect[] = [
       ...Object.values(labelPlacements),
       ...stations.map(station => {
-        const point = getDisplayPoint(station);
+        const point = pointOf(station);
         return {
           x: point.x - stylePreset.interchangeRadius - 8,
           y: point.y - stylePreset.interchangeRadius - 8,
@@ -1767,8 +1716,8 @@ const Canvas: React.FC<CanvasProps> = ({
       const best = terminalPairs
         .flatMap(({ terminal, neighbor, preference }) => {
           if (!terminal || !neighbor) return [];
-          const terminalPoint = getDisplayPoint(terminal);
-          const neighborPoint = getDisplayPoint(neighbor);
+          const terminalPoint = pointOf(terminal);
+          const neighborPoint = pointOf(neighbor);
           const dx = terminalPoint.x - neighborPoint.x;
           const dy = terminalPoint.y - neighborPoint.y;
           const len = Math.hypot(dx, dy) || 1;
@@ -1819,7 +1768,17 @@ const Canvas: React.FC<CanvasProps> = ({
     });
 
     return placements;
-  })();
+  }, [
+    isLightAmapRender,
+    mapSettings.showLineNameLabels,
+    lines,
+    labelPlacements,
+    stations,
+    stylePreset,
+    stageSize.width,
+    stageSize.height,
+    stationDisplayPoints
+  ]);
 
   return (
     <div
@@ -1897,12 +1856,6 @@ const Canvas: React.FC<CanvasProps> = ({
           {activeTool === 'pan' && text.hints.pan}
         </div>
       </div>
-      {/* 区间绘制模式开关 */}
-      <div style={{ position: 'absolute', top: 60, left: 16, zIndex: 1001, background: '#fff', padding: '8px 12px', borderRadius: '6px', boxShadow: '0 2px 8px rgba(0,0,0,0.1)', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span>区间绘制模式：</span>
-        <Switch checked={isSectionMode} onChange={checked => { setIsSectionMode(checked); setSelectedSection(null); }} checkedChildren="开启" unCheckedChildren="关闭" />
-        {isSectionMode && <span style={{ fontSize: '12px', color: '#666' }}>点击区间线条添加途经点（最多{MAX_WAYPOINTS_PER_SECTION}个）</span>}
-      </div>
       {isSectionMode && selectedSection && (
         <DraggableModal
           title={`添加途经点（${selectedSection.startStation.name} → ${selectedSection.endStation.name}）`}
@@ -1957,36 +1910,6 @@ const Canvas: React.FC<CanvasProps> = ({
           })()}
         </DraggableModal>
       )}
-      {/* 绘制模式控制 */}
-      <div style={{ 
-        position: 'absolute', 
-        top: 16, 
-        left: 16, 
-        zIndex: 1000,
-        background: '#fff',
-        padding: '8px 12px',
-        borderRadius: '6px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8
-      }}>
-        <span>绘制模式：</span>
-        <Switch
-          checked={isDrawingMode}
-          onChange={setIsDrawingMode}
-          checkedChildren="开启"
-          unCheckedChildren="关闭"
-        />
-        {isDrawingMode && (
-          <span style={{ fontSize: '12px', color: '#666' }}>
-            {drawingLine.startStation 
-              ? `绘制中: ${drawingLine.startStation.name} → 移动鼠标绘制 → 点击终点站点` 
-              : '点击起始站点开始绘制'}
-          </span>
-        )}
-      </div>
-
       {/* 缩放控制按钮 */}
       <div style={{ 
         position: 'absolute', 
@@ -2006,26 +1929,6 @@ const Canvas: React.FC<CanvasProps> = ({
         </Space>
       </div>
 
-      {/* 线段点击功能说明 */}
-      {false && !isDrawingMode && (
-        <div style={{ 
-          position: 'absolute', 
-          top: 16, 
-          left: 16, 
-          zIndex: 1000,
-          background: '#fff',
-          padding: '8px 12px',
-          borderRadius: '6px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          fontSize: '12px',
-          color: '#666',
-          maxWidth: '250px'
-        }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>💡 提示：</div>
-          <div>点击线路的线条可在两站点间添加新站点</div>
-        </div>
-      )}
-
       {/* 缩放信息显示 */}
       <div style={{ 
         position: 'absolute', 
@@ -2042,35 +1945,6 @@ const Canvas: React.FC<CanvasProps> = ({
         {text.zoom}: {isAmapMode ? `${Math.round((amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11) * 10) / 10}` : `${Math.round(scale * 100)}%`}
       </div>
 
-      {/* 绘制模式使用说明 */}
-      {false && isDrawingMode && (
-        <div style={{ 
-          position: 'absolute', 
-          top: 70, 
-          left: 16, 
-          zIndex: 1000,
-          background: '#fff',
-          padding: '12px',
-          borderRadius: '6px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          fontSize: '12px',
-          color: '#666',
-          maxWidth: '300px'
-        }}>
-          <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>使用说明：</div>
-          <div>1. 点击起始站点开始绘制</div>
-          <div>2. 移动鼠标绘制连接线</div>
-          <div>3. 点击终点站点完成绘制</div>
-          <div>4. 按ESC键取消绘制</div>
-          <div style={{ marginTop: '8px', color: '#1890ff' }}>
-            系统将自动识别路径上的站点并更新线路顺序
-          </div>
-          <div style={{ marginTop: '8px', color: '#52c41a' }}>
-            绘制模式：平滑曲线 | 非绘制模式：直线
-          </div>
-        </div>
-      )}
-
       <Stage
         ref={stageRef}
         width={stageSize.width}
@@ -2082,12 +1956,8 @@ const Canvas: React.FC<CanvasProps> = ({
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={e => {
-          // 先处理拖拽结束
+          // 拖拽结束（handleMouseUp 内部已经按 click 距离阈值决定要不要触发 handleStageClick）
           handleMouseUp(e);
-          // 仅在未拖拽且鼠标左键抬起时，主动触发添加站点弹窗
-          if (false && !isDragging && e && e.evt && e.evt.button === 0 && !isSectionMode && !sectionContextMenu.visible) {
-            handleStageClick(e);
-          }
         }}
         onContextMenu={handleCanvasContextMenu}
         onWheel={handleWheel}

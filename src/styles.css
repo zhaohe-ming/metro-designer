@@ -1476,11 +1476,6 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   background-color: var(--metro-canvas-bg, #07111f) !important;
 }
 
-.metro-canvas-surface > div[style*="top: 60"][style*="left: 16"],
-.metro-canvas-surface > div[style*="top: 16"][style*="left: 16"] {
-  display: none !important;
-}
-
 .metro-canvas-surface > div[style*="bottom: 16"][style*="right: 16"] {
   border: 1px solid #cfe0f3;
   border-radius: 8px !important;
