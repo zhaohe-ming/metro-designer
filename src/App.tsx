@@ -1130,8 +1130,6 @@ const App: React.FC = () => {
   const mapMetaText = currentMap
     ? `最近更新 ${new Date(currentMap.updatedAt).toLocaleString()}`
     : '从左侧组织线路，在画布上构建你的轨道图';
-  const activeLineStationCount = activeLine?.stationIds.length || 0;
-  const activeLineSectionCount = activeLine?.sectionIds.length || 0;
 
   const antdThemeConfig = useMemo(
     () => ({
@@ -1280,49 +1278,6 @@ const App: React.FC = () => {
               />
             </div>
           </Content>
-
-          <aside className="metro-info-panel">
-            <section className="metro-info-section">
-              <div className="metro-info-section__label">Project</div>
-              <div className="metro-info-section__value">{mapDisplayName}</div>
-              <div className="metro-info-section__text">{mapMetaText}</div>
-            </section>
-
-            <section className="metro-info-section">
-              <div className="metro-info-section__label">Current Line</div>
-              <div className="metro-info-section__value">{activeLine?.name || '未选择线路'}</div>
-              <div className="metro-info-stats">
-                <div className="metro-info-stat">
-                  <span>Lines</span>
-                  <strong>{lines.length}</strong>
-                </div>
-                <div className="metro-info-stat">
-                  <span>Stations</span>
-                  <strong>{stations.length}</strong>
-                </div>
-                <div className="metro-info-stat">
-                  <span>Sections</span>
-                  <strong>{sections.length}</strong>
-                </div>
-                <div className="metro-info-stat">
-                  <span>Active</span>
-                  <strong>{activeLineStationCount}/{activeLineSectionCount}</strong>
-                </div>
-              </div>
-            </section>
-
-            <section className="metro-info-section">
-              <div className="metro-info-section__label">Actions</div>
-              <div className="metro-info-actions">
-                <Button className="metro-info-action metro-info-action--primary" size="small" loading={saveMapSaving} onClick={handleOpenSaveMap}>
-                  {currentMap ? '覆盖保存' : '保存地图'}
-                </Button>
-                <Button className="metro-info-action" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
-                  查看地图
-                </Button>
-              </div>
-            </section>
-          </aside>
         </Layout>
 
         <VideoExportModal
