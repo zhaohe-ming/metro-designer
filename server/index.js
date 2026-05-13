@@ -304,8 +304,13 @@ const storage = {
   async listMaps(userId) {
     if (pgPool) {
       await ensurePgSchema();
+      // 用 jsonb_array_length 在数据库侧直接拿到三个 array 字段的长度，
+      // 比把整张 map 拉回应用层再 .length 便宜得多。
       const { rows } = await pgPool.query(
-        `SELECT id, name, created_at, updated_at
+        `SELECT id, name, created_at, updated_at,
+                jsonb_array_length(COALESCE(lines, '[]'::jsonb))    AS line_count,
+                jsonb_array_length(COALESCE(stations, '[]'::jsonb)) AS station_count,
+                jsonb_array_length(COALESCE(sections, '[]'::jsonb)) AS section_count
          FROM maps
          WHERE user_id = $1
          ORDER BY updated_at DESC`,
@@ -315,7 +320,10 @@ const storage = {
         id: String(row.id),
         name: row.name,
         createdAt: toIsoDate(row.created_at),
-        updatedAt: toIsoDate(row.updated_at)
+        updatedAt: toIsoDate(row.updated_at),
+        lineCount: Number(row.line_count) || 0,
+        stationCount: Number(row.station_count) || 0,
+        sectionCount: Number(row.section_count) || 0
       }));
     }
 
@@ -323,7 +331,15 @@ const storage = {
     return db.maps
       .filter(map => map.userId === userId)
       .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
-      .map(map => ({ id: map.id, name: map.name, updatedAt: map.updatedAt, createdAt: map.createdAt }));
+      .map(map => ({
+        id: map.id,
+        name: map.name,
+        updatedAt: map.updatedAt,
+        createdAt: map.createdAt,
+        lineCount: Array.isArray(map.lines) ? map.lines.length : 0,
+        stationCount: Array.isArray(map.stations) ? map.stations.length : 0,
+        sectionCount: Array.isArray(map.sections) ? map.sections.length : 0
+      }));
   },
 
   async getMap(userId, mapId) {

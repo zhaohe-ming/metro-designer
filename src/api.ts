@@ -23,6 +23,10 @@ export interface MapSummary {
   name: string;
   createdAt: string;
   updatedAt: string;
+  // 列表里展示用，老服务端可能不带这些字段，前端按 0 兜底
+  lineCount?: number;
+  stationCount?: number;
+  sectionCount?: number;
 }
 
 export interface FullMap extends MapSummary {

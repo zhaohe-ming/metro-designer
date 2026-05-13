@@ -8,8 +8,13 @@ import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoSegmentInput } from './components/VideoExportModal';
-import { getCityStylePreset } from './stylePresets';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
+import { exportVideoFromStage } from './lib/exportVideo';
+import { compressImageDataUrl } from './utils/imageCompress';
+
+// 头像 dataURL 体积阈值：超过即认为是"需要压缩的大头像"。
+// 后端 PUT /api/me 给的硬上限是 200_000；这里取 60KB 作为"还能再瘦一点"的软阈值。
+const AVATAR_COMPRESS_THRESHOLD = 60_000;
 
 const MAX_HISTORY = 50;
 const LAST_MAP_KEY = 'metro_last_map_id';
@@ -56,6 +61,9 @@ type MapSummaryState = {
   name: string;
   updatedAt: string;
   createdAt: string;
+  lineCount?: number;
+  stationCount?: number;
+  sectionCount?: number;
 };
 
 type AppLanguage = 'zh-CN' | 'en-US';
@@ -188,6 +196,15 @@ const App: React.FC = () => {
   const [mapName, setMapName] = useState('');
   const [savedMaps, setSavedMaps] = useState<MapSummaryState[]>([]);
   const [currentMap, setCurrentMap] = useState<MapSummaryState | null>(null);
+  // "我的地图"列表的搜索 / 行内重命名 / 复制状态
+  const [mapsSearchKeyword, setMapsSearchKeyword] = useState('');
+  const [renameMapModal, setRenameMapModal] = useState<{ visible: boolean; mapId: string | null; name: string; saving: boolean }>({
+    visible: false,
+    mapId: null,
+    name: '',
+    saving: false
+  });
+  const [duplicatingMapId, setDuplicatingMapId] = useState<string | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [language, setLanguage] = useState<AppLanguage>(getInitialLanguage);
   const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
@@ -310,8 +327,17 @@ const App: React.FC = () => {
 
   const upsertSavedMap = (summary: MapSummaryState) => {
     setSavedMaps((prev) => {
-      const next = prev.filter((item) => item.id !== summary.id);
-      return [summary, ...next].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+      // 保存接口返回不一定带 counts，合并已有缓存条目里的 counts，避免计数突然消失
+      const existing = prev.find((item) => item.id === summary.id);
+      const merged: MapSummaryState = {
+        ...existing,
+        ...summary,
+        lineCount: summary.lineCount ?? existing?.lineCount,
+        stationCount: summary.stationCount ?? existing?.stationCount,
+        sectionCount: summary.sectionCount ?? existing?.sectionCount
+      };
+      const rest = prev.filter((item) => item.id !== summary.id);
+      return [merged, ...rest].sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
     });
   };
 
@@ -372,6 +398,23 @@ const App: React.FC = () => {
             applyLoadedMap(map);
           } catch {
             try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
+          }
+        }
+        // 历史存量头像可能是几百 KB 的原图 dataURL，DB 全是这种东西会拖慢列表/me。
+        // 静默重压一次后写回；失败就放过。新上传走的是 handleProfileAvatarUpload 里的压缩路径。
+        if (
+          typeof user.avatar === 'string' &&
+          user.avatar.startsWith('data:') &&
+          user.avatar.length > AVATAR_COMPRESS_THRESHOLD
+        ) {
+          try {
+            const compressed = await compressImageDataUrl(user.avatar);
+            if (compressed.length < user.avatar.length) {
+              const { user: migrated } = await api.updateMe({ avatar: compressed });
+              setUserProfile({ ...migrated, password: '' });
+            }
+          } catch (e) {
+            console.warn('avatar migration skipped', e);
           }
         }
       } catch {
@@ -782,7 +825,15 @@ const App: React.FC = () => {
     }
 
     try {
-      const dataUrl = await fileToDataUrl(file);
+      const rawDataUrl = await fileToDataUrl(file);
+      // 上传前先压成 ≤192px 的 JPEG，避免几 MB 的原图直接进 db。
+      // 压缩失败则降级到原始 dataURL，让后端的大小校验兜底。
+      let dataUrl = rawDataUrl;
+      try {
+        dataUrl = await compressImageDataUrl(rawDataUrl);
+      } catch (e) {
+        console.warn('avatar compress failed, sending original', e);
+      }
       const { user } = await api.updateMe({ avatar: dataUrl });
       setUserProfile({ ...user, password: '' });
       message.success('头像已更新');
@@ -814,11 +865,18 @@ const App: React.FC = () => {
     setSaveMapSaving(true);
     setSaveMapVisible(false);
     message.loading({ content: '正在保存地图...', key: 'save-map', duration: 0 });
+    // 保存接口只返回 id/name/时间，counts 由前端按当前内存里的数据回填，
+    // 避免下次开"我的地图"前还得再请求一次列表才看得到行数。
+    const counts = {
+      lineCount: lines.length,
+      stationCount: stations.length,
+      sectionCount: sections.length
+    };
     try {
       if (currentMap) {
         const { map } = await api.updateMap(currentMap.id, { name, lines, stations, sections, mapSettings });
-        setCurrentMap(map);
-        upsertSavedMap(map);
+        setCurrentMap({ ...map, ...counts });
+        upsertSavedMap({ ...map, ...counts });
         setMapName('');
         try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
         message.success({ content: '地图已覆盖保存', key: 'save-map' });
@@ -826,8 +884,8 @@ const App: React.FC = () => {
       }
 
       const { map } = await api.createMap({ name, lines, stations, sections, mapSettings });
-      setCurrentMap(map);
-      upsertSavedMap(map);
+      setCurrentMap({ ...map, ...counts });
+      upsertSavedMap({ ...map, ...counts });
       setMapName('');
       try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
       message.success({ content: '地图已保存', key: 'save-map' });
@@ -897,6 +955,72 @@ const App: React.FC = () => {
     }
   };
 
+  const openRenameMapModal = (map: MapSummaryState) => {
+    setRenameMapModal({ visible: true, mapId: map.id, name: map.name, saving: false });
+  };
+
+  const closeRenameMapModal = () => {
+    setRenameMapModal({ visible: false, mapId: null, name: '', saving: false });
+  };
+
+  const handleConfirmRenameMap = async () => {
+    const { mapId, name } = renameMapModal;
+    const trimmed = name.trim();
+    if (!mapId) return;
+    if (!trimmed) {
+      message.warning('地图名称不能为空');
+      return;
+    }
+    setRenameMapModal(prev => ({ ...prev, saving: true }));
+    try {
+      // 只发 name 字段，后端 storage.updateMap 会保留 lines/stations/sections/mapSettings
+      const { map } = await api.updateMap(mapId, { name: trimmed });
+      setSavedMaps(prev =>
+        prev
+          .map(item =>
+            item.id === mapId ? { ...item, name: map.name, updatedAt: map.updatedAt } : item
+          )
+          .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
+      );
+      if (currentMap?.id === mapId) {
+        setCurrentMap({ ...currentMap, name: map.name, updatedAt: map.updatedAt });
+        setMapName(map.name);
+      }
+      closeRenameMapModal();
+      message.success('地图已重命名');
+    } catch (error: any) {
+      setRenameMapModal(prev => ({ ...prev, saving: false }));
+      message.error(error?.message || '重命名失败');
+    }
+  };
+
+  const handleDuplicateMap = async (mapId: string) => {
+    if (duplicatingMapId) return;
+    setDuplicatingMapId(mapId);
+    try {
+      const { map } = await api.getMap(mapId);
+      const dupName = `${map.name} 副本`;
+      const { map: created } = await api.createMap({
+        name: dupName,
+        lines: map.lines || [],
+        stations: map.stations || [],
+        sections: map.sections || [],
+        mapSettings: map.mapSettings
+      });
+      upsertSavedMap({
+        ...created,
+        lineCount: (map.lines || []).length,
+        stationCount: (map.stations || []).length,
+        sectionCount: (map.sections || []).length
+      });
+      message.success(`已创建副本 “${dupName}”`);
+    } catch (error: any) {
+      message.error(error?.message || '复制失败');
+    } finally {
+      setDuplicatingMapId(null);
+    }
+  };
+
   const handleConfirmSegments = async (segments: VideoSegmentInput[]) => {
     if (!stageRef.current) {
       message.error('画布尚未准备好');
@@ -907,729 +1031,29 @@ const App: React.FC = () => {
     setIsExporting(true);
 
     try {
-      await exportVideoFromStage(stageRef.current, segments, lines, stations, sections, mapSettings);
+      const blob = await exportVideoFromStage({
+        stage: stageRef.current,
+        segments,
+        lines,
+        stations,
+        sections,
+        settings: mapSettings,
+        fetchAmapStaticMap: api.getAmapStaticMap,
+        onWarn: (msg) => message.warning(msg)
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = `metro-demo-${Date.now()}.webm`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      message.success('视频导出完成，已开始下载');
     } catch (error: any) {
       console.error(error);
       message.error(error?.message || '导出失败，请重试');
     } finally {
       setIsExporting(false);
     }
-  };
-
-  const exportVideoFromStage = async (
-    stage: any,
-    segments: VideoSegmentInput[],
-    allLines: Line[],
-    allStations: Station[],
-    allSections: Section[],
-    settings: MapSettings
-  ) => {
-    if (!segments.length) {
-      message.warning('请至少填写一个开通区间');
-      return;
-    }
-
-    if (!allStations.length) {
-      message.warning('请先创建站点后再导出视频');
-      return;
-    }
-
-    const fps = 30;
-    const roundEven = (value: number) => Math.max(2, Math.round(value / 2) * 2);
-    const stageWidth = Math.max(1, Number(stage?.width?.() || 1280));
-    const stageHeight = Math.max(1, Number(stage?.height?.() || 720));
-    const aspectRatio = Math.max(0.45, Math.min(2.4, stageWidth / stageHeight));
-    const maxVideoEdge = 1280;
-    const minVideoEdge = 540;
-    const width = aspectRatio >= 1
-      ? roundEven(maxVideoEdge)
-      : roundEven(Math.max(minVideoEdge, maxVideoEdge * aspectRatio));
-    const height = aspectRatio >= 1
-      ? roundEven(Math.max(minVideoEdge, maxVideoEdge / aspectRatio))
-      : roundEven(maxVideoEdge);
-    const titleFrames = Math.round(fps * 0.8);
-    const outroFrames = fps;
-    const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
-    const preset = getCityStylePreset(settings);
-    const isDarkCanvas = settings.canvasTheme === 'dark';
-    const isAmapVideo = settings.baseMap.mode === 'amap';
-    const amapStyle = settings.baseMap.amap?.style || 'normal';
-    const isMutedAmapStyle = isAmapVideo && (amapStyle === 'dark' || amapStyle === 'grey');
-    const usesDarkVideoSurface = isDarkCanvas || isMutedAmapStyle;
-    const mutedLineColor = usesDarkVideoSurface ? 'rgba(148, 163, 184, 0.46)' : 'rgba(100, 116, 139, 0.28)';
-    const mutedStationFill = usesDarkVideoSurface ? '#0f172a' : '#ffffff';
-    const mutedStationStroke = usesDarkVideoSurface ? '#94a3b8' : '#cbd5e1';
-    const primaryText = usesDarkVideoSurface ? '#f8fafc' : '#0f172a';
-    const secondaryText = usesDarkVideoSurface ? '#cbd5e1' : '#475569';
-    const textHalo = usesDarkVideoSurface ? 'rgba(2, 6, 23, 0.95)' : 'rgba(255, 255, 255, 0.98)';
-    const stationById = new Map(allStations.map(station => [station.id, station]));
-    const stationLineCounts = allStations.reduce<Record<string, number>>((result, station) => {
-      result[station.id] = allLines.filter(line => line.stationIds.includes(station.id)).length;
-      return result;
-    }, {});
-
-    const resolveSegmentPath = (segment: VideoSegmentInput) => {
-      const line = allLines.find(item => item.id === segment.lineId);
-      const startStation = stationById.get(segment.startStationId);
-      const endStation = stationById.get(segment.endStationId);
-      if (!line || !startStation || !endStation || startStation.id === endStation.id) {
-        throw new Error(`视频区间配置无效：${segment.openDate || '未填写日期'}`);
-      }
-
-      const startIndex = line.stationIds.indexOf(startStation.id);
-      const endIndex = line.stationIds.indexOf(endStation.id);
-      if (startIndex >= 0 && endIndex >= 0 && startIndex !== endIndex) {
-        const orderedIds =
-          startIndex < endIndex
-            ? line.stationIds.slice(startIndex, endIndex + 1)
-            : line.stationIds.slice(endIndex, startIndex + 1).reverse();
-        if (orderedIds.every(id => stationById.has(id))) {
-          return { segment, line, stationIds: orderedIds };
-        }
-      }
-
-      const adjacency = new Map<string, string[]>();
-      allSections
-        .filter(section => section.lineId === line.id)
-        .forEach(section => {
-          adjacency.set(section.startStationId, [...(adjacency.get(section.startStationId) || []), section.endStationId]);
-          adjacency.set(section.endStationId, [...(adjacency.get(section.endStationId) || []), section.startStationId]);
-        });
-
-      const queue: string[][] = [[startStation.id]];
-      const visited = new Set([startStation.id]);
-      while (queue.length) {
-        const path = queue.shift()!;
-        const tail = path[path.length - 1];
-        if (tail === endStation.id) return { segment, line, stationIds: path };
-        (adjacency.get(tail) || []).forEach(next => {
-          if (!visited.has(next)) {
-            visited.add(next);
-            queue.push([...path, next]);
-          }
-        });
-      }
-
-      throw new Error(`找不到视频路径：${line.name} ${startStation.name} - ${endStation.name}`);
-    };
-
-    const animationSegments = sortedSegments.map(resolveSegmentPath);
-    const lngLatStations = allStations.filter(station => typeof station.lng === 'number' && typeof station.lat === 'number');
-    if (isAmapVideo && lngLatStations.length !== allStations.length) {
-      message.warning('部分站点缺少经纬度，视频中会使用画布坐标兜底，可能无法完全贴合高德底图');
-    }
-    const minX = Math.min(...allStations.map(station => station.x));
-    const minY = Math.min(...allStations.map(station => station.y));
-    const maxX = Math.max(...allStations.map(station => station.x));
-    const maxY = Math.max(...allStations.map(station => station.y));
-    const padding = 96;
-    const mapWidth = Math.max(1, maxX - minX);
-    const mapHeight = Math.max(1, maxY - minY);
-    const plainMapScale = Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight, 2.2);
-    const mapScale = isAmapVideo ? Math.max(0.72, Math.min(1.35, Math.min(width, height) / 720)) : plainMapScale;
-    const mapOffset = {
-      x: (width - mapWidth * plainMapScale) / 2 - minX * plainMapScale,
-      y: (height - mapHeight * plainMapScale) / 2 - minY * plainMapScale - 10
-    };
-    const amapOptions = settings.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!;
-    const mercatorProject = (lng: number, lat: number, zoom: number) => {
-      const sin = Math.sin((Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI) / 180);
-      const worldSize = 256 * Math.pow(2, zoom);
-      return {
-        x: ((lng + 180) / 360) * worldSize,
-        y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldSize
-      };
-    };
-    const amapCenterPoint = mercatorProject(amapOptions.center[0], amapOptions.center[1], amapOptions.zoom);
-    const toCanvasPoint = (station: Station) => {
-      if (isAmapVideo && typeof station.lng === 'number' && typeof station.lat === 'number') {
-        const point = mercatorProject(station.lng, station.lat, amapOptions.zoom);
-        return {
-          x: width / 2 + point.x - amapCenterPoint.x,
-          y: height / 2 + point.y - amapCenterPoint.y
-        };
-      }
-      return {
-        x: station.x * plainMapScale + mapOffset.x,
-        y: station.y * plainMapScale + mapOffset.y
-      };
-    };
-    const pathToPoints = (stationIds: string[]) =>
-      stationIds.map(id => stationById.get(id)).filter(Boolean).map(station => toCanvasPoint(station!));
-
-    const canvasThemeGradient = (ctx: CanvasRenderingContext2D) => {
-      const gradient = ctx.createLinearGradient(0, 0, width, height);
-      if (isDarkCanvas) {
-        gradient.addColorStop(0, '#07111f');
-        gradient.addColorStop(1, '#0f172a');
-      } else {
-        gradient.addColorStop(0, '#fbfdff');
-        gradient.addColorStop(1, '#eef6ff');
-      }
-      return gradient;
-    };
-
-    const roundRect = (
-      ctx: CanvasRenderingContext2D,
-      x: number,
-      y: number,
-      rectWidth: number,
-      rectHeight: number,
-      radius: number
-    ) => {
-      const r = Math.min(radius, rectWidth / 2, rectHeight / 2);
-      ctx.beginPath();
-      ctx.moveTo(x + r, y);
-      ctx.lineTo(x + rectWidth - r, y);
-      ctx.quadraticCurveTo(x + rectWidth, y, x + rectWidth, y + r);
-      ctx.lineTo(x + rectWidth, y + rectHeight - r);
-      ctx.quadraticCurveTo(x + rectWidth, y + rectHeight, x + rectWidth - r, y + rectHeight);
-      ctx.lineTo(x + r, y + rectHeight);
-      ctx.quadraticCurveTo(x, y + rectHeight, x, y + rectHeight - r);
-      ctx.lineTo(x, y + r);
-      ctx.quadraticCurveTo(x, y, x + r, y);
-      ctx.closePath();
-    };
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) {
-      message.error('浏览器不支持导出视频');
-      return;
-    }
-
-    const loadImageFromBlob = (blob: Blob) =>
-      new Promise<HTMLImageElement>((resolve, reject) => {
-        const url = URL.createObjectURL(blob);
-        const image = new Image();
-        image.onload = () => {
-          URL.revokeObjectURL(url);
-          resolve(image);
-        };
-        image.onerror = () => {
-          URL.revokeObjectURL(url);
-          reject(new Error('高德静态地图图片加载失败'));
-        };
-        image.src = url;
-      });
-
-    const amapBackgroundImage = isAmapVideo
-      ? await api
-          .getAmapStaticMap({
-            center: amapOptions.center,
-            zoom: amapOptions.zoom,
-            width,
-            height,
-            style: amapOptions.style
-          })
-          .then(loadImageFromBlob)
-      : null;
-
-    type VideoPoint = { x: number; y: number };
-    type RectBox = { x: number; y: number; width: number; height: number };
-    type LabelPlacement = RectBox & { textX: number; textY: number };
-
-    const getPathMetrics = (points: VideoPoint[]) => {
-      const lengths = points.slice(1).map((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y));
-      const cumulative = [0];
-      lengths.forEach(length => cumulative.push(cumulative[cumulative.length - 1] + length));
-      return { points, lengths, cumulative, totalLength: cumulative[cumulative.length - 1] || 1 };
-    };
-
-    const getPointAtDistance = (metrics: ReturnType<typeof getPathMetrics>, distance: number) => {
-      const clamped = Math.max(0, Math.min(metrics.totalLength, distance));
-      for (let index = 1; index < metrics.points.length; index += 1) {
-        const segmentStart = metrics.cumulative[index - 1];
-        const segmentEnd = metrics.cumulative[index];
-        if (clamped <= segmentEnd || index === metrics.points.length - 1) {
-          const ratio = segmentEnd === segmentStart ? 0 : (clamped - segmentStart) / (segmentEnd - segmentStart);
-          const previous = metrics.points[index - 1];
-          const current = metrics.points[index];
-          return {
-            x: previous.x + (current.x - previous.x) * ratio,
-            y: previous.y + (current.y - previous.y) * ratio
-          };
-        }
-      }
-      return metrics.points[metrics.points.length - 1];
-    };
-
-    const easeInOut = (value: number) => {
-      const clamped = Math.max(0, Math.min(1, value));
-      return clamped < 0.5 ? 4 * clamped * clamped * clamped : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
-    };
-
-    const rectsOverlap = (a: RectBox, b: RectBox) =>
-      a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-
-    const drawLinePath = (
-      points: VideoPoint[],
-      color: string,
-      progress = 1,
-      alpha = 1,
-      lineWidth = preset.lineWidth
-    ) => {
-      if (points.length < 2 || progress <= 0) return;
-      const lengths = points.slice(1).map((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y));
-      const totalLength = lengths.reduce((sum, value) => sum + value, 0);
-      let remaining = totalLength * Math.min(1, progress);
-      ctx.save();
-      ctx.globalAlpha = alpha;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = lineWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.shadowColor = color;
-      ctx.shadowBlur = preset.lineShadowBlur;
-      ctx.beginPath();
-      ctx.moveTo(points[0].x, points[0].y);
-      for (let index = 1; index < points.length; index += 1) {
-        const previous = points[index - 1];
-        const current = points[index];
-        const length = lengths[index - 1];
-        if (remaining >= length) {
-          ctx.lineTo(current.x, current.y);
-          remaining -= length;
-        } else {
-          const ratio = length === 0 ? 0 : remaining / length;
-          ctx.lineTo(previous.x + (current.x - previous.x) * ratio, previous.y + (current.y - previous.y) * ratio);
-          break;
-        }
-      }
-      ctx.stroke();
-      ctx.restore();
-    };
-
-    const drawMovingHead = (point: VideoPoint, color: string, pulse: number) => {
-      const radius = 8 + Math.sin(pulse * Math.PI * 2) * 1.5;
-      ctx.save();
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 18;
-      ctx.fillStyle = '#ffffff';
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, 3.5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-    };
-
-    const drawStation = (station: Station, activeColor?: string, pulse = 0) => {
-      const point = toCanvasPoint(station);
-      const isInterchange = (stationLineCounts[station.id] || 0) > 1;
-      const color = activeColor || mutedStationStroke;
-      ctx.save();
-      ctx.shadowColor = activeColor || 'transparent';
-      ctx.shadowBlur = activeColor ? 8 : 0;
-      if (pulse > 0) {
-        ctx.globalAlpha = 0.25 * (1 - pulse);
-        ctx.fillStyle = color;
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, (preset.interchangeRadius + 10 + pulse * 12) * mapScale, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.globalAlpha = 1;
-      }
-      ctx.fillStyle = activeColor ? '#ffffff' : mutedStationFill;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = (isInterchange ? preset.interchangeStrokeWidth : preset.normalStationStrokeWidth) * mapScale;
-      ctx.beginPath();
-      ctx.arc(
-        point.x,
-        point.y,
-        (isInterchange ? preset.interchangeRadius : preset.normalStationRadius) * mapScale,
-        0,
-        Math.PI * 2
-      );
-      ctx.fill();
-      ctx.stroke();
-      if (isInterchange && activeColor) {
-        ctx.fillStyle = activeColor;
-        ctx.beginPath();
-        ctx.arc(point.x, point.y, preset.interchangeInnerRadius * mapScale, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.restore();
-    };
-
-    const drawLineLabels = (alpha = 0.82) => {
-      if (!settings.showLineNameLabels) return;
-      const occupied: RectBox[] = allStations.map(station => {
-        const point = toCanvasPoint(station);
-        const radius = ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale + 8;
-        return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
-      });
-      allLines.forEach(line => {
-        const ordered = line.stationIds.map(id => stationById.get(id)).filter(Boolean) as Station[];
-        if (ordered.length < 2) return;
-        const label = line.name;
-        ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
-        const labelWidth = Math.max(52, ctx.measureText(label).width + preset.lineLabelPaddingX * 2);
-        const labelHeight = preset.lineLabelFontSize + preset.lineLabelPaddingY * 2 + 2;
-        const terminalPairs = [
-          { terminal: ordered[0], neighbor: ordered[1], preference: 0 },
-          { terminal: ordered[ordered.length - 1], neighbor: ordered[ordered.length - 2], preference: 4 }
-        ];
-        const best = terminalPairs
-          .flatMap(({ terminal, neighbor, preference }) => {
-            if (!terminal || !neighbor) return [];
-            const terminalPoint = toCanvasPoint(terminal);
-            const neighborPoint = toCanvasPoint(neighbor);
-            const dx = terminalPoint.x - neighborPoint.x;
-            const dy = terminalPoint.y - neighborPoint.y;
-            const len = Math.hypot(dx, dy) || 1;
-            const outward = { x: dx / len, y: dy / len };
-            const normal = { x: -outward.y, y: outward.x };
-            const baseDistance = Math.max(28, preset.interchangeRadius * mapScale + 18);
-            return [0, labelHeight + 8, -(labelHeight + 8), labelHeight * 2 + 16, -(labelHeight * 2 + 16)].map(
-              (sideOffset, index) => {
-                const centerX = terminalPoint.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
-                const centerY = terminalPoint.y + outward.y * (baseDistance + labelHeight / 2) + normal.y * sideOffset;
-                return {
-                  x: centerX - labelWidth / 2,
-                  y: centerY - labelHeight / 2,
-                  width: labelWidth,
-                  height: labelHeight,
-                  score: preference + index * 2
-                };
-              }
-            );
-          })
-          .map(candidate => {
-            let score = candidate.score;
-            occupied.forEach(other => {
-              if (
-                candidate.x < other.x + other.width &&
-                candidate.x + candidate.width > other.x &&
-                candidate.y < other.y + other.height &&
-                candidate.y + candidate.height > other.y
-              ) {
-                score += 90;
-              }
-            });
-            if (candidate.x < 0 || candidate.y < 0 || candidate.x + candidate.width > width || candidate.y + candidate.height > height) {
-              score += 35;
-            }
-            return { ...candidate, score };
-          })
-          .sort((a, b) => a.score - b.score)[0];
-        if (!best) return;
-        occupied.push(best);
-        ctx.save();
-        ctx.globalAlpha = alpha;
-        ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.lineWidth = usesDarkVideoSurface ? 4 : 5;
-        ctx.strokeStyle = textHalo;
-        ctx.shadowColor = textHalo;
-        ctx.shadowBlur = 4;
-        ctx.strokeText(label, best.x + best.width / 2, best.y + best.height / 2);
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = line.color;
-        ctx.fillText(label, best.x + best.width / 2, best.y + best.height / 2);
-        ctx.restore();
-      });
-    };
-
-    const createStationLabelPlacements = (stationIds: string[]) => {
-      const uniqueStations = stationIds
-        .map(id => stationById.get(id))
-        .filter(Boolean)
-        .filter((station, index, list) => list.findIndex(item => item!.id === station!.id) === index) as Station[];
-      const placements = new Map<string, LabelPlacement>();
-      const occupied: RectBox[] = allStations.map(station => {
-        const point = toCanvasPoint(station);
-        const radius = ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale + 6;
-        return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
-      });
-
-      ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
-      uniqueStations.forEach(station => {
-        const point = toCanvasPoint(station);
-        const textWidth = Math.max(24, ctx.measureText(station.name).width);
-        const labelWidth = textWidth + 18;
-        const labelHeight = settings.dotLabelStyle.fontSize + 12;
-        const stationRadius =
-          ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale;
-        const distance = stationRadius + 20;
-        const candidates = [
-          { x: point.x - labelWidth / 2, y: point.y - distance - labelHeight },
-          { x: point.x + distance, y: point.y - labelHeight / 2 },
-          { x: point.x - labelWidth / 2, y: point.y + distance },
-          { x: point.x - distance - labelWidth, y: point.y - labelHeight / 2 },
-          { x: point.x + distance * 0.72, y: point.y - distance * 0.72 - labelHeight },
-          { x: point.x + distance * 0.72, y: point.y + distance * 0.72 },
-          { x: point.x - distance * 0.72 - labelWidth, y: point.y + distance * 0.72 },
-          { x: point.x - distance * 0.72 - labelWidth, y: point.y - distance * 0.72 - labelHeight }
-        ];
-        const best = candidates
-          .map((candidate, index) => {
-            const rect = { ...candidate, width: labelWidth, height: labelHeight };
-            let score = index;
-            occupied.forEach(other => {
-              if (rectsOverlap(rect, other)) score += 80;
-            });
-            if (rect.x < 16 || rect.y < 16 || rect.x + rect.width > width - 16 || rect.y + rect.height > height - 88) {
-              score += 40;
-            }
-            return { ...rect, score };
-          })
-          .sort((a, b) => a.score - b.score)[0];
-        if (!best) return;
-        const placement = {
-          x: best.x,
-          y: best.y,
-          width: best.width,
-          height: best.height,
-          textX: best.x + best.width / 2,
-          textY: best.y + best.height / 2
-        };
-        placements.set(station.id, placement);
-        occupied.push(placement);
-      });
-
-      return placements;
-    };
-
-    const segmentPlans = animationSegments.map(item => {
-      const points = pathToPoints(item.stationIds);
-      const metrics = getPathMetrics(points);
-      const durationSeconds = Math.min(8, Math.max(3.8, 2.6 + metrics.totalLength / 260));
-      return {
-        ...item,
-        points,
-        metrics,
-        durationFrames: Math.round(durationSeconds * fps),
-        revealFrames: Math.round(fps * 0.55),
-        holdFrames: Math.round(fps * 0.55),
-        labelPlacements: createStationLabelPlacements(item.stationIds)
-      };
-    });
-
-    type SegmentPlan = typeof segmentPlans[number];
-
-    const drawStationLabel = (station: Station, placement: LabelPlacement, reveal: number, alpha: number) => {
-      const visibleLength = Math.max(0, Math.min(station.name.length, Math.ceil(station.name.length * reveal)));
-      if (visibleLength <= 0 || alpha <= 0) return;
-      const text = station.name.slice(0, visibleLength);
-      ctx.save();
-      ctx.globalAlpha = alpha * Math.max(0.15, reveal);
-      ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.lineWidth = usesDarkVideoSurface ? 4 : 5;
-      ctx.strokeStyle = textHalo;
-      ctx.shadowColor = textHalo;
-      ctx.shadowBlur = 4;
-      ctx.strokeText(text, placement.textX, placement.textY);
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = isMutedAmapStyle ? '#ffffff' : settings.dotLabelStyle.color || primaryText;
-      ctx.fillText(text, placement.textX, placement.textY);
-      ctx.restore();
-    };
-
-    const drawBaseMap = (
-      openedCount: number,
-      currentPlan?: SegmentPlan,
-      currentDistance = 0,
-      segmentFrame = 0
-    ) => {
-      ctx.clearRect(0, 0, width, height);
-      if (amapBackgroundImage) {
-        ctx.drawImage(amapBackgroundImage, 0, 0, width, height);
-      } else {
-        ctx.fillStyle = canvasThemeGradient(ctx);
-        ctx.fillRect(0, 0, width, height);
-      }
-
-      allSections.forEach(section => {
-        const start = stationById.get(section.startStationId);
-        const end = stationById.get(section.endStationId);
-        if (!start || !end) return;
-        drawLinePath([toCanvasPoint(start), toCanvasPoint(end)], mutedLineColor, 1, 0.8, preset.lineWidth);
-      });
-
-      segmentPlans.slice(0, openedCount).forEach(item => {
-        drawLinePath(item.points, item.line.color, 1, 0.78, preset.lineWidth);
-      });
-
-      if (currentPlan) {
-        drawLinePath(currentPlan.points, currentPlan.line.color, currentDistance / currentPlan.metrics.totalLength, 1, preset.lineWidth + 1);
-      }
-
-      const activeStationColors = new Map<string, string>();
-      segmentPlans.slice(0, openedCount).forEach(item => {
-        item.stationIds.forEach(id => activeStationColors.set(id, item.line.color));
-      });
-      if (currentPlan) {
-        currentPlan.stationIds.forEach((id, index) => {
-          if ((currentPlan.metrics.cumulative[index] || 0) <= currentDistance + 1) {
-            activeStationColors.set(id, currentPlan.line.color);
-          }
-        });
-      }
-
-      allStations.forEach(station => drawStation(station, activeStationColors.get(station.id)));
-      if (currentPlan) {
-        const head = getPointAtDistance(currentPlan.metrics, currentDistance);
-        drawMovingHead(head, currentPlan.line.color, segmentFrame / fps);
-      }
-      drawLineLabels(currentPlan ? 0.5 : 0.82);
-
-      segmentPlans.slice(0, openedCount).forEach(item => {
-        item.stationIds.forEach(id => {
-          const station = stationById.get(id);
-          const placement = item.labelPlacements.get(id);
-          if (station && placement) drawStationLabel(station, placement, 1, 0.52);
-        });
-      });
-
-      if (currentPlan) {
-        currentPlan.stationIds.forEach((id, index) => {
-          const station = stationById.get(id);
-          const placement = currentPlan.labelPlacements.get(id);
-          if (!station || !placement) return;
-          const arrivalDistance = currentPlan.metrics.cumulative[index] || 0;
-          const arrivalProgressFrame = Math.round((arrivalDistance / currentPlan.metrics.totalLength) * currentPlan.durationFrames);
-          const reveal = index === 0 ? 1 : Math.max(0, Math.min(1, (segmentFrame - arrivalProgressFrame) / currentPlan.revealFrames));
-          drawStationLabel(station, placement, reveal, 1);
-        });
-      }
-    };
-
-    const drawInfoPanel = (item: SegmentPlan, progress: number) => {
-      const startStation = stationById.get(item.stationIds[0]);
-      const endStation = stationById.get(item.stationIds[item.stationIds.length - 1]);
-      const panelWidth = 390;
-      const panelHeight = 104;
-      const x = 34;
-      const y = height - panelHeight - 28;
-      ctx.save();
-      roundRect(ctx, x, y, panelWidth, panelHeight, 14);
-      ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.86)' : 'rgba(255, 255, 255, 0.9)';
-      ctx.strokeStyle = isDarkCanvas ? 'rgba(148, 163, 184, 0.32)' : 'rgba(148, 163, 184, 0.34)';
-      ctx.lineWidth = 1;
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = item.line.color;
-      roundRect(ctx, x + 18, y + 20, 62, 28, 14);
-      ctx.fill();
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '700 13px "Microsoft YaHei", "PingFang SC", Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(item.line.name, x + 49, y + 34);
-      ctx.fillStyle = primaryText;
-      ctx.font = '800 22px "Microsoft YaHei", "PingFang SC", Arial';
-      ctx.textAlign = 'left';
-      ctx.fillText(item.segment.openDate, x + 96, y + 32);
-      ctx.fillStyle = secondaryText;
-      ctx.font = '500 16px "Microsoft YaHei", "PingFang SC", Arial';
-      ctx.fillText(`${startStation?.name || '-'}  →  ${endStation?.name || '-'}`, x + 96, y + 64);
-      ctx.fillStyle = isDarkCanvas ? '#1e293b' : '#e2e8f0';
-      roundRect(ctx, x + 20, y + 78, panelWidth - 40, 7, 4);
-      ctx.fill();
-      ctx.fillStyle = item.line.color;
-      roundRect(ctx, x + 20, y + 78, (panelWidth - 40) * progress, 7, 4);
-      ctx.fill();
-      ctx.restore();
-    };
-
-    const drawTitle = () => {
-      drawBaseMap(0);
-      ctx.save();
-      ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.54)' : 'rgba(255, 255, 255, 0.56)';
-      ctx.fillRect(0, 0, width, height);
-      ctx.fillStyle = primaryText;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.font = '900 44px "Microsoft YaHei", "PingFang SC", Arial';
-      ctx.fillText('线路开通演示', width / 2, height / 2 - 18);
-      ctx.fillStyle = secondaryText;
-      ctx.font = '500 18px "Microsoft YaHei", "PingFang SC", Arial';
-      ctx.fillText('按开通日期逐步点亮城市轨道网络', width / 2, height / 2 + 30);
-      ctx.restore();
-    };
-
-    const drawFrame = (frame: number) => {
-      if (frame < titleFrames) {
-        drawTitle();
-        return;
-      }
-      const animatedFrame = frame - titleFrames;
-      let cursor = 0;
-      const segmentIndex = segmentPlans.findIndex(item => {
-        const total = item.durationFrames + item.holdFrames;
-        if (animatedFrame >= cursor && animatedFrame < cursor + total) return true;
-        cursor += total;
-        return false;
-      });
-      if (segmentIndex < 0) {
-        drawBaseMap(segmentPlans.length);
-        return;
-      }
-      const item = segmentPlans[segmentIndex];
-      const segmentFrame = animatedFrame - cursor;
-      const progress = Math.min(1, segmentFrame / item.durationFrames);
-      const easedProgress = easeInOut(progress);
-      const currentDistance = item.metrics.totalLength * easedProgress;
-      drawBaseMap(segmentIndex, item, currentDistance, segmentFrame);
-      drawInfoPanel(item, easedProgress);
-    };
-
-    const stream = canvas.captureStream(fps);
-    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-      ? 'video/webm;codecs=vp9'
-      : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-        ? 'video/webm;codecs=vp8'
-        : 'video/webm';
-    const recorder = new MediaRecorder(stream, { mimeType });
-    const chunks: BlobPart[] = [];
-    const videoTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack & { requestFrame?: () => void };
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) {
-        chunks.push(event.data);
-      }
-    };
-
-    const totalFrames = titleFrames + segmentPlans.reduce((sum, item) => sum + item.durationFrames + item.holdFrames, 0) + outroFrames;
-    let frame = 0;
-    const stopPromise: Promise<Blob> = new Promise((resolve) => {
-      recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
-    });
-
-    recorder.start(100);
-    await new Promise<void>((resolve) => {
-      const timer = setInterval(() => {
-        drawFrame(frame);
-        videoTrack?.requestFrame?.();
-        frame += 1;
-        if (frame >= totalFrames) {
-          clearInterval(timer);
-          recorder.stop();
-          resolve();
-        }
-      }, 1000 / fps);
-    });
-
-    const blob = await stopPromise;
-    if (blob.size === 0) {
-      throw new Error('视频生成失败：浏览器没有录制到有效画面');
-    }
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `metro-demo-${Date.now()}.webm`;
-    anchor.click();
-    URL.revokeObjectURL(url);
-    message.success('视频导出完成，已开始下载');
   };
 
   const handleExportImage = () => {
@@ -1926,36 +1350,128 @@ const App: React.FC = () => {
           />
         </DraggableModal>
 
-        <DraggableModal title="我的地图" open={mapsVisible} onCancel={() => setMapsVisible(false)} footer={null}>
+        <DraggableModal
+          title="我的地图"
+          open={mapsVisible}
+          onCancel={() => { setMapsVisible(false); setMapsSearchKeyword(''); }}
+          footer={null}
+          width={560}
+        >
+          <Input.Search
+            allowClear
+            placeholder="按地图名称搜索"
+            value={mapsSearchKeyword}
+            onChange={(event) => setMapsSearchKeyword(event.target.value)}
+            style={{ marginBottom: 12 }}
+          />
           <List
             loading={mapsLoading}
-            dataSource={savedMaps}
-            locale={{ emptyText: mapsLoading ? '正在加载地图...' : '暂无已保存地图' }}
-            renderItem={(item) => (
-              <List.Item
-                actions={[
-                  <Button key="load" type="link" onClick={() => handleLoadMap(item.id)}>
-                    加载
-                  </Button>,
-                  <Popconfirm
-                    key="delete"
-                    title="确认删除该地图？"
-                    onConfirm={() => handleDeleteMap(item.id)}
-                    okText="删除"
-                    cancelText="取消"
-                  >
-                    <Button type="link" danger>
-                      删除
-                    </Button>
-                  </Popconfirm>
-                ]}
-              >
-                <List.Item.Meta
-                  title={item.name}
-                  description={`更新时间：${new Date(item.updatedAt).toLocaleString()}`}
-                />
-              </List.Item>
+            dataSource={savedMaps.filter((item) =>
+              mapsSearchKeyword.trim()
+                ? item.name.toLowerCase().includes(mapsSearchKeyword.trim().toLowerCase())
+                : true
             )}
+            locale={{
+              emptyText: mapsLoading
+                ? '正在加载地图...'
+                : mapsSearchKeyword.trim()
+                  ? `没有匹配 “${mapsSearchKeyword.trim()}” 的地图`
+                  : '暂无已保存地图'
+            }}
+            renderItem={(item) => {
+              const isCurrent = currentMap?.id === item.id;
+              const counts = [
+                { label: '线路', value: item.lineCount },
+                { label: '站点', value: item.stationCount },
+                { label: '区间', value: item.sectionCount }
+              ].filter((c) => typeof c.value === 'number');
+              return (
+                <List.Item
+                  actions={[
+                    <Button key="load" type="link" onClick={() => handleLoadMap(item.id)}>
+                      加载
+                    </Button>,
+                    <Button key="rename" type="link" onClick={() => openRenameMapModal(item)}>
+                      重命名
+                    </Button>,
+                    <Button
+                      key="duplicate"
+                      type="link"
+                      loading={duplicatingMapId === item.id}
+                      onClick={() => handleDuplicateMap(item.id)}
+                    >
+                      复制
+                    </Button>,
+                    <Popconfirm
+                      key="delete"
+                      title="确认删除该地图？"
+                      onConfirm={() => handleDeleteMap(item.id)}
+                      okText="删除"
+                      cancelText="取消"
+                    >
+                      <Button type="link" danger>
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  ]}
+                >
+                  <List.Item.Meta
+                    title={
+                      <Space size={8} wrap>
+                        <span>{item.name}</span>
+                        {isCurrent ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              padding: '0 8px',
+                              borderRadius: 10,
+                              background: 'rgba(37,99,235,0.12)',
+                              color: '#2563eb',
+                              fontWeight: 600
+                            }}
+                          >
+                            当前
+                          </span>
+                        ) : null}
+                      </Space>
+                    }
+                    description={
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12 }}>
+                        <span>更新时间：{new Date(item.updatedAt).toLocaleString()}</span>
+                        {counts.length ? (
+                          <Space size={10} wrap>
+                            {counts.map((c) => (
+                              <span key={c.label} style={{ color: '#64748b' }}>
+                                {c.label}{' '}
+                                <strong style={{ color: '#0f172a', fontWeight: 600 }}>{c.value}</strong>
+                              </span>
+                            ))}
+                          </Space>
+                        ) : null}
+                      </div>
+                    }
+                  />
+                </List.Item>
+              );
+            }}
+          />
+        </DraggableModal>
+
+        <DraggableModal
+          title="重命名地图"
+          open={renameMapModal.visible}
+          onOk={handleConfirmRenameMap}
+          onCancel={closeRenameMapModal}
+          okText="保存"
+          cancelText="取消"
+          confirmLoading={renameMapModal.saving}
+        >
+          <Input
+            value={renameMapModal.name}
+            onChange={(event) => setRenameMapModal((prev) => ({ ...prev, name: event.target.value }))}
+            placeholder="请输入新的地图名称"
+            maxLength={40}
+            onPressEnter={handleConfirmRenameMap}
           />
         </DraggableModal>
 
