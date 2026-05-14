@@ -335,22 +335,54 @@ body {
 .metro-line-card {
   position: relative;
   overflow: hidden;
-  border: 1px solid var(--metro-border);
-  border-radius: var(--metro-radius);
-  background: var(--metro-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
-.metro-line-card.is-active {
-  border-color: var(--metro-border-strong);
-  background: #f7f9fc;
-}
-
+/* 默认 accent bar：3px 的色条，告诉用户"这是这条线的颜色"。整张卡片悬停时略加粗 */
 .metro-line-card__accent {
   position: absolute;
   top: 0;
   left: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent-color, var(--color-primary-600));
+  opacity: 0.7;
+  transition: width 140ms ease, opacity 140ms ease;
+}
+
+.metro-line-card:hover .metro-line-card__accent {
   width: 4px;
-  height: 100%;
+  opacity: 0.9;
+}
+
+/* 激活态：色条加粗 + 卡片边框使用线路本色 + 线路色淡背景 + 外环细 ring */
+.metro-line-card.is-active {
+  border-color: var(--accent-color, var(--color-primary-600));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent-color) 10%, transparent) 0%, transparent 50%),
+    var(--color-surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-color) 50%, transparent);
+}
+
+.metro-line-card.is-active .metro-line-card__accent {
+  width: 6px;
+  opacity: 1;
+}
+
+/* 「当前编辑」徽标：从纯文字升级成 pill，配合 active 状态更显眼 */
+.metro-line-card__active-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-color, var(--color-primary-600));
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .metro-line-card__body {
@@ -418,16 +450,80 @@ body {
 
 .metro-empty-card,
 .metro-station-item {
-  border: 1px dashed var(--metro-border);
-  border-radius: var(--metro-radius);
-  background: var(--metro-surface-muted);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
 }
 
+/* 空状态卡片：从一段纯文字升级成「插画 + 标题 + 说明 + 可选 CTA」的居中块 */
 .metro-empty-card {
-  padding: 12px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--metro-text-soft);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-3);
+  font-size: var(--font-size-body);
+  line-height: 1.55;
+  color: var(--color-text-soft);
+  text-align: center;
+}
+
+.metro-empty-card__art {
+  display: block;
+  color: var(--color-primary-500);
+  margin-bottom: var(--space-1);
+}
+
+.metro-empty-card__title {
+  font-size: var(--font-size-lg-body);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.metro-empty-card__text {
+  font-size: var(--font-size-body);
+  color: var(--color-text-soft);
+  max-width: 220px;
+}
+
+.metro-empty-card__cta.ant-btn {
+  margin-top: var(--space-2);
+  height: 30px;
+  padding: 0 var(--space-3);
+  font-weight: 600;
+}
+
+/* 全宽（用在弹窗内）的空态稍微高一点 */
+.metro-empty-card--maps {
+  padding: var(--space-6) var(--space-4);
+}
+
+.metro-empty-card--stations .metro-empty-card__art {
+  margin-bottom: 0;
+}
+
+/* 暗色模式：背景/字色靠 token 切换自动跟上，这里只调整插画色淡一些 */
+.metro-app-shell[data-interface-theme="dark"] .metro-empty-card__art {
+  color: var(--color-primary-500);
+  opacity: 0.85;
+}
+
+/* 我的地图弹窗：skeleton loading 区域留点上下空白让骨架不挤 */
+.metro-maps-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-2) 0 var(--space-3);
+}
+
+.metro-maps-skeleton .ant-skeleton {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.metro-maps-skeleton .ant-skeleton:last-child {
+  border-bottom: 0;
 }
 
 .metro-station-item {
@@ -1029,10 +1125,8 @@ body {
   border-color: #d7e6f6;
 }
 
-.metro-line-card.is-active {
-  border-color: #60a5fa;
-  background: #eff6ff;
-}
+/* （旧的"激活线路卡片背景 = #eff6ff、border = #60a5fa"被新的 accent + line color border 取代，
+    清掉以免覆盖 --accent-color 驱动的新样式） */
 
 .metro-toolbar__primary.ant-btn,
 .auth-submit-btn.ant-btn,
@@ -1219,9 +1313,12 @@ body {
   color: #ffffff !important;
 }
 
+/* 深色模式下的激活线路卡片：保留新版 accent + line-color 边框，只把背景换成深色变体 */
 .metro-app-shell[data-interface-theme="dark"] .metro-line-card.is-active {
-  background: rgba(59, 130, 246, 0.14);
-  border-color: #3b82f6;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--accent-color) 18%, transparent) 0%, transparent 50%),
+    rgba(17, 24, 39, 0.6);
+  border-color: var(--accent-color, var(--color-primary-500));
 }
 
 .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface {
@@ -1345,10 +1442,16 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
 .metro-canvas-surface {
   background-color: var(--metro-canvas-bg, #fbfdff) !important;
+  /* drafting paper 24×24 网格点：浅色画布下的灰色淡点 */
+  background-image: radial-gradient(circle, rgba(15, 23, 42, 0.07) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
 }
 
 .metro-canvas-surface.is-canvas-dark {
   background-color: var(--metro-canvas-bg, #07111f) !important;
+  /* 深色画布：点改成淡蓝光，有 "blueprint" 感 */
+  background-image: radial-gradient(circle, rgba(148, 197, 253, 0.10) 1px, transparent 1px);
 }
 
 .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface {

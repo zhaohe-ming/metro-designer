@@ -46,6 +46,11 @@ const Sidebar: React.FC<SidebarProps> = ({
         finishReorder: 'Done',
         reorderHint: 'Drag line cards to reorder.',
         emptyLines: 'No lines yet. Click the "+ New" button above to start.',
+        emptyLinesTitle: 'No lines yet',
+        emptyLinesText: 'Start your map by drawing the first metro line.',
+        emptyLinesCta: 'Create first line',
+        emptyStationsTitle: 'No stations yet',
+        emptyStationsText: 'Click any blank spot on the canvas to add a station.',
         addLine: 'New',
         stationUnit: 'stations',
         sectionUnit: 'sections',
@@ -84,6 +89,11 @@ const Sidebar: React.FC<SidebarProps> = ({
         finishReorder: '完成排序',
         reorderHint: '拖拽线路卡片即可重新排序',
         emptyLines: '还没有线路。点击上方"+ 新建"按钮创建第一条线路。',
+        emptyLinesTitle: '还没有线路',
+        emptyLinesText: '从绘制第一条线路开始你的方案。',
+        emptyLinesCta: '创建第一条线路',
+        emptyStationsTitle: '暂无站点',
+        emptyStationsText: '在画布空白处点击即可创建站点。',
         addLine: '新建',
         stationUnit: '个站点',
         sectionUnit: '个区间',
@@ -358,7 +368,40 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="metro-line-list" onClick={handleLinesAreaClick}>
           {lines.length === 0 ? (
-            <div className="metro-empty-card">{text.emptyLines}</div>
+            <div className="metro-empty-card metro-empty-card--lines">
+              {/* 抽象轨道图：3 个站点圆点 + 一根弧线 */}
+              <svg
+                className="metro-empty-card__art"
+                width="84"
+                height="60"
+                viewBox="0 0 84 60"
+                aria-hidden="true"
+              >
+                <path
+                  d="M10 42 Q 28 12 42 30 T 74 18"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  fill="none"
+                  opacity="0.55"
+                />
+                <circle cx="10" cy="42" r="4" fill="currentColor" />
+                <circle cx="42" cy="30" r="5" fill="currentColor" />
+                <circle cx="74" cy="18" r="4" fill="currentColor" />
+                <circle cx="42" cy="30" r="2" fill="#ffffff" />
+              </svg>
+              <div className="metro-empty-card__title">{text.emptyLinesTitle}</div>
+              <div className="metro-empty-card__text">{text.emptyLinesText}</div>
+              <Button
+                type="primary"
+                size="small"
+                icon={<PlusOutlined />}
+                onClick={openAddLineModal}
+                className="metro-empty-card__cta"
+              >
+                {text.emptyLinesCta}
+              </Button>
+            </div>
           ) : (
             lines.map((line) => {
               const active = currentLineId === line.id;
@@ -367,6 +410,8 @@ const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <article
                   key={line.id}
+                  // --accent-color 一份传给 article，accent bar + active 状态的 border/glow 都用同一个变量
+                  style={{ ['--accent-color' as any]: line.color }}
                   className={`metro-line-card ${active ? 'is-active' : ''} ${isReorderingLines ? 'is-reordering' : ''}`}
                   onClick={() => {
                     if (isReorderingLines) return;
@@ -377,7 +422,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                   onDragOver={isReorderingLines ? (event) => handleLineDragOver(event, line.id) : undefined}
                   onDrop={isReorderingLines ? (event) => handleLineDrop(event, line.id) : undefined}
                 >
-                  <div className="metro-line-card__accent" style={{ backgroundColor: line.color }} />
+                  <div className="metro-line-card__accent" />
 
                   <div className="metro-line-card__body">
                     <div className="metro-line-card__top">
@@ -393,7 +438,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           <div className="metro-line-card__sub">
                             <span>{line.stationIds.length} {text.stationUnit}</span>
                             <span>{line.sectionIds.length} {text.sectionUnit}</span>
-                            {active ? <span>{text.active}</span> : null}
+                            {active ? <span className="metro-line-card__active-pill">{text.active}</span> : null}
                           </div>
                         </div>
                       </div>
@@ -474,7 +519,23 @@ const Sidebar: React.FC<SidebarProps> = ({
 
         <div className="metro-station-list">
           {stations.length === 0 ? (
-            <div className="metro-empty-card">{text.emptyStations}</div>
+            <div className="metro-empty-card metro-empty-card--stations">
+              {/* 单站点的小图：一个被光圈包围的圆点 */}
+              <svg
+                className="metro-empty-card__art"
+                width="60"
+                height="60"
+                viewBox="0 0 60 60"
+                aria-hidden="true"
+              >
+                <circle cx="30" cy="30" r="20" fill="currentColor" opacity="0.10" />
+                <circle cx="30" cy="30" r="12" fill="currentColor" opacity="0.18" />
+                <circle cx="30" cy="30" r="6" fill="currentColor" />
+                <circle cx="30" cy="30" r="2.5" fill="#ffffff" />
+              </svg>
+              <div className="metro-empty-card__title">{text.emptyStationsTitle}</div>
+              <div className="metro-empty-card__text">{text.emptyStationsText}</div>
+            </div>
           ) : (
             stations.map((station) => (
               <div key={station.id} className="metro-station-item">

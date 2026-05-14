@@ -1804,7 +1804,10 @@ const Canvas: React.FC<CanvasProps> = ({
         height: '100%',
         '--metro-canvas-bg': canvasBackgroundColor,
         backgroundColor: canvasBackgroundColor,
-        backgroundImage: !isAmapMode && canvasBackgroundImage ? `url(${canvasBackgroundImage})` : 'none',
+        // 用户导入了自定义画布背景图 → 用那张图；
+        // 否则 undefined（不写 'none'），让 CSS 里的 drafting-paper 点状网格能生效
+        backgroundImage:
+          !isAmapMode && canvasBackgroundImage ? `url(${canvasBackgroundImage})` : undefined,
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat'

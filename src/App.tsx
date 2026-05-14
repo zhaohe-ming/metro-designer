@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
+import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Radio, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
 import {
   DownOutlined,
   FolderOpenOutlined,
@@ -1364,19 +1364,51 @@ const App: React.FC = () => {
             onChange={(event) => setMapsSearchKeyword(event.target.value)}
             style={{ marginBottom: 12 }}
           />
+          {mapsLoading ? (
+            // Skeleton 取代默认的 spinner，加载体感更平滑
+            <div className="metro-maps-skeleton">
+              {[0, 1, 2].map((i) => (
+                <Skeleton key={i} active avatar={false} paragraph={{ rows: 1, width: ['60%'] }} title={{ width: '40%' }} />
+              ))}
+            </div>
+          ) : null}
           <List
-            loading={mapsLoading}
+            // 自己做了 loading skeleton，AntD 内置 loading 关掉避免双重指示器
             dataSource={savedMaps.filter((item) =>
               mapsSearchKeyword.trim()
                 ? item.name.toLowerCase().includes(mapsSearchKeyword.trim().toLowerCase())
                 : true
             )}
             locale={{
-              emptyText: mapsLoading
-                ? '正在加载地图...'
-                : mapsSearchKeyword.trim()
-                  ? `没有匹配 “${mapsSearchKeyword.trim()}” 的地图`
-                  : '暂无已保存地图'
+              emptyText: mapsLoading ? (
+                // 加载时把 list 的空态藏起来（skeleton 已经在上方显示）
+                <span style={{ display: 'none' }} />
+              ) : mapsSearchKeyword.trim() ? (
+                <div style={{ padding: '24px 0', color: 'var(--color-text-muted)', fontSize: 13 }}>
+                  没有匹配 "{mapsSearchKeyword.trim()}" 的地图
+                </div>
+              ) : (
+                <div className="metro-empty-card metro-empty-card--maps">
+                  {/* 一摞叠起来的方案纸 */}
+                  <svg
+                    className="metro-empty-card__art"
+                    width="76"
+                    height="62"
+                    viewBox="0 0 76 62"
+                    aria-hidden="true"
+                  >
+                    <rect x="14" y="18" width="44" height="34" rx="4" fill="currentColor" opacity="0.16" />
+                    <rect x="20" y="12" width="44" height="34" rx="4" fill="currentColor" opacity="0.3" />
+                    <rect x="26" y="6" width="44" height="34" rx="4" fill="currentColor" />
+                    <circle cx="36" cy="16" r="2.5" fill="#ffffff" />
+                    <rect x="42" y="14" width="22" height="3" rx="1.5" fill="#ffffff" opacity="0.85" />
+                    <rect x="32" y="24" width="32" height="2" rx="1" fill="#ffffff" opacity="0.55" />
+                    <rect x="32" y="30" width="20" height="2" rx="1" fill="#ffffff" opacity="0.55" />
+                  </svg>
+                  <div className="metro-empty-card__title">暂无已保存方案</div>
+                  <div className="metro-empty-card__text">保存当前画布后会出现在这里。</div>
+                </div>
+              )
             }}
             renderItem={(item) => {
               const isCurrent = currentMap?.id === item.id;
