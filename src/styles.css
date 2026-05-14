@@ -1304,6 +1304,25 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-color-picker-tri
   border-color: transparent !important;
 }
 
+.app-header {
+  transform: translateY(-3px);
+}
+
+.metro-toolbar-panel {
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.metro-toolbar {
+  justify-content: flex-start;
+  width: auto;
+}
+
+.metro-toolbar__right {
+  justify-content: flex-start;
+}
+
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper) {
   background: #f8fafc !important;
   border-color: #cbd5e1 !important;
