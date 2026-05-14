@@ -127,7 +127,22 @@ const i18n = {
     signOut: '退出登录',
     close: '关闭',
     phone: '手机号',
-    avatarHint: '点击头像可上传本机图片'
+    avatarHint: '点击头像可上传本机图片',
+    profileChangeAvatar: '更换头像',
+    profileAccountSection: '账号信息',
+    profilePasswordSection: '修改密码（可选）',
+    profileUsername: '用户名',
+    profilePhoneBound: '已绑定',
+    profileUsernamePlaceholder: '更新你的用户名',
+    profileNewPassword: '新密码',
+    profileNewPasswordPlaceholder: '不修改可留空',
+    profileConfirmPassword: '确认新密码',
+    profileConfirmPasswordPlaceholder: '请再次输入新密码',
+    profileCancel: '取消',
+    profileSave: '保存修改',
+    profilePasswordMin: '密码长度至少 6 位',
+    profilePasswordRequiredConfirm: '请再次输入新密码',
+    profilePasswordMismatch: '两次输入的密码不一致'
   },
   'en-US': {
     saveMap: 'Save map',
@@ -174,7 +189,22 @@ const i18n = {
     signOut: 'Sign out',
     close: 'Close',
     phone: 'Phone',
-    avatarHint: 'Click avatar to upload an image'
+    avatarHint: 'Click avatar to upload an image',
+    profileChangeAvatar: 'Change avatar',
+    profileAccountSection: 'Account info',
+    profilePasswordSection: 'Change password (optional)',
+    profileUsername: 'Username',
+    profilePhoneBound: 'Linked',
+    profileUsernamePlaceholder: 'Update your username',
+    profileNewPassword: 'New password',
+    profileNewPasswordPlaceholder: 'Leave blank to keep current',
+    profileConfirmPassword: 'Confirm new password',
+    profileConfirmPasswordPlaceholder: 'Re-enter the new password',
+    profileCancel: 'Cancel',
+    profileSave: 'Save changes',
+    profilePasswordMin: 'Password must be at least 6 characters',
+    profilePasswordRequiredConfirm: 'Please re-enter the new password',
+    profilePasswordMismatch: 'Passwords do not match'
   }
 };
 
@@ -827,21 +857,20 @@ const App: React.FC = () => {
     });
   };
 
+  // 个人中心保存：表单只动用户名 + 可选新密码。头像走单独的"点击 / 更换头像"按钮上传，
+  // 不再让用户粘 URL（那个字段对普通用户难以理解，且已通过 handleProfileAvatarUpload 自带压缩上传链路）。
   const handleUpdateProfile = async (values: {
     username: string;
-    avatar?: string;
     password?: string;
     confirm?: string;
   }) => {
     if (!userProfile) return;
 
     try {
-      const avatarInput = values.avatar?.trim();
       const nextPassword =
         values.password && values.confirm && values.password === values.confirm ? values.password : undefined;
       const payload = {
         username: values.username || userProfile.username,
-        avatar: avatarInput !== undefined ? avatarInput : userProfile.avatar || '',
         password: nextPassword
       };
 
@@ -1808,23 +1837,13 @@ const App: React.FC = () => {
           </div>
         </DraggableModal>
 
-        <DraggableModal title={text.profile} open={profileVisible} onCancel={() => setProfileVisible(false)} footer={null}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-            <Avatar
-              size={56}
-              src={userProfile.avatar}
-              style={{ backgroundColor: '#1890ff', cursor: 'pointer' }}
-              onClick={() => avatarInputRef.current?.click()}
-            >
-              {userProfile.avatar ? null : displayInitial}
-            </Avatar>
-            <div>
-              <div style={{ fontWeight: 600, fontSize: 16 }}>{displayName}</div>
-              <div style={{ color: '#8c8c8c' }}>{text.phone}: +86 {userProfile.phone}</div>
-              <div style={{ color: '#8c8c8c', fontSize: 12 }}>{text.avatarHint}</div>
-            </div>
-          </div>
-
+        <DraggableModal
+          title={text.profile}
+          open={profileVisible}
+          onCancel={() => setProfileVisible(false)}
+          footer={null}
+          width={460}
+        >
           <input
             ref={avatarInputRef}
             type="file"
@@ -1833,72 +1852,114 @@ const App: React.FC = () => {
             style={{ display: 'none' }}
           />
 
-          <Divider style={{ margin: '12px 0' }} />
+          {/* 顶部身份卡：大头像 + 名字 + 脱敏手机号 + 单独的"更换头像"按钮。
+              头像也可以点击直接触发上传，提供两种入口 */}
+          <div className="metro-profile-identity">
+            <Avatar
+              size={64}
+              src={userProfile.avatar}
+              className="metro-profile-identity__avatar"
+              onClick={() => avatarInputRef.current?.click()}
+            >
+              {userProfile.avatar ? null : displayInitial}
+            </Avatar>
+            <div className="metro-profile-identity__main">
+              <div className="metro-profile-identity__name">{displayName}</div>
+              <div className="metro-profile-identity__phone">+86 {userProfile.phone}</div>
+              <button
+                type="button"
+                className="metro-profile-identity__change"
+                onClick={() => avatarInputRef.current?.click()}
+              >
+                <EditOutlined /> {text.profileChangeAvatar}
+              </button>
+            </div>
+          </div>
 
           <Form
             layout="vertical"
             autoComplete="off"
             initialValues={{
               username: userProfile.username,
-              avatar: userProfile.avatar,
               password: '',
               confirm: ''
             }}
             onFinish={handleUpdateProfile}
+            className="metro-profile-form"
           >
-            <Form.Item label="用户名" name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-              <Input placeholder="更新你的用户名" maxLength={16} />
-            </Form.Item>
-            <Form.Item
-              label="头像地址（可选）"
-              name="avatar"
-              extra="支持粘贴图片链接，留空则使用首字母头像"
-            >
-              <Input placeholder="https://example.com/avatar.png" />
-            </Form.Item>
-            <Form.Item label="手机号">
-              <Input value={userProfile.phone} disabled />
-            </Form.Item>
-            <Form.Item label="新密码（可选）" name="password" rules={[{ min: 6, message: '密码长度至少 6 位' }]}>
-              <Input.Password placeholder="不修改可留空" autoComplete="new-password" />
-            </Form.Item>
-            <Form.Item
-              label="确认新密码"
-              name="confirm"
-              dependencies={['password']}
-              rules={[
-                ({ getFieldValue }) => ({
-                  validator(_, value) {
-                    const password = getFieldValue('password');
-                    if (!password && !value) {
-                      return Promise.resolve();
+            {/* 账号信息分组 */}
+            <div className="metro-profile-section">
+              <div className="metro-profile-section__title">{text.profileAccountSection}</div>
+              <Form.Item
+                label={text.profileUsername}
+                name="username"
+                rules={[{ required: true, message: '请输入用户名' }]}
+              >
+                <Input placeholder={text.profileUsernamePlaceholder} maxLength={16} />
+              </Form.Item>
+
+              {/* 手机号纯展示，不再是 disabled Input —— 视觉重量更轻，匹配只读语义 */}
+              <div className="metro-profile-field">
+                <div className="metro-profile-field__label">{text.phone}</div>
+                <div className="metro-profile-field__value">
+                  <span>+86 {userProfile.phone}</span>
+                  <span className="metro-profile-field__badge">
+                    <span className="metro-profile-field__badge-dot" />
+                    {text.profilePhoneBound}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 修改密码分组 */}
+            <div className="metro-profile-section">
+              <div className="metro-profile-section__title">{text.profilePasswordSection}</div>
+              <Form.Item
+                label={text.profileNewPassword}
+                name="password"
+                rules={[{ min: 6, message: text.profilePasswordMin }]}
+              >
+                <Input.Password
+                  placeholder={text.profileNewPasswordPlaceholder}
+                  autoComplete="new-password"
+                />
+              </Form.Item>
+              <Form.Item
+                label={text.profileConfirmPassword}
+                name="confirm"
+                dependencies={['password']}
+                rules={[
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      const password = getFieldValue('password');
+                      if (!password && !value) {
+                        return Promise.resolve();
+                      }
+                      if (password && !value) {
+                        return Promise.reject(new Error(text.profilePasswordRequiredConfirm));
+                      }
+                      if (password === value) {
+                        return Promise.resolve();
+                      }
+                      return Promise.reject(new Error(text.profilePasswordMismatch));
                     }
-                    if (password && !value) {
-                      return Promise.reject(new Error('请再次输入新密码'));
-                    }
-                    if (password === value) {
-                      return Promise.resolve();
-                    }
-                    return Promise.reject(new Error('两次输入的密码不一致'));
-                  }
-                })
-              ]}
-            >
-              <Input.Password placeholder="请再次输入新密码" autoComplete="new-password" />
-            </Form.Item>
-            <Form.Item>
-              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <Button onClick={() => setProfileVisible(false)}>取消</Button>
-                <Button type="primary" htmlType="submit">
-                  保存
-                </Button>
-              </Space>
-            </Form.Item>
+                  })
+                ]}
+              >
+                <Input.Password
+                  placeholder={text.profileConfirmPasswordPlaceholder}
+                  autoComplete="new-password"
+                />
+              </Form.Item>
+            </div>
+
+            <div className="metro-profile-actions">
+              <Button onClick={() => setProfileVisible(false)}>{text.profileCancel}</Button>
+              <Button type="primary" htmlType="submit">
+                {text.profileSave}
+              </Button>
+            </div>
           </Form>
-          <Divider style={{ margin: '12px 0' }} />
-          <Button danger type="primary" block onClick={handleLogout}>
-            {text.signOut}
-          </Button>
         </DraggableModal>
 
         <DraggableModal open={isExporting} footer={null} closable={false} centered>
