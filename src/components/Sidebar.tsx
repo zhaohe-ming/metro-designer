@@ -316,25 +316,15 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="metro-sidebar__section">
         <div className="metro-sidebar__section-head">
           <div className="metro-sidebar__section-title">{text.lineList}</div>
-          <Space size={6}>
-            <Button
-              className="metro-sidebar__add-btn"
-              type="primary"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={openAddLineModal}
-            >
-              {text.addLine}
-            </Button>
-            <Button
-              className="metro-sidebar__ghost-btn"
-              size="small"
-              onClick={onDeselectLine}
-              disabled={!currentLineId}
-            >
-              {text.deselect}
-            </Button>
-          </Space>
+          <Button
+            className="metro-sidebar__add-btn"
+            type="primary"
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={openAddLineModal}
+          >
+            {text.addLine}
+          </Button>
         </div>
 
         {lines.length > 1 ? (
@@ -378,7 +368,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <article
                   key={line.id}
                   className={`metro-line-card ${active ? 'is-active' : ''} ${isReorderingLines ? 'is-reordering' : ''}`}
-                  onClick={() => !isReorderingLines && onSelectLine(line.id)}
+                  onClick={() => {
+                    if (isReorderingLines) return;
+                    // 已选中再次单击 = 取消选中（取代之前独立的"取消选中"按钮）
+                    if (active) onDeselectLine();
+                    else onSelectLine(line.id);
+                  }}
                   onDragOver={isReorderingLines ? (event) => handleLineDragOver(event, line.id) : undefined}
                   onDrop={isReorderingLines ? (event) => handleLineDrop(event, line.id) : undefined}
                 >

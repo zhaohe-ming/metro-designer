@@ -135,6 +135,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 
 .metro-brand-mark__dot {
@@ -149,6 +150,8 @@ body {
   line-height: 1.15;
   font-weight: 700;
   color: var(--metro-heading);
+  /* 单行：默认会因父容器宽度不够而折行成 "Metro / Designer"，强制 nowrap */
+  white-space: nowrap;
 }
 
 .metro-toolbar-panel {
@@ -945,9 +948,8 @@ body {
 /* （token 已收敛到顶部 :root，这里只保留布局相关覆盖） */
 
 .metro-app-shell {
-  /* 之前是 8px，header 紧贴顶部 + 紧贴地图都没有呼吸感。
-     调到 12px 让 header 在视觉上"飘"在顶部而不是贴在 workbench 顶边 */
-  padding: var(--space-3);
+  /* 顶部 padding 比左右/底部更小：让 header 更靠近页面顶边，但底部/侧边保留 12 的呼吸感 */
+  padding: var(--space-1) var(--space-3) var(--space-3);
   background:
     linear-gradient(180deg, var(--color-surface-muted) 0%, var(--color-bg) 100%);
 }
@@ -1289,8 +1291,11 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-color-picker-tri
 }
 
 .app-header {
-  grid-template-columns: minmax(150px, 180px) minmax(360px, 1fr) auto;
-  gap: 8px;
+  /* 第一栏给到 280-360px：要装下 ● Metro Designer + 📝 方案名 chip 这两块。
+     原本是 150-180px，会把品牌行挤成两行 + chip 跟 toolbar 紧挨。
+     gap 从 8 拉到 16，让 brand-panel 跟右边的 undo/redo 之间留出明显间距 */
+  grid-template-columns: minmax(280px, 360px) minmax(360px, 1fr) auto;
+  gap: 16px;
   height: auto;
 }
 
