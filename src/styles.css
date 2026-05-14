@@ -150,28 +150,6 @@ body {
   color: var(--metro-heading);
 }
 
-.metro-brand-subtitle {
-  font-size: 11px;
-  line-height: 1.2;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--metro-text-soft);
-}
-
-.metro-brand-mapname {
-  min-width: 0;
-  font-size: 12px;
-  color: var(--metro-text-soft);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.metro-brand-meta,
-.metro-canvas-overlay {
-  display: none;
-}
-
 .metro-toolbar-panel {
   min-width: 0;
 }
@@ -180,40 +158,44 @@ body {
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  gap: var(--space-3);
 }
 
-.metro-action-buttons {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-right: 10px;
+/* 主操作按钮：屏幕同时只允许 1 个 primary（保存地图） */
+.metro-header-save-btn.ant-btn {
+  height: 32px;
+  padding: 0 var(--space-3);
+  font-weight: 600;
 }
 
-.user-chip {
+/* Avatar + 用户名 + 下拉箭头 三件套，作为整个 Dropdown 的 trigger */
+.user-chip,
+.user-chip--trigger {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
-  padding: 0;
+  padding: 4px 8px;
   border: 0;
   background: transparent;
   box-shadow: none;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  transition: background 120ms ease;
 }
 
-.user-chip__meta {
-  min-width: 0;
-  line-height: 1.25;
+.user-chip--trigger:hover {
+  background: var(--color-primary-50);
 }
 
 .user-chip__name {
-  font-size: 13px;
+  font-size: var(--font-size-body);
   font-weight: 600;
-  color: var(--metro-heading);
-}
-
-.user-chip__email {
-  font-size: 12px;
-  color: var(--metro-text-soft);
+  color: var(--color-text);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metro-user-link.ant-btn,
@@ -900,10 +882,6 @@ body {
   .metro-toolbar-panel {
     grid-column: 1 / -1;
   }
-
-  .metro-brand-mapname {
-    display: none;
-  }
 }
 
 @media (max-width: 1080px) {
@@ -1024,21 +1002,14 @@ body {
   font-size: 14px;
 }
 
-.metro-brand-subtitle,
-.metro-brand-mapname,
-.user-chip__email {
-  font-size: 10px;
-}
-
-.metro-brand-subtitle,
 .metro-sidebar__subtitle {
   display: none;
 }
 
 .metro-body {
-  gap: 8px;
-  padding: 8px;
-  background: #f8fbff;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-surface-muted);
 }
 
 .metro-sider.ant-layout-sider {
@@ -1167,27 +1138,6 @@ body {
   gap: 8px;
 }
 
-.metro-action-btn.ant-btn {
-  height: 30px;
-  padding: 0 10px;
-  border-radius: 8px;
-  border-color: #cfe0f3;
-  background: #ffffff;
-  color: #334155;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.metro-action-btn--primary.ant-btn {
-  border-color: #2563eb;
-  background: #2563eb;
-  color: #ffffff;
-}
-
-.metro-action-btn--warn.ant-btn {
-  display: none;
-}
-
 .metro-settings-panel {
   display: flex;
   flex-direction: column;
@@ -1272,15 +1222,13 @@ body {
 .metro-app-shell[data-interface-theme="dark"] .metro-empty-card,
 .metro-app-shell[data-interface-theme="dark"] .metro-station-item,
 .metro-app-shell[data-interface-theme="dark"] .metro-toolbar__secondary.ant-btn,
-.metro-app-shell[data-interface-theme="dark"] .metro-sidebar__ghost-btn.ant-btn,
-.metro-app-shell[data-interface-theme="dark"] .metro-action-btn.ant-btn {
+.metro-app-shell[data-interface-theme="dark"] .metro-sidebar__ghost-btn.ant-btn {
   background: #111827 !important;
   border-color: #29364d !important;
   color: #dbeafe !important;
 }
 
-.metro-app-shell[data-interface-theme="dark"] .metro-toolbar__primary.ant-btn,
-.metro-app-shell[data-interface-theme="dark"] .metro-action-btn--primary.ant-btn {
+.metro-app-shell[data-interface-theme="dark"] .metro-toolbar__primary.ant-btn {
   background: #3b82f6 !important;
   border-color: #3b82f6 !important;
   color: #ffffff !important;
@@ -1300,8 +1248,7 @@ body {
 }
 
 .metro-app-shell[data-interface-theme="dark"] .metro-tool-group,
-.metro-app-shell[data-interface-theme="dark"] .metro-tool-hint,
-.metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface > div[style*="bottom: 16"][style*="right: 16"] {
+.metro-app-shell[data-interface-theme="dark"] .metro-tool-hint {
   background: rgba(17, 24, 39, 0.96) !important;
   border-color: #29364d !important;
   color: #dbeafe !important;
@@ -1365,22 +1312,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-color-picker-tri
   height: auto;
 }
 
-.metro-action-buttons {
-  gap: 6px;
-  margin-right: 6px;
-}
-
-.metro-action-btn.ant-btn {
-  padding: 0 9px;
-}
-
 .metro-app-shell[data-interface-theme="dark"] .metro-header {
   background: transparent !important;
   border-color: transparent !important;
-}
-
-.metro-app-shell[data-interface-theme="dark"] .metro-action-btn.ant-btn span {
-  color: inherit;
 }
 
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper) {
@@ -1417,13 +1351,6 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
 .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface.is-canvas-dark {
   background-color: var(--metro-canvas-bg, #07111f) !important;
-}
-
-.metro-canvas-surface > div[style*="bottom: 16"][style*="right: 16"] {
-  border: 1px solid #cfe0f3;
-  border-radius: 8px !important;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08) !important;
-  color: #334155 !important;
 }
 
 .auth-card__info {
@@ -2312,4 +2239,197 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   height: 100%;
   background: transparent;
   color: inherit;
+}
+
+/* ============================================================ */
+/* 顶栏重构后的几个新元素 + 画布浮层 + 设置 tab                  */
+/* ============================================================ */
+
+/* 画布左上角浮动的方案名 chip：替代原"Live Canvas / 城市轨道设计台"那个营销 hero。
+   点击 = 重命名当前方案（或保存为新方案，详见 App.tsx handleClickMapNameChip） */
+.metro-canvas-mapchip {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 360px;
+  height: 30px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.metro-canvas-mapchip:hover {
+  border-color: var(--color-primary-500);
+  background: rgba(255, 255, 255, 1);
+}
+
+.metro-canvas-mapchip__icon {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.metro-canvas-mapchip__name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metro-canvas-mapchip__meta {
+  font-weight: 400;
+  font-size: var(--font-size-meta);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* 同行的 .metro-canvas-tools 现在的 top: 14px 会和 mapchip 在同一基线上重叠，
+   把它整体往下挪一档以腾位置 */
+.metro-canvas-tools {
+  top: 56px;
+}
+
+/* 深色画布下的方案名 chip：玻璃感半透明黑 */
+.metro-canvas-surface.is-canvas-dark .metro-canvas-mapchip,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-mapchip {
+  background: rgba(17, 24, 39, 0.86);
+  border-color: rgba(148, 163, 184, 0.32);
+  color: #e5eefc;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-canvas-mapchip__meta,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-mapchip__meta {
+  color: rgba(203, 213, 225, 0.7);
+}
+
+/* ===== 画布 HUD：底部右侧一条胶囊 ===== */
+.metro-canvas-hud {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1000;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  user-select: none;
+}
+
+.metro-canvas-hud__btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.metro-canvas-hud__btn:hover {
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+}
+
+.metro-canvas-hud__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 56px;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  justify-content: center;
+}
+
+.metro-canvas-hud__value:hover {
+  background: var(--color-primary-50);
+}
+
+.metro-canvas-hud__value--static {
+  cursor: default;
+}
+
+.metro-canvas-hud__value--static:hover {
+  background: transparent;
+}
+
+.metro-canvas-hud__divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--color-border);
+  margin: 0 var(--space-1);
+}
+
+/* 深色画布下的 HUD 玻璃 */
+.metro-canvas-surface.is-canvas-dark .metro-canvas-hud,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud {
+  background: rgba(17, 24, 39, 0.82);
+  border-color: rgba(148, 163, 184, 0.32);
+  color: #e5eefc;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-canvas-hud__btn,
+.metro-canvas-surface.is-canvas-dark .metro-canvas-hud__value,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud__btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud__value {
+  color: #e5eefc;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-canvas-hud__btn:hover,
+.metro-canvas-surface.is-canvas-dark .metro-canvas-hud__value:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud__btn:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud__value:hover {
+  background: rgba(59, 130, 246, 0.22);
+  color: #ffffff;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-canvas-hud__divider,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud__divider {
+  background: rgba(148, 163, 184, 0.32);
+}
+
+/* ===== 设置模态 Tab 内的内边距收紧（AntD 默认 nav 给了大间距） ===== */
+.metro-settings-tabs .ant-tabs-nav {
+  margin-bottom: var(--space-4);
+}
+
+.metro-settings-tabs .ant-tabs-tab {
+  font-size: var(--font-size-lg-body);
+  font-weight: 600;
+}
+
+.metro-settings-tabs + .metro-settings-footer {
+  margin-top: var(--space-4);
 }

@@ -1,5 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, App as AntdApp, message, theme as antdTheme } from 'antd';
+import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Radio, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
+import {
+  DownOutlined,
+  FolderOpenOutlined,
+  UserOutlined,
+  SettingOutlined,
+  LogoutOutlined,
+  EditOutlined
+} from '@ant-design/icons';
 import { api, clearToken, getToken, setToken } from './api';
 import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
@@ -1125,11 +1133,66 @@ const App: React.FC = () => {
 
   const displayName = userProfile?.username || text.defaultUserName;
   const displayInitial = (userProfile?.username || userProfile?.phone || 'M').charAt(0).toUpperCase();
-  const activeLine = lines.find((line) => line.id === currentLineId) || null;
   const mapDisplayName = currentMap?.name || text.unnamedMap;
-  const mapMetaText = currentMap
-    ? `最近更新 ${new Date(currentMap.updatedAt).toLocaleString()}`
-    : '从左侧组织线路，在画布上构建你的轨道图';
+  const mapUpdatedAt = currentMap ? new Date(currentMap.updatedAt).toLocaleString() : '';
+
+  // 把手机号脱敏到 +86 133****6715 这种格式，dropdown 里展示用
+  const maskedPhone = userProfile?.phone
+    ? userProfile.phone.length >= 11
+      ? `+86 ${userProfile.phone.slice(0, 3)}****${userProfile.phone.slice(-4)}`
+      : `+86 ${userProfile.phone}`
+    : '';
+
+  // 画布左上角浮动的方案名 chip 被点击时的行为：
+  // - 已经保存过 → 直接进重命名小弹窗
+  // - 还没保存过 → 走"保存地图"流程
+  const handleClickMapNameChip = () => {
+    if (currentMap) {
+      openRenameMapModal(currentMap);
+    } else {
+      handleOpenSaveMap();
+    }
+  };
+
+  // 右上角头像 dropdown 的菜单项。手机号置顶展示，三个常用入口 + 危险操作分隔。
+  const userMenuItems = [
+    {
+      key: 'phone',
+      disabled: true,
+      label: (
+        <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-meta)' }}>
+          {maskedPhone}
+        </span>
+      )
+    },
+    { type: 'divider' as const },
+    {
+      key: 'maps',
+      icon: <FolderOpenOutlined />,
+      label: '我的地图',
+      onClick: handleOpenMapList
+    },
+    {
+      key: 'profile',
+      icon: <UserOutlined />,
+      label: '个人中心',
+      onClick: () => setProfileVisible(true)
+    },
+    {
+      key: 'settings',
+      icon: <SettingOutlined />,
+      label: '设置',
+      onClick: () => setSettingsVisible(true)
+    },
+    { type: 'divider' as const },
+    {
+      key: 'logout',
+      icon: <LogoutOutlined />,
+      label: '退出登录',
+      danger: true,
+      onClick: handleLogout
+    }
+  ];
 
   const antdThemeConfig = useMemo(
     () => ({
@@ -1164,15 +1227,7 @@ const App: React.FC = () => {
             <section className="metro-brand-panel">
               <div className="metro-brand-mark">
                 <span className="metro-brand-mark__dot" />
-                <div>
-                  <div className="metro-brand-title">Metro Designer</div>
-                  <div className="metro-brand-subtitle">Urban Transit Studio</div>
-                </div>
-              </div>
-              <div className="metro-brand-mapname">{mapDisplayName}</div>
-              <div className="metro-brand-meta">
-                {mapMetaText}
-                {activeLine ? ` · 当前线路 ${activeLine.name}` : ''}
+                <div className="metro-brand-title">Metro Designer</div>
               </div>
             </section>
 
@@ -1193,30 +1248,24 @@ const App: React.FC = () => {
             </section>
 
             <section className="metro-user-panel">
-              <div className="metro-action-buttons">
-                <Button className="metro-action-btn metro-action-btn--primary" size="small" loading={saveMapSaving} onClick={handleOpenSaveMap}>
-                  {currentMap ? text.overwriteSave : text.saveMap}
-                </Button>
-                <Button className="metro-action-btn" size="small" loading={mapsLoading} onClick={handleOpenMapList}>
-                  {text.viewMaps}
-                </Button>
-                <Button className="metro-action-btn" size="small" onClick={() => setProfileVisible(true)}>
-                  {text.profile}
-                </Button>
-                <Button className="metro-action-btn" size="small" onClick={() => setSettingsVisible(true)}>
-                  {text.settings}
-                </Button>
-              </div>
+              <Button
+                type="primary"
+                className="metro-header-save-btn"
+                loading={saveMapSaving}
+                onClick={handleOpenSaveMap}
+              >
+                {currentMap ? text.overwriteSave : text.saveMap}
+              </Button>
 
-              <div className="user-chip">
-                <Avatar size={30} src={userProfile.avatar} style={{ backgroundColor: '#4b6b95' }}>
-                  {userProfile.avatar ? null : displayInitial}
-                </Avatar>
-                <div className="user-chip__meta">
-                  <div className="user-chip__name">{displayName}</div>
-                  <div className="user-chip__email">+86 {userProfile.phone}</div>
-                </div>
-              </div>
+              <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
+                <button type="button" className="user-chip user-chip--trigger">
+                  <Avatar size={28} src={userProfile.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
+                    {userProfile.avatar ? null : displayInitial}
+                  </Avatar>
+                  <span className="user-chip__name">{displayName}</span>
+                  <DownOutlined style={{ fontSize: 10, color: 'var(--color-text-muted)' }} />
+                </button>
+              </Dropdown>
             </section>
           </div>
         </Header>
@@ -1241,18 +1290,17 @@ const App: React.FC = () => {
 
           <Content className="metro-content">
             <div className="metro-canvas-stage">
-              <div className="metro-canvas-overlay">
-                <div className="metro-canvas-overlay__eyebrow">Live Canvas</div>
-                <div className="metro-canvas-overlay__title">城市轨道设计台</div>
-                <div className="metro-canvas-overlay__text">
-                  在主画布中添加站点、连接区间并调整线路结构。当前方案会围绕所选线路高亮显示。
-                </div>
-                <div className="metro-canvas-overlay__stats">
-                  <span className="metro-stat-chip">{lines.length} 条线路</span>
-                  <span className="metro-stat-chip">{stations.length} 个站点</span>
-                  <span className="metro-stat-chip">{sections.length} 个区间</span>
-                </div>
-              </div>
+              {/* 画布左上角浮动小条：当前方案名 + 上次更新；点击=重命名（或保存）。
+                  之前的 "Live Canvas / 城市轨道设计台 / 三个统计 chip" 营销 hero 整段移除 */}
+              <Tooltip title={currentMap ? '点击重命名当前方案' : '点击保存为新方案'}>
+                <button type="button" className="metro-canvas-mapchip" onClick={handleClickMapNameChip}>
+                  <EditOutlined className="metro-canvas-mapchip__icon" />
+                  <span className="metro-canvas-mapchip__name">{mapDisplayName}</span>
+                  {mapUpdatedAt ? (
+                    <span className="metro-canvas-mapchip__meta">· {mapUpdatedAt} 更新</span>
+                  ) : null}
+                </button>
+              </Tooltip>
 
               <Canvas
                 currentLineId={currentLineId}
@@ -1431,233 +1479,260 @@ const App: React.FC = () => {
         </DraggableModal>
 
         <DraggableModal title={text.settings} open={settingsVisible} onCancel={() => setSettingsVisible(false)} footer={null} width={640}>
-          <div className="metro-settings-panel">
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.language}</div>
-              <Radio.Group
-                value={language}
-                onChange={(event) => setLanguage(event.target.value)}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="zh-CN">{text.simplifiedChinese}</Radio.Button>
-                <Radio.Button value="en-US">{text.english}</Radio.Button>
-              </Radio.Group>
-            </section>
+          {/* 三个 tab：通用（语言/界面主题）、外观（画布主题/地图样式/城市风格/线名标签）、地图（底图/AMap 样式/站名标签三件套）
+              原本一长串纵向 8 段被拆成可见首屏即可全选，不再滚 */}
+          <Tabs
+            defaultActiveKey="general"
+            className="metro-settings-tabs"
+            items={[
+              {
+                key: 'general',
+                label: language === 'en-US' ? 'General' : '通用',
+                children: (
+                  <div className="metro-settings-panel">
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.language}</div>
+                      <Radio.Group
+                        value={language}
+                        onChange={(event) => setLanguage(event.target.value)}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="zh-CN">{text.simplifiedChinese}</Radio.Button>
+                        <Radio.Button value="en-US">{text.english}</Radio.Button>
+                      </Radio.Group>
+                    </section>
 
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.interfaceTheme}</div>
-              <Radio.Group
-                value={interfaceTheme}
-                onChange={(event) => setInterfaceTheme(event.target.value)}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="light">{text.light}</Radio.Button>
-                <Radio.Button value="dark">{text.dark}</Radio.Button>
-                <Radio.Button value="system">{text.system}</Radio.Button>
-              </Radio.Group>
-            </section>
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.interfaceTheme}</div>
+                      <Radio.Group
+                        value={interfaceTheme}
+                        onChange={(event) => setInterfaceTheme(event.target.value)}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="light">{text.light}</Radio.Button>
+                        <Radio.Button value="dark">{text.dark}</Radio.Button>
+                        <Radio.Button value="system">{text.system}</Radio.Button>
+                      </Radio.Group>
+                    </section>
+                  </div>
+                )
+              },
+              {
+                key: 'appearance',
+                label: language === 'en-US' ? 'Appearance' : '外观',
+                children: (
+                  <div className="metro-settings-panel">
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.canvasTheme}</div>
+                      <Radio.Group
+                        value={mapSettings.canvasTheme}
+                        onChange={(event) => {
+                          pushHistory();
+                          setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: event.target.value }));
+                        }}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="light">{text.lightCanvas}</Radio.Button>
+                        <Radio.Button value="dark">{text.darkCanvas}</Radio.Button>
+                      </Radio.Group>
+                    </section>
 
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.canvasTheme}</div>
-              <Radio.Group
-                value={mapSettings.canvasTheme}
-                onChange={(event) => {
-                  pushHistory();
-                  setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: event.target.value }));
-                }}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="light">{text.lightCanvas}</Radio.Button>
-                <Radio.Button value="dark">{text.darkCanvas}</Radio.Button>
-              </Radio.Group>
-            </section>
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.mapStyle}</div>
+                      <Radio.Group
+                        value={mapSettings.mapStyle}
+                        onChange={(event) => {
+                          pushHistory();
+                          setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: event.target.value }));
+                        }}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="classic-badge">{text.classicBadge}</Radio.Button>
+                        <Radio.Button value="dot-label">{text.dotLabel}</Radio.Button>
+                      </Radio.Group>
+                    </section>
 
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.baseMap}</div>
-              <Radio.Group
-                value={mapSettings.baseMap.mode}
-                onChange={(event) => handleBaseMapModeChange(event.target.value)}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="plain">{text.plainCanvas}</Radio.Button>
-                <Radio.Button value="amap">{text.amapBaseMap}</Radio.Button>
-              </Radio.Group>
-            </section>
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.cityStyle}</div>
+                      <Radio.Group
+                        value={mapSettings.cityStyle}
+                        onChange={(event) => {
+                          pushHistory();
+                          setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: event.target.value }));
+                        }}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="standard">{text.cityStyleStandard}</Radio.Button>
+                        <Radio.Button value="beijing">{text.cityStyleBeijing}</Radio.Button>
+                        <Radio.Button value="shanghai">{text.cityStyleShanghai}</Radio.Button>
+                        <Radio.Button value="mtr">{text.cityStyleMtr}</Radio.Button>
+                      </Radio.Group>
+                    </section>
 
-            {mapSettings.baseMap.mode === 'amap' && (
-              <section className="metro-settings-section">
-                <div className="metro-settings-label">{text.amapStyle}</div>
-                <Radio.Group
-                  value={mapSettings.baseMap.amap?.style || 'normal'}
-                  onChange={(event) => {
-                    pushHistory();
-                    setMapSettings((prev) =>
-                      normalizeMapSettings({
-                        ...prev,
-                        baseMap: {
-                          mode: 'amap',
-                          amap: {
-                            ...(prev.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!),
-                            style: event.target.value
-                          }
-                        }
-                      })
-                    );
-                  }}
-                  optionType="button"
-                  buttonStyle="solid"
-                >
-                  <Radio.Button value="normal">{text.amapNormal}</Radio.Button>
-                  <Radio.Button value="dark">{text.amapDark}</Radio.Button>
-                  <Radio.Button value="grey">{text.amapGrey}</Radio.Button>
-                  <Radio.Button value="fresh">{text.amapFresh}</Radio.Button>
-                </Radio.Group>
-              </section>
-            )}
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.showLineNameLabels}</div>
+                      <Radio.Group
+                        value={mapSettings.showLineNameLabels ? 'show' : 'hide'}
+                        onChange={(event) => {
+                          pushHistory();
+                          setMapSettings((prev) =>
+                            normalizeMapSettings({ ...prev, showLineNameLabels: event.target.value === 'show' })
+                          );
+                        }}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="show">{text.lineNameLabelsOn}</Radio.Button>
+                        <Radio.Button value="hide">{text.lineNameLabelsOff}</Radio.Button>
+                      </Radio.Group>
+                    </section>
+                  </div>
+                )
+              },
+              {
+                key: 'map',
+                label: language === 'en-US' ? 'Map' : '地图',
+                children: (
+                  <div className="metro-settings-panel">
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.baseMap}</div>
+                      <Radio.Group
+                        value={mapSettings.baseMap.mode}
+                        onChange={(event) => handleBaseMapModeChange(event.target.value)}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="plain">{text.plainCanvas}</Radio.Button>
+                        <Radio.Button value="amap">{text.amapBaseMap}</Radio.Button>
+                      </Radio.Group>
+                    </section>
 
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.mapStyle}</div>
-              <Radio.Group
-                value={mapSettings.mapStyle}
-                onChange={(event) => {
-                  pushHistory();
-                  setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: event.target.value }));
-                }}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="classic-badge">{text.classicBadge}</Radio.Button>
-                <Radio.Button value="dot-label">{text.dotLabel}</Radio.Button>
-              </Radio.Group>
-            </section>
+                    {mapSettings.baseMap.mode === 'amap' && (
+                      <section className="metro-settings-section">
+                        <div className="metro-settings-label">{text.amapStyle}</div>
+                        <Radio.Group
+                          value={mapSettings.baseMap.amap?.style || 'normal'}
+                          onChange={(event) => {
+                            pushHistory();
+                            setMapSettings((prev) =>
+                              normalizeMapSettings({
+                                ...prev,
+                                baseMap: {
+                                  mode: 'amap',
+                                  amap: {
+                                    ...(prev.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!),
+                                    style: event.target.value
+                                  }
+                                }
+                              })
+                            );
+                          }}
+                          optionType="button"
+                          buttonStyle="solid"
+                        >
+                          <Radio.Button value="normal">{text.amapNormal}</Radio.Button>
+                          <Radio.Button value="dark">{text.amapDark}</Radio.Button>
+                          <Radio.Button value="grey">{text.amapGrey}</Radio.Button>
+                          <Radio.Button value="fresh">{text.amapFresh}</Radio.Button>
+                        </Radio.Group>
+                      </section>
+                    )}
 
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.cityStyle}</div>
-              <Radio.Group
-                value={mapSettings.cityStyle}
-                onChange={(event) => {
-                  pushHistory();
-                  setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: event.target.value }));
-                }}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="standard">{text.cityStyleStandard}</Radio.Button>
-                <Radio.Button value="beijing">{text.cityStyleBeijing}</Radio.Button>
-                <Radio.Button value="shanghai">{text.cityStyleShanghai}</Radio.Button>
-                <Radio.Button value="mtr">{text.cityStyleMtr}</Radio.Button>
-              </Radio.Group>
-            </section>
-
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.showLineNameLabels}</div>
-              <Radio.Group
-                value={mapSettings.showLineNameLabels ? 'show' : 'hide'}
-                onChange={(event) => {
-                  pushHistory();
-                  setMapSettings((prev) =>
-                    normalizeMapSettings({ ...prev, showLineNameLabels: event.target.value === 'show' })
-                  );
-                }}
-                optionType="button"
-                buttonStyle="solid"
-              >
-                <Radio.Button value="show">{text.lineNameLabelsOn}</Radio.Button>
-                <Radio.Button value="hide">{text.lineNameLabelsOff}</Radio.Button>
-              </Radio.Group>
-            </section>
-
-            <section className="metro-settings-section">
-              <div className="metro-settings-label">{text.dotLabelText}</div>
-              <div className="metro-settings-control">
-                <div className="metro-settings-control__row">
-                  <span>{text.dotLabelFontSize}</span>
-                  <strong>{mapSettings.dotLabelStyle.fontSize}px</strong>
-                </div>
-                <Slider
-                  min={10}
-                  max={24}
-                  step={1}
-                  value={mapSettings.dotLabelStyle.fontSize}
-                  onChange={(value) => {
-                    beginSettingsInteraction();
-                    setMapSettings((prev) =>
-                      normalizeMapSettings({
-                        ...prev,
-                        dotLabelStyle: { ...prev.dotLabelStyle, fontSize: value }
-                      })
-                    );
-                  }}
-                  onChangeComplete={endSettingsInteraction}
-                />
-              </div>
-              <div className="metro-settings-control">
-                <div className="metro-settings-control__row">
-                  <span>{text.dotLabelFontWeight}</span>
-                  <strong>{mapSettings.dotLabelStyle.fontWeight}</strong>
-                </div>
-                <Slider
-                  min={300}
-                  max={900}
-                  step={10}
-                  value={mapSettings.dotLabelStyle.fontWeight}
-                  onChange={(value) => {
-                    beginSettingsInteraction();
-                    setMapSettings((prev) =>
-                      normalizeMapSettings({
-                        ...prev,
-                        dotLabelStyle: { ...prev.dotLabelStyle, fontWeight: value }
-                      })
-                    );
-                  }}
-                  onChangeComplete={endSettingsInteraction}
-                />
-              </div>
-              <div className="metro-settings-color-row">
-                <span>{text.dotLabelColor}</span>
-                <ColorPicker
-                  value={mapSettings.dotLabelStyle.color}
-                  onChange={(color) => {
-                    beginSettingsInteraction();
-                    setMapSettings((prev) =>
-                      normalizeMapSettings({
-                        ...prev,
-                        dotLabelStyle: {
-                          ...prev.dotLabelStyle,
-                          color: color.toHexString()
-                        }
-                      })
-                    );
-                  }}
-                  onChangeComplete={endSettingsInteraction}
-                  showText
-                />
-              </div>
-              <div className="metro-settings-reset-row">
-                <Button
-                  size="small"
-                  onClick={() => {
-                    pushHistory();
-                    setMapSettings((prev) =>
-                      normalizeMapSettings({
-                        ...prev,
-                        dotLabelStyle: DEFAULT_MAP_SETTINGS.dotLabelStyle
-                      })
-                    );
-                  }}
-                >
-                  {text.resetDefault}
-                </Button>
-              </div>
-            </section>
-
-            <div className="metro-settings-footer">
-              <Button onClick={() => setSettingsVisible(false)}>{text.close}</Button>
-            </div>
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.dotLabelText}</div>
+                      <div className="metro-settings-control">
+                        <div className="metro-settings-control__row">
+                          <span>{text.dotLabelFontSize}</span>
+                          <strong>{mapSettings.dotLabelStyle.fontSize}px</strong>
+                        </div>
+                        <Slider
+                          min={10}
+                          max={24}
+                          step={1}
+                          value={mapSettings.dotLabelStyle.fontSize}
+                          onChange={(value) => {
+                            beginSettingsInteraction();
+                            setMapSettings((prev) =>
+                              normalizeMapSettings({
+                                ...prev,
+                                dotLabelStyle: { ...prev.dotLabelStyle, fontSize: value }
+                              })
+                            );
+                          }}
+                          onChangeComplete={endSettingsInteraction}
+                        />
+                      </div>
+                      <div className="metro-settings-control">
+                        <div className="metro-settings-control__row">
+                          <span>{text.dotLabelFontWeight}</span>
+                          <strong>{mapSettings.dotLabelStyle.fontWeight}</strong>
+                        </div>
+                        <Slider
+                          min={300}
+                          max={900}
+                          step={10}
+                          value={mapSettings.dotLabelStyle.fontWeight}
+                          onChange={(value) => {
+                            beginSettingsInteraction();
+                            setMapSettings((prev) =>
+                              normalizeMapSettings({
+                                ...prev,
+                                dotLabelStyle: { ...prev.dotLabelStyle, fontWeight: value }
+                              })
+                            );
+                          }}
+                          onChangeComplete={endSettingsInteraction}
+                        />
+                      </div>
+                      <div className="metro-settings-color-row">
+                        <span>{text.dotLabelColor}</span>
+                        <ColorPicker
+                          value={mapSettings.dotLabelStyle.color}
+                          onChange={(color) => {
+                            beginSettingsInteraction();
+                            setMapSettings((prev) =>
+                              normalizeMapSettings({
+                                ...prev,
+                                dotLabelStyle: {
+                                  ...prev.dotLabelStyle,
+                                  color: color.toHexString()
+                                }
+                              })
+                            );
+                          }}
+                          onChangeComplete={endSettingsInteraction}
+                          showText
+                        />
+                      </div>
+                      <div className="metro-settings-reset-row">
+                        <Button
+                          size="small"
+                          onClick={() => {
+                            pushHistory();
+                            setMapSettings((prev) =>
+                              normalizeMapSettings({
+                                ...prev,
+                                dotLabelStyle: DEFAULT_MAP_SETTINGS.dotLabelStyle
+                              })
+                            );
+                          }}
+                        >
+                          {text.resetDefault}
+                        </Button>
+                      </div>
+                    </section>
+                  </div>
+                )
+              }
+            ]}
+          />
+          <div className="metro-settings-footer">
+            <Button onClick={() => setSettingsVisible(false)}>{text.close}</Button>
           </div>
         </DraggableModal>
 

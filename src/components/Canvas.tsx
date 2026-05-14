@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
-import { Input, Button, message, Space, ColorPicker, Select } from 'antd';
+import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
+import { DownOutlined } from '@ant-design/icons';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { getAmapConfig, loadAmap } from '../amapLoader';
@@ -747,6 +748,13 @@ const Canvas: React.FC<CanvasProps> = ({
       return;
     }
     setScale(prev => Math.max(0.1, prev / 1.2));
+  };
+
+  // 直接跳到某个缩放百分比（仅在纯画布模式下用 —— AMap 自己有标准 zoom 级别，
+  // 把"100%"硬塞过去会很别扭，HUD 里 AMap 模式时直接禁用预设下拉）
+  const setZoomPercent = (percent: number) => {
+    const next = Math.max(0.1, Math.min(5, percent / 100));
+    setScale(next);
   };
 
   // 适应视图
@@ -1910,39 +1918,43 @@ const Canvas: React.FC<CanvasProps> = ({
           })()}
         </DraggableModal>
       )}
-      {/* 缩放控制按钮 */}
-      <div style={{ 
-        position: 'absolute', 
-        top: 16, 
-        right: 16, 
-        zIndex: 1000,
-        background: '#fff',
-        padding: '8px',
-        borderRadius: '6px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-      }}>
-        <Space direction="vertical" size="small">
-          <Button size="small" onClick={zoomIn} title={text.zoomIn}>+</Button>
-          <Button size="small" onClick={zoomOut} title={text.zoomOut}>-</Button>
-          <Button size="small" onClick={fitView} title={text.fitView}>□</Button>
-          <Button size="small" onClick={resetView} title={text.resetView}>⌂</Button>
-        </Space>
-      </div>
-
-      {/* 缩放信息显示 */}
-      <div style={{ 
-        position: 'absolute', 
-        bottom: 16, 
-        right: 16, 
-        zIndex: 1000,
-        background: '#fff',
-        padding: '8px 12px',
-        borderRadius: '6px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-        fontSize: '12px',
-        color: '#666'
-      }}>
-        {text.zoom}: {isAmapMode ? `${Math.round((amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11) * 10) / 10}` : `${Math.round(scale * 100)}%`}
+      {/* 画布 HUD：底部右侧一条胶囊，整合"缩放 +/-"、"当前缩放（带预设下拉）"、"适应视图 / 重置"。
+          替换了原本分布在右上 + 右下的两个独立控件，视觉上更整合，也腾出右上角空间 */}
+      <div className="metro-canvas-hud">
+        <Tooltip title={text.zoomOut}>
+          <button type="button" className="metro-canvas-hud__btn" onClick={zoomOut} aria-label={text.zoomOut}>−</button>
+        </Tooltip>
+        {!isAmapMode ? (
+          <Dropdown
+            placement="top"
+            trigger={['click']}
+            menu={{
+              items: [50, 75, 100, 125, 150, 200].map(percent => ({
+                key: String(percent),
+                label: `${percent}%`,
+                onClick: () => setZoomPercent(percent)
+              }))
+            }}
+          >
+            <button type="button" className="metro-canvas-hud__value">
+              {Math.round(scale * 100)}% <DownOutlined style={{ fontSize: 9 }} />
+            </button>
+          </Dropdown>
+        ) : (
+          <span className="metro-canvas-hud__value metro-canvas-hud__value--static">
+            {text.zoom} {Math.round((amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11) * 10) / 10}
+          </span>
+        )}
+        <Tooltip title={text.zoomIn}>
+          <button type="button" className="metro-canvas-hud__btn" onClick={zoomIn} aria-label={text.zoomIn}>+</button>
+        </Tooltip>
+        <span className="metro-canvas-hud__divider" />
+        <Tooltip title={text.fitView}>
+          <button type="button" className="metro-canvas-hud__btn" onClick={fitView} aria-label={text.fitView}>□</button>
+        </Tooltip>
+        <Tooltip title={text.resetView}>
+          <button type="button" className="metro-canvas-hud__btn" onClick={resetView} aria-label={text.resetView}>⌂</button>
+        </Tooltip>
       </div>
 
       <Stage
