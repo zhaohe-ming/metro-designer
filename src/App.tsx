@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Radio, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
 import {
   DownOutlined,
+  FileAddOutlined,
   FolderOpenOutlined,
   UserOutlined,
   SettingOutlined,
@@ -766,6 +767,39 @@ const App: React.FC = () => {
     message.info('已退出登录');
   };
 
+  // 「新建空白方案」：从头开始一张空画布。
+  // - 有内容时弹确认（避免误清当前工作）；空画布直接执行
+  // - 已经保存过的方案不会被删，仍在「我的地图」里；这里只是把当前会话清掉
+  // - 同时清除 localStorage 里"上次编辑方案"指针，避免刷新又自动加载回来
+  const handleNewMap = () => {
+    const hasContent = lines.length > 0 || sections.length > 0 || stations.length > 0;
+    const doReset = () => {
+      setLines([]);
+      setSections([]);
+      setStations([]);
+      setCurrentLineId(null);
+      setCurrentMap(null);
+      setMapName('');
+      setMapSettings(DEFAULT_MAP_SETTINGS);
+      try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
+      resetHistory();
+      message.success('已新建空白方案');
+    };
+    if (!hasContent) {
+      doReset();
+      return;
+    }
+    Modal.confirm({
+      title: '新建空白方案？',
+      content: currentMap
+        ? '当前方案已保存在「我的地图」，需要时可重新打开。画布即将清空。'
+        : '当前方案尚未保存，未保存的修改将丢失。是否继续？',
+      okText: '新建',
+      cancelText: '取消',
+      onOk: doReset
+    });
+  };
+
   const handleBaseMapModeChange = (nextMode: BaseMapMode) => {
     if (nextMode === mapSettings.baseMap.mode) return;
 
@@ -1166,12 +1200,21 @@ const App: React.FC = () => {
     },
     { type: 'divider' as const },
     {
+      // 文件类：新建 + 打开。"新建空白方案"放最前面，因为这是"保存了之后想开个新的"最自然的入口
+      key: 'new-map',
+      icon: <FileAddOutlined />,
+      label: '新建空白方案',
+      onClick: handleNewMap
+    },
+    {
       key: 'maps',
       icon: <FolderOpenOutlined />,
       label: '我的地图',
       onClick: handleOpenMapList
     },
+    { type: 'divider' as const },
     {
+      // 账号类
       key: 'profile',
       icon: <UserOutlined />,
       label: '个人中心',
