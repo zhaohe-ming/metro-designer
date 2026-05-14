@@ -1,15 +1,18 @@
-import React, { useState } from 'react';
-import { Button, ColorPicker, Input, message, Select, Tooltip } from 'antd';
-import { DownloadOutlined, PictureOutlined, PlusOutlined, RedoOutlined, UndoOutlined } from '@ant-design/icons';
-import { LINE_COLORS, Line } from '../types';
-import DraggableModal from './DraggableModal';
+import React from 'react';
+import { Button, Dropdown, Tooltip } from 'antd';
+import {
+  DownloadOutlined,
+  DownOutlined,
+  PictureOutlined,
+  RedoOutlined,
+  UndoOutlined,
+  VideoCameraOutlined
+} from '@ant-design/icons';
 
+// 顶部 toolbar 重新定位为「跨方案的画布动作」：撤销/重做 + 导出。
+// 「新建线路 / 切换线路」属于线路管理，已经收回左侧 Sidebar；导出图片 / 视频两个按钮合并成一个 dropdown。
 interface ToolbarProps {
   language?: 'zh-CN' | 'en-US';
-  lines: Line[];
-  currentLineId: string | null;
-  onAddLine: (name: string, color: string) => boolean;
-  onSelectLine: (id: string) => void;
   onExportImage?: () => void;
   onOpenVideoModal?: () => void;
   onUndo?: () => void;
@@ -20,10 +23,6 @@ interface ToolbarProps {
 
 const Toolbar: React.FC<ToolbarProps> = ({
   language = 'zh-CN',
-  lines,
-  currentLineId,
-  onAddLine,
-  onSelectLine,
   onExportImage,
   onOpenVideoModal,
   onUndo,
@@ -33,173 +32,69 @@ const Toolbar: React.FC<ToolbarProps> = ({
 }) => {
   const text = language === 'en-US'
     ? {
-        addLine: 'New line',
-        selectLine: 'Switch current line',
-        exportImage: 'Export image',
-        exportVideo: 'Export demo video',
-        createLine: 'Create new line',
-        createLineOk: 'Create line',
-        cancel: 'Cancel',
-        lineName: 'Line name',
-        lineNamePlaceholder: 'e.g. Line 1 / Loop / Airport Express',
-        lineColor: 'Line color',
-        moreColors: 'More colors',
-        lineNameRequired: 'Please enter a line name'
+        exportLabel: 'Export',
+        exportImage: 'Image',
+        exportVideo: 'Demo video'
       }
     : {
-        addLine: '新建线路',
-        selectLine: '切换当前线路',
+        exportLabel: '导出',
         exportImage: '导出图片',
-        exportVideo: '导出演示视频',
-        createLine: '创建新线路',
-        createLineOk: '创建线路',
-        cancel: '取消',
-        lineName: '线路名称',
-        lineNamePlaceholder: '例如 1 号线 / 环线 / 机场快线',
-        lineColor: '线路颜色',
-        moreColors: '使用更多颜色',
-        lineNameRequired: '请输入线路名称'
+        exportVideo: '导出演示视频'
       };
   const undoText = language === 'en-US' ? 'Undo (Ctrl+Z)' : '撤销 (Ctrl+Z)';
   const redoText = language === 'en-US' ? 'Redo (Ctrl+Shift+Z)' : '重做 (Ctrl+Shift+Z)';
-  const [addingLine, setAddingLine] = useState(false);
-  const [newLineName, setNewLineName] = useState('');
-  const [selectedColor, setSelectedColor] = useState(LINE_COLORS[0]);
-  const [showColorPicker, setShowColorPicker] = useState(false);
 
-  const resetForm = () => {
-    setAddingLine(false);
-    setNewLineName('');
-    setSelectedColor(LINE_COLORS[0]);
-    setShowColorPicker(false);
-  };
-
-  const handleAddLine = () => {
-    const trimmed = newLineName.trim();
-    if (!trimmed) {
-      message.warning(text.lineNameRequired);
-      return;
-    }
-
-    const success = onAddLine(trimmed, selectedColor);
-    if (success) {
-      resetForm();
-    }
-  };
+  const exportItems = [
+    onExportImage
+      ? {
+          key: 'image',
+          icon: <PictureOutlined />,
+          label: text.exportImage,
+          onClick: onExportImage
+        }
+      : null,
+    onOpenVideoModal
+      ? {
+          key: 'video',
+          icon: <VideoCameraOutlined />,
+          label: text.exportVideo,
+          onClick: onOpenVideoModal
+        }
+      : null
+  ].filter(Boolean) as Array<{ key: string; icon: React.ReactNode; label: string; onClick: () => void }>;
 
   return (
-    <>
-      <div className="metro-toolbar">
-        <div className="metro-toolbar__left">
-          <Button
-            className="metro-toolbar__primary"
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => setAddingLine(true)}
-          >
-            {text.addLine}
-          </Button>
-
-          <Select
-            className="metro-toolbar__select"
-            value={currentLineId || undefined}
-            placeholder={text.selectLine}
-            onChange={onSelectLine}
-            options={lines.map((line) => ({
-              label: (
-                <span className="metro-select-option">
-                  <span className="metro-select-option__dot" style={{ backgroundColor: line.color }} />
-                  <span>{line.name}</span>
-                </span>
-              ),
-              value: line.id
-            }))}
-          />
-        </div>
-
-        <div className="metro-toolbar__right">
-          {onUndo ? (
-            <Tooltip title={undoText}>
-              <Button
-                className="metro-toolbar__secondary"
-                onClick={onUndo}
-                disabled={!canUndo}
-                icon={<UndoOutlined />}
-              />
-            </Tooltip>
-          ) : null}
-          {onRedo ? (
-            <Tooltip title={redoText}>
-              <Button
-                className="metro-toolbar__secondary"
-                onClick={onRedo}
-                disabled={!canRedo}
-                icon={<RedoOutlined />}
-              />
-            </Tooltip>
-          ) : null}
-          {onExportImage ? (
-            <Button className="metro-toolbar__secondary" onClick={onExportImage} icon={<PictureOutlined />}>
-              {text.exportImage}
+    <div className="metro-toolbar">
+      <div className="metro-toolbar__right">
+        {onUndo ? (
+          <Tooltip title={undoText}>
+            <Button
+              className="metro-toolbar__secondary"
+              onClick={onUndo}
+              disabled={!canUndo}
+              icon={<UndoOutlined />}
+            />
+          </Tooltip>
+        ) : null}
+        {onRedo ? (
+          <Tooltip title={redoText}>
+            <Button
+              className="metro-toolbar__secondary"
+              onClick={onRedo}
+              disabled={!canRedo}
+              icon={<RedoOutlined />}
+            />
+          </Tooltip>
+        ) : null}
+        {exportItems.length ? (
+          <Dropdown menu={{ items: exportItems }} placement="bottomRight" trigger={['click']}>
+            <Button className="metro-toolbar__secondary" icon={<DownloadOutlined />}>
+              {text.exportLabel} <DownOutlined style={{ fontSize: 10 }} />
             </Button>
-          ) : null}
-          {onOpenVideoModal ? (
-            <Button className="metro-toolbar__secondary" onClick={onOpenVideoModal} icon={<DownloadOutlined />}>
-              {text.exportVideo}
-            </Button>
-          ) : null}
-        </div>
+          </Dropdown>
+        ) : null}
       </div>
-
-      <DraggableModal
-        title={text.createLine}
-        open={addingLine}
-        onOk={handleAddLine}
-        onCancel={resetForm}
-        okText={text.createLineOk}
-        cancelText={text.cancel}
-      >
-        <div className="metro-add-line-form__field">
-          <div className="metro-form-label">{text.lineName}</div>
-          <Input
-            placeholder={text.lineNamePlaceholder}
-            value={newLineName}
-            onChange={(e) => setNewLineName(e.target.value)}
-            maxLength={12}
-          />
-        </div>
-
-        <div className="metro-add-line-form__field">
-          <div className="metro-form-label">{text.lineColor}</div>
-          <div className="metro-color-grid">
-            {LINE_COLORS.map((color) => (
-              <div
-                key={color}
-                className={`metro-color-swatch ${selectedColor === color ? 'is-active' : ''}`}
-                style={{ backgroundColor: color }}
-                onClick={() => setSelectedColor(color)}
-              />
-            ))}
-          </div>
-
-          <div style={{ marginTop: 16 }}>
-            <Button type="dashed" block onClick={() => setShowColorPicker((prev) => !prev)}>
-              {text.moreColors}
-            </Button>
-          </div>
-
-          {showColorPicker ? (
-            <div style={{ marginTop: 16 }}>
-              <ColorPicker
-                value={selectedColor}
-                onChange={(color) => setSelectedColor(color.toHexString())}
-                showText
-              />
-            </div>
-          ) : null}
-        </div>
-      </DraggableModal>
-    </>
+    </div>
   );
 };
 

@@ -101,8 +101,9 @@ body {
 }
 
 .metro-header {
-  height: 54px;
-  min-height: 54px;
+  /* 60px：比原本 54 多 6px 的内部呼吸空间，刚好让品牌区 / 工具栏 / 操作区不再贴边 */
+  height: 60px;
+  min-height: 60px;
   padding: 0 16px;
   border-bottom: 1px solid var(--metro-border);
   background: var(--metro-surface) !important;
@@ -481,37 +482,6 @@ body {
   border-color: var(--metro-border);
   background: var(--metro-surface);
   color: var(--metro-text);
-}
-
-.metro-toolbar__select.ant-select {
-  min-width: 180px;
-}
-
-.metro-toolbar__select :where(.ant-select-selector) {
-  height: 32px !important;
-  padding: 0 10px !important;
-  border-radius: var(--metro-radius) !important;
-  border-color: var(--metro-border) !important;
-  box-shadow: none !important;
-  background: var(--metro-surface) !important;
-}
-
-.metro-toolbar__select :where(.ant-select-selection-item),
-.metro-toolbar__select :where(.ant-select-selection-placeholder) {
-  line-height: 30px !important;
-  font-size: 12px;
-}
-
-.metro-select-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.metro-select-option__dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 999px;
 }
 
 .metro-add-line-form__field + .metro-add-line-form__field {
@@ -975,7 +945,9 @@ body {
 /* （token 已收敛到顶部 :root，这里只保留布局相关覆盖） */
 
 .metro-app-shell {
-  padding: var(--space-2);
+  /* 之前是 8px，header 紧贴顶部 + 紧贴地图都没有呼吸感。
+     调到 12px 让 header 在视觉上"飘"在顶部而不是贴在 workbench 顶边 */
+  padding: var(--space-3);
   background:
     linear-gradient(180deg, var(--color-surface-muted) 0%, var(--color-bg) 100%);
 }
@@ -1098,40 +1070,51 @@ body {
 }
 
 .metro-tool-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   height: 30px;
   min-width: 48px;
   padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: transparent;
-  color: #334155;
+  color: var(--color-text-soft);
   font: inherit;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--font-size-body);
+  font-weight: 600;
   cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.metro-tool-button__icon {
+  display: inline-flex;
+  font-size: 14px;
+  line-height: 0;
+}
+
+.metro-tool-button__label {
+  line-height: 1;
 }
 
 .metro-tool-button:hover {
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: var(--color-primary-50);
+  color: var(--color-primary-700);
 }
 
 .metro-tool-button.is-active {
-  background: #2563eb;
+  background: var(--color-primary-600);
   color: #ffffff;
 }
 
-.metro-tool-hint {
-  max-width: min(560px, 54vw);
-  padding: 8px 10px;
-  border: 1px solid #cfe0f3;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.96);
-  color: #475569;
-  font-size: 12px;
-  line-height: 1.45;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
-  pointer-events: none;
+/* 激活态前置的小蓝点：让"我当前选了哪个工具"在 5 个按钮里第一眼就能看到 */
+.metro-tool-button__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #ffffff;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
 }
 
 .metro-user-panel {
@@ -1247,8 +1230,7 @@ body {
   background-color: #0f172a !important;
 }
 
-.metro-app-shell[data-interface-theme="dark"] .metro-tool-group,
-.metro-app-shell[data-interface-theme="dark"] .metro-tool-hint {
+.metro-app-shell[data-interface-theme="dark"] .metro-tool-group {
   background: rgba(17, 24, 39, 0.96) !important;
   border-color: #29364d !important;
   color: #dbeafe !important;
@@ -1786,10 +1768,6 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-tool-group {
     flex-wrap: wrap;
   }
-
-  .metro-tool-hint {
-    max-width: 100%;
-  }
 }
 
 /* Auth layout scale and direct-image hero */
@@ -2245,73 +2223,6 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 /* 顶栏重构后的几个新元素 + 画布浮层 + 设置 tab                  */
 /* ============================================================ */
 
-/* 画布左上角浮动的方案名 chip：替代原"Live Canvas / 城市轨道设计台"那个营销 hero。
-   点击 = 重命名当前方案（或保存为新方案，详见 App.tsx handleClickMapNameChip） */
-.metro-canvas-mapchip {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 20;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  max-width: 360px;
-  height: 30px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  background: rgba(255, 255, 255, 0.96);
-  color: var(--color-text);
-  font-size: var(--font-size-body);
-  font-weight: 600;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.metro-canvas-mapchip:hover {
-  border-color: var(--color-primary-500);
-  background: rgba(255, 255, 255, 1);
-}
-
-.metro-canvas-mapchip__icon {
-  color: var(--color-text-muted);
-  font-size: 12px;
-}
-
-.metro-canvas-mapchip__name {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.metro-canvas-mapchip__meta {
-  font-weight: 400;
-  font-size: var(--font-size-meta);
-  color: var(--color-text-muted);
-  white-space: nowrap;
-}
-
-/* 同行的 .metro-canvas-tools 现在的 top: 14px 会和 mapchip 在同一基线上重叠，
-   把它整体往下挪一档以腾位置 */
-.metro-canvas-tools {
-  top: 56px;
-}
-
-/* 深色画布下的方案名 chip：玻璃感半透明黑 */
-.metro-canvas-surface.is-canvas-dark .metro-canvas-mapchip,
-.metro-app-shell[data-interface-theme="dark"] .metro-canvas-mapchip {
-  background: rgba(17, 24, 39, 0.86);
-  border-color: rgba(148, 163, 184, 0.32);
-  color: #e5eefc;
-}
-
-.metro-canvas-surface.is-canvas-dark .metro-canvas-mapchip__meta,
-.metro-app-shell[data-interface-theme="dark"] .metro-canvas-mapchip__meta {
-  color: rgba(203, 213, 225, 0.7);
-}
-
 /* ===== 画布 HUD：底部右侧一条胶囊 ===== */
 .metro-canvas-hud {
   position: absolute;
@@ -2432,4 +2343,85 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
 .metro-settings-tabs + .metro-settings-footer {
   margin-top: var(--space-4);
+}
+
+/* ============================================================ */
+/* 顶栏方案名 chip：上一轮从画布挪到 header 后的样式             */
+/* ============================================================ */
+
+/* 紧贴在 ● Metro Designer 右边的小 pill。点击 = 开重命名 / 保存弹窗。
+   跟之前画布上的 mapchip 不一样：尺寸更小，并使用 ghost 风格，避免抢品牌主视觉 */
+.metro-brand-panel {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.metro-header-mapchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-body);
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.metro-header-mapchip:hover {
+  border-color: var(--color-primary-500);
+  color: var(--color-primary-700);
+  background: var(--color-primary-50);
+}
+
+.metro-header-mapchip__icon {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.metro-header-mapchip:hover .metro-header-mapchip__icon {
+  color: var(--color-primary-600);
+}
+
+.metro-header-mapchip__name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 深色模式 */
+.metro-app-shell[data-interface-theme="dark"] .metro-header-mapchip {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(148, 163, 184, 0.32);
+  color: #cbd5e1;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-header-mapchip:hover {
+  background: rgba(59, 130, 246, 0.18);
+  border-color: var(--color-primary-500);
+  color: #ffffff;
+}
+
+/* ============================================================ */
+/* Sidebar 「+新建」按钮：原本在顶部 Toolbar，现在搬过来       */
+/* ============================================================ */
+
+.metro-sidebar__add-btn.ant-btn {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+}
+
+.metro-sidebar__add-btn.ant-btn .anticon {
+  font-size: 11px;
 }

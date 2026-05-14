@@ -1,7 +1,14 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
-import { DownOutlined } from '@ant-design/icons';
+import {
+  DownOutlined,
+  SelectOutlined,
+  EnvironmentOutlined,
+  NodeIndexOutlined,
+  LineOutlined,
+  DragOutlined
+} from '@ant-design/icons';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { getAmapConfig, loadAmap } from '../amapLoader';
@@ -1836,32 +1843,40 @@ const Canvas: React.FC<CanvasProps> = ({
       )}
       <div className="metro-canvas-tools">
         <div className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
+          {/* 工具组：5 个按钮 = icon + label。
+              激活态在 label 前显式插一个小蓝点，比单靠背景色更直观；
+              hint 不再常驻一行长文案，改成每个按钮 hover 时的 Tooltip */}
           {[
-            { key: 'select' as CanvasTool, label: text.tools.select },
-            { key: 'station' as CanvasTool, label: text.tools.station },
-            { key: 'line' as CanvasTool, label: text.tools.line },
-            { key: 'section' as CanvasTool, label: text.tools.section },
-            { key: 'pan' as CanvasTool, label: text.tools.pan }
-          ].map((tool) => (
-            <button
-              key={tool.key}
-              type="button"
-              className={`metro-tool-button ${activeTool === tool.key ? 'is-active' : ''}`}
-              onClick={() => setCanvasTool(tool.key)}
-            >
-              {tool.label}
-            </button>
-          ))}
-        </div>
-        <div className="metro-tool-hint">
-          {activeTool === 'select' && text.hints.select}
-          {activeTool === 'station' && text.hints.station}
-          {activeTool === 'line' &&
-            (drawingLine.startStation
-              ? text.hints.lineDrawing(drawingLine.startStation.name)
-              : text.hints.lineIdle)}
-          {activeTool === 'section' && text.hints.section}
-          {activeTool === 'pan' && text.hints.pan}
+            { key: 'select' as CanvasTool, label: text.tools.select, icon: <SelectOutlined />, hint: text.hints.select },
+            { key: 'station' as CanvasTool, label: text.tools.station, icon: <EnvironmentOutlined />, hint: text.hints.station },
+            {
+              key: 'line' as CanvasTool,
+              label: text.tools.line,
+              icon: <NodeIndexOutlined />,
+              hint:
+                drawingLine.startStation
+                  ? text.hints.lineDrawing(drawingLine.startStation.name)
+                  : text.hints.lineIdle
+            },
+            { key: 'section' as CanvasTool, label: text.tools.section, icon: <LineOutlined />, hint: text.hints.section },
+            { key: 'pan' as CanvasTool, label: text.tools.pan, icon: <DragOutlined />, hint: text.hints.pan }
+          ].map((tool) => {
+            const active = activeTool === tool.key;
+            return (
+              <Tooltip key={tool.key} title={tool.hint} placement="bottom" mouseEnterDelay={0.2}>
+                <button
+                  type="button"
+                  className={`metro-tool-button ${active ? 'is-active' : ''}`}
+                  onClick={() => setCanvasTool(tool.key)}
+                  aria-pressed={active}
+                >
+                  {active ? <span className="metro-tool-button__dot" aria-hidden="true" /> : null}
+                  <span className="metro-tool-button__icon">{tool.icon}</span>
+                  <span className="metro-tool-button__label">{tool.label}</span>
+                </button>
+              </Tooltip>
+            );
+          })}
         </div>
       </div>
       {isSectionMode && selectedSection && (

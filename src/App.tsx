@@ -1134,7 +1134,6 @@ const App: React.FC = () => {
   const displayName = userProfile?.username || text.defaultUserName;
   const displayInitial = (userProfile?.username || userProfile?.phone || 'M').charAt(0).toUpperCase();
   const mapDisplayName = currentMap?.name || text.unnamedMap;
-  const mapUpdatedAt = currentMap ? new Date(currentMap.updatedAt).toLocaleString() : '';
 
   // 把手机号脱敏到 +86 133****6715 这种格式，dropdown 里展示用
   const maskedPhone = userProfile?.phone
@@ -1229,15 +1228,23 @@ const App: React.FC = () => {
                 <span className="metro-brand-mark__dot" />
                 <div className="metro-brand-title">Metro Designer</div>
               </div>
+              {/* 方案名 chip 从画布顶部挪到 header 这里：
+                  既保留"我在编辑哪张图"的视觉锚，又不占用画布空间 */}
+              <Tooltip title={currentMap ? '点击重命名当前方案' : '点击保存为新方案'}>
+                <button
+                  type="button"
+                  className="metro-header-mapchip"
+                  onClick={handleClickMapNameChip}
+                >
+                  <EditOutlined className="metro-header-mapchip__icon" />
+                  <span className="metro-header-mapchip__name">{mapDisplayName}</span>
+                </button>
+              </Tooltip>
             </section>
 
             <section className="metro-toolbar-panel">
               <Toolbar
                 language={language}
-                lines={lines}
-                currentLineId={currentLineId}
-                onAddLine={handleAddLine}
-                onSelectLine={handleSelectLine}
                 onExportImage={handleExportImage}
                 onOpenVideoModal={() => setVideoModalOpen(true)}
                 onUndo={handleUndo}
@@ -1279,6 +1286,7 @@ const App: React.FC = () => {
               currentLineId={currentLineId}
               onSelectLine={handleSelectLine}
               onDeselectLine={handleDeselectLine}
+              onAddLine={handleAddLine}
               onDeleteLine={handleDeleteLine}
               onChangeLineColor={handleChangeLineColor}
               onChangeLineName={handleChangeLineName}
@@ -1290,17 +1298,6 @@ const App: React.FC = () => {
 
           <Content className="metro-content">
             <div className="metro-canvas-stage">
-              {/* 画布左上角浮动小条：当前方案名 + 上次更新；点击=重命名（或保存）。
-                  之前的 "Live Canvas / 城市轨道设计台 / 三个统计 chip" 营销 hero 整段移除 */}
-              <Tooltip title={currentMap ? '点击重命名当前方案' : '点击保存为新方案'}>
-                <button type="button" className="metro-canvas-mapchip" onClick={handleClickMapNameChip}>
-                  <EditOutlined className="metro-canvas-mapchip__icon" />
-                  <span className="metro-canvas-mapchip__name">{mapDisplayName}</span>
-                  {mapUpdatedAt ? (
-                    <span className="metro-canvas-mapchip__meta">· {mapUpdatedAt} 更新</span>
-                  ) : null}
-                </button>
-              </Tooltip>
 
               <Canvas
                 currentLineId={currentLineId}

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Button, ColorPicker, Divider, Dropdown, Modal, Space, Typography } from 'antd';
+import { Button, ColorPicker, Divider, Dropdown, Modal, Space, Typography, message } from 'antd';
 import Input from 'antd/es/input';
-import { DeleteOutlined, DragOutlined, MoreOutlined, SwapOutlined } from '@ant-design/icons';
+import { DeleteOutlined, DragOutlined, MoreOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { LINE_COLORS, Line, Station } from '../types';
 import DraggableModal from './DraggableModal';
 
@@ -14,6 +14,7 @@ interface SidebarProps {
   currentLineId: string | null;
   onSelectLine: (id: string) => void;
   onDeselectLine: () => void;
+  onAddLine: (name: string, color: string) => boolean;
   onDeleteLine: (lineId: string) => void;
   onChangeLineColor: (lineId: string, newColor: string) => boolean;
   onChangeLineName?: (lineId: string, newName: string) => void;
@@ -29,6 +30,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   currentLineId,
   onSelectLine,
   onDeselectLine,
+  onAddLine,
   onDeleteLine,
   onChangeLineColor,
   onChangeLineName,
@@ -43,7 +45,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         reorder: 'Reorder',
         finishReorder: 'Done',
         reorderHint: 'Drag line cards to reorder.',
-        emptyLines: 'No lines yet. Create the first line from the top toolbar.',
+        emptyLines: 'No lines yet. Click the "+ New" button above to start.',
+        addLine: 'New',
         stationUnit: 'stations',
         sectionUnit: 'sections',
         active: 'Editing',
@@ -64,7 +67,13 @@ const Sidebar: React.FC<SidebarProps> = ({
         colorModalTitle: 'Change line color',
         namePlaceholder: 'Enter a new line name',
         colorLabel: 'Line color',
-        moreColors: 'More colors'
+        moreColors: 'More colors',
+        createLineTitle: 'Create new line',
+        createLineOk: 'Create',
+        lineNameField: 'Line name',
+        lineNamePlaceholder: 'e.g. Line 1 / Loop / Airport Express',
+        lineColorField: 'Line color',
+        lineNameRequired: 'Please enter a line name'
       }
     : {
         title: '线路设计台',
@@ -74,7 +83,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         reorder: '调整顺序',
         finishReorder: '完成排序',
         reorderHint: '拖拽线路卡片即可重新排序',
-        emptyLines: '还没有线路。请先在顶部工具栏中创建第一条线路。',
+        emptyLines: '还没有线路。点击上方"+ 新建"按钮创建第一条线路。',
+        addLine: '新建',
         stationUnit: '个站点',
         sectionUnit: '个区间',
         active: '当前编辑',
@@ -95,7 +105,13 @@ const Sidebar: React.FC<SidebarProps> = ({
         colorModalTitle: '修改线路颜色',
         namePlaceholder: '请输入新的线路名称',
         colorLabel: '选择线路颜色',
-        moreColors: '使用更多颜色'
+        moreColors: '使用更多颜色',
+        createLineTitle: '创建新线路',
+        createLineOk: '创建线路',
+        lineNameField: '线路名称',
+        lineNamePlaceholder: '例如 1 号线 / 环线 / 机场快线',
+        lineColorField: '线路颜色',
+        lineNameRequired: '请输入线路名称'
       };
   const [expandedLines, setExpandedLines] = useState<Record<string, boolean>>({});
   const [isReorderingLines, setIsReorderingLines] = useState(false);
@@ -112,6 +128,36 @@ const Sidebar: React.FC<SidebarProps> = ({
     currentColor: '',
     showPicker: false
   });
+  // "+ 新建" 模态从原顶部 Toolbar 搬过来：管理在"线路列表"自身才是正确位置
+  const [addLineModal, setAddLineModal] = useState({
+    visible: false,
+    name: '',
+    color: LINE_COLORS[0],
+    showPicker: false
+  });
+
+  const openAddLineModal = () => {
+    setAddLineModal({
+      visible: true,
+      name: '',
+      color: LINE_COLORS[0],
+      showPicker: false
+    });
+  };
+
+  const closeAddLineModal = () => {
+    setAddLineModal({ visible: false, name: '', color: LINE_COLORS[0], showPicker: false });
+  };
+
+  const handleConfirmAddLine = () => {
+    const trimmed = addLineModal.name.trim();
+    if (!trimmed) {
+      message.warning(text.lineNameRequired);
+      return;
+    }
+    const ok = onAddLine(trimmed, addLineModal.color);
+    if (ok) closeAddLineModal();
+  };
 
   const toggleLineExpand = (lineId: string) => {
     setExpandedLines((prev) => ({
@@ -270,9 +316,25 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="metro-sidebar__section">
         <div className="metro-sidebar__section-head">
           <div className="metro-sidebar__section-title">{text.lineList}</div>
-          <Button className="metro-sidebar__ghost-btn" size="small" onClick={onDeselectLine} disabled={!currentLineId}>
-            {text.deselect}
-          </Button>
+          <Space size={6}>
+            <Button
+              className="metro-sidebar__add-btn"
+              type="primary"
+              size="small"
+              icon={<PlusOutlined />}
+              onClick={openAddLineModal}
+            >
+              {text.addLine}
+            </Button>
+            <Button
+              className="metro-sidebar__ghost-btn"
+              size="small"
+              onClick={onDeselectLine}
+              disabled={!currentLineId}
+            >
+              {text.deselect}
+            </Button>
+          </Space>
         </div>
 
         {lines.length > 1 ? (
@@ -496,6 +558,58 @@ const Sidebar: React.FC<SidebarProps> = ({
             />
           </div>
         ) : null}
+      </DraggableModal>
+
+      {/* 「+ 新建」模态：原本在顶部 Toolbar，搬到这里跟它的归属（线路设计台）放一起 */}
+      <DraggableModal
+        title={text.createLineTitle}
+        open={addLineModal.visible}
+        onOk={handleConfirmAddLine}
+        onCancel={closeAddLineModal}
+        okText={text.createLineOk}
+        cancelText={text.cancel}
+      >
+        <div className="metro-add-line-form__field">
+          <div className="metro-form-label">{text.lineNameField}</div>
+          <Input
+            placeholder={text.lineNamePlaceholder}
+            value={addLineModal.name}
+            onChange={(e) => setAddLineModal((prev) => ({ ...prev, name: e.target.value }))}
+            onPressEnter={handleConfirmAddLine}
+            maxLength={12}
+          />
+        </div>
+        <div className="metro-add-line-form__field">
+          <div className="metro-form-label">{text.lineColorField}</div>
+          <div className="metro-color-grid">
+            {LINE_COLORS.map((color) => (
+              <div
+                key={color}
+                className={`metro-color-swatch ${addLineModal.color === color ? 'is-active' : ''}`}
+                style={{ backgroundColor: color }}
+                onClick={() => setAddLineModal((prev) => ({ ...prev, color }))}
+              />
+            ))}
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <Button
+              type="dashed"
+              block
+              onClick={() => setAddLineModal((prev) => ({ ...prev, showPicker: !prev.showPicker }))}
+            >
+              {text.moreColors}
+            </Button>
+          </div>
+          {addLineModal.showPicker ? (
+            <div style={{ marginTop: 16 }}>
+              <ColorPicker
+                value={addLineModal.color}
+                onChange={(color) => setAddLineModal((prev) => ({ ...prev, color: color.toHexString() }))}
+                showText
+              />
+            </div>
+          ) : null}
+        </div>
       </DraggableModal>
     </div>
   );
