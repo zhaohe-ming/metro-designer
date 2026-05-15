@@ -54,6 +54,12 @@ export type BaseMapSettings = {
   amap?: AmapBaseMapSettings;
 };
 
+// 站点标签密度。决定缩放时站名/站点圆点/线宽如何呈现 + 是否隐藏次要站名。
+// - paper:    图纸缩放，站名+圆点+线宽跟着画布/AMap 一起缩放，缩远会看不清，看的是结构
+// - adaptive: 屏幕可读，做弱反向缩放保证编辑时不糊；overlap 多就藏 Tier 2
+// - key:      只显示换乘 + 首末站；其他站名永久隐藏（圆点仍画）
+export type LabelDensity = 'paper' | 'adaptive' | 'key';
+
 export interface MapSettings {
   mapStyle: MapStyle;
   canvasTheme: CanvasTheme;
@@ -61,6 +67,7 @@ export interface MapSettings {
   showLineNameLabels: boolean;
   dotLabelStyle: DotLabelStyle;
   baseMap: BaseMapSettings;
+  labelDensity: LabelDensity;
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
@@ -80,7 +87,10 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
       zoom: 11,
       style: 'normal'
     }
-  }
+  },
+  // 默认 paper：保持原有"图纸缩放"行为不破坏老用户预期。
+  // App.tsx 在 boot 时会用 localStorage 里的 user-last preference 覆盖这个默认值。
+  labelDensity: 'paper'
 };
 
 const normalizeNumber = (value: unknown, fallback: number, min: number, max: number) => {
@@ -126,7 +136,12 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
             ? amap.style
             : 'normal'
       }
-    }
+    },
+    labelDensity:
+      settings?.labelDensity === 'adaptive' ||
+      settings?.labelDensity === 'key'
+        ? settings.labelDensity
+        : 'paper'
   };
 };
 

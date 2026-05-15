@@ -27,6 +27,18 @@ const AVATAR_COMPRESS_THRESHOLD = 60_000;
 
 const MAX_HISTORY = 50;
 const LAST_MAP_KEY = 'metro_last_map_id';
+// 全局"上次用过的"标签密度，记忆用户偏好；新建空白方案、加载没有该字段的老方案时用这个兜底
+const LABEL_DENSITY_KEY = 'metro_label_density';
+const readLabelDensity = (): 'paper' | 'adaptive' | 'key' => {
+  try {
+    const v = localStorage.getItem(LABEL_DENSITY_KEY);
+    if (v === 'paper' || v === 'adaptive' || v === 'key') return v;
+  } catch { /* localStorage 不可用就走默认 */ }
+  return 'paper';
+};
+const writeLabelDensity = (value: 'paper' | 'adaptive' | 'key') => {
+  try { localStorage.setItem(LABEL_DENSITY_KEY, value); } catch { /* ignore */ }
+};
 type DocSnapshot = {
   lines: Line[];
   sections: Section[];
@@ -142,7 +154,11 @@ const i18n = {
     profileSave: '保存修改',
     profilePasswordMin: '密码长度至少 6 位',
     profilePasswordRequiredConfirm: '请再次输入新密码',
-    profilePasswordMismatch: '两次输入的密码不一致'
+    profilePasswordMismatch: '两次输入的密码不一致',
+    labelDensity: '站点标签密度',
+    labelDensityPaper: '图纸缩放',
+    labelDensityAdaptive: '屏幕可读',
+    labelDensityKey: '仅关键'
   },
   'en-US': {
     saveMap: 'Save map',
@@ -204,7 +220,11 @@ const i18n = {
     profileSave: 'Save changes',
     profilePasswordMin: 'Password must be at least 6 characters',
     profilePasswordRequiredConfirm: 'Please re-enter the new password',
-    profilePasswordMismatch: 'Passwords do not match'
+    profilePasswordMismatch: 'Passwords do not match',
+    labelDensity: 'Label density',
+    labelDensityPaper: 'Scale with view',
+    labelDensityAdaptive: 'Screen-readable',
+    labelDensityKey: 'Key stations only'
   }
 };
 
@@ -248,7 +268,10 @@ const App: React.FC = () => {
   const [language, setLanguage] = useState<AppLanguage>(getInitialLanguage);
   const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
-  const [mapSettings, setMapSettings] = useState<MapSettings>(DEFAULT_MAP_SETTINGS);
+  const [mapSettings, setMapSettings] = useState<MapSettings>(() => ({
+    ...DEFAULT_MAP_SETTINGS,
+    labelDensity: readLabelDensity()
+  }));
   const [past, setPast] = useState<DocSnapshot[]>([]);
   const [future, setFuture] = useState<DocSnapshot[]>([]);
   const isApplyingHistoryRef = useRef(false);
@@ -804,13 +827,16 @@ const App: React.FC = () => {
   const handleNewMap = () => {
     const hasContent = lines.length > 0 || sections.length > 0 || stations.length > 0;
     const doReset = () => {
+      // 用户当前的 labelDensity 选择会带到新方案里，不被默认值覆盖
+      // (跨 session 也用 localStorage 兜底，所以 readLabelDensity 也能 fallback)
+      const stickyLabelDensity = mapSettingsRef.current.labelDensity || readLabelDensity();
       setLines([]);
       setSections([]);
       setStations([]);
       setCurrentLineId(null);
       setCurrentMap(null);
       setMapName('');
-      setMapSettings(DEFAULT_MAP_SETTINGS);
+      setMapSettings({ ...DEFAULT_MAP_SETTINGS, labelDensity: stickyLabelDensity });
       try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
       resetHistory();
       message.success('已新建空白方案');
@@ -1690,6 +1716,28 @@ const App: React.FC = () => {
                       >
                         <Radio.Button value="show">{text.lineNameLabelsOn}</Radio.Button>
                         <Radio.Button value="hide">{text.lineNameLabelsOff}</Radio.Button>
+                      </Radio.Group>
+                    </section>
+
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.labelDensity}</div>
+                      <Radio.Group
+                        value={mapSettings.labelDensity}
+                        onChange={(event) => {
+                          pushHistory();
+                          const next = event.target.value as 'paper' | 'adaptive' | 'key';
+                          // 同时写入 localStorage，记忆为下一张新方案的默认偏好
+                          writeLabelDensity(next);
+                          setMapSettings((prev) =>
+                            normalizeMapSettings({ ...prev, labelDensity: next })
+                          );
+                        }}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="paper">{text.labelDensityPaper}</Radio.Button>
+                        <Radio.Button value="adaptive">{text.labelDensityAdaptive}</Radio.Button>
+                        <Radio.Button value="key">{text.labelDensityKey}</Radio.Button>
                       </Radio.Group>
                     </section>
                   </div>

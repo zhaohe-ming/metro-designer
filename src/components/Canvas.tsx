@@ -1399,6 +1399,56 @@ const Canvas: React.FC<CanvasProps> = ({
     }, {});
   }, [stations, lines]);
 
+  // Tier 1 = 必须显示站名 = 换乘站（≥2 线）+ 每条线的首末站。
+  // 环线情况：如果 line.stationIds 首 === 末，会自动通过 Set 去重为一个。
+  const tier1StationIds = useMemo(() => {
+    const set = new Set<string>();
+    Object.entries(stationLineCounts).forEach(([id, count]) => {
+      if (count >= 2) set.add(id);
+    });
+    lines.forEach(line => {
+      if (line.stationIds.length === 0) return;
+      set.add(line.stationIds[0]);
+      set.add(line.stationIds[line.stationIds.length - 1]);
+    });
+    return set;
+  }, [stationLineCounts, lines]);
+
+  // 站点标签密度：3 档，决定 fontSize / radius / lineWidth 怎么随缩放变化 + T2 显示策略
+  const labelDensity = mapSettings.labelDensity;
+
+  // 计算"图纸缩放系数"——用于乘以 fontSize / dot radius / lineWidth。
+  // - paper:    plain 模式靠 Konva 自然缩放，返回 1；amap 模式靠 1.15^(zoom-11) 让站点跟着地图一起放缩。
+  // - adaptive: 反向 damped 缩放，让屏幕显示接近恒定大小（plain canvas 缩远时不至于完全看不见）
+  // - key:      跟 adaptive 同样的尺寸策略，差异只在于 labelPlacements 把 T2 全部丢掉
+  const AMAP_BASELINE_ZOOM = 11;
+  const effectiveScale = useMemo(() => {
+    if (labelDensity === 'paper') {
+      if (isAmapMode) {
+        const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
+        return Math.pow(1.15, zoom - AMAP_BASELINE_ZOOM);
+      }
+      return 1; // plain canvas：Konva Stage 自己会按 scale 放缩，我们不再额外乘
+    }
+    // adaptive / key
+    if (isAmapMode) {
+      const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
+      return Math.max(0.85, Math.min(1.2, 1 + 0.05 * (zoom - AMAP_BASELINE_ZOOM)));
+    }
+    // plain canvas adaptive：反向乘 1/scale，让屏幕看起来恒定；clamp 防止极端
+    return Math.max(0.7, Math.min(1.4, 1 / Math.max(scale, 0.0001)));
+  }, [labelDensity, isAmapMode, scale, mapRenderTick, mapSettings.baseMap.amap?.zoom]);
+
+  // 把 stylePreset / dotLabelStyle 的"基准"数值乘上 effectiveScale 得到"实际渲染"用的数值。
+  // 集中在这里算，下面 render 全引用 scaled* 即可，单个地方改起来不易漏。
+  const scaledLineWidth = stylePreset.lineWidth * effectiveScale;
+  const scaledNormalStationRadius = stylePreset.normalStationRadius * effectiveScale;
+  const scaledNormalStationStrokeWidth = stylePreset.normalStationStrokeWidth * effectiveScale;
+  const scaledInterchangeRadius = stylePreset.interchangeRadius * effectiveScale;
+  const scaledInterchangeInnerRadius = stylePreset.interchangeInnerRadius * effectiveScale;
+  const scaledInterchangeStrokeWidth = stylePreset.interchangeStrokeWidth * effectiveScale;
+  const scaledFontSize = mapSettings.dotLabelStyle.fontSize * effectiveScale;
+
   // 渲染线路连接线（网状结构）
   const renderLines = () => {
     const segments = sections
@@ -1506,7 +1556,7 @@ const Canvas: React.FC<CanvasProps> = ({
           key={`${seg.section.id}_${currentIndex}`}
           points={shiftedPoints}
           stroke={seg.line.color}
-          strokeWidth={stylePreset.lineWidth}
+          strokeWidth={scaledLineWidth}
           lineCap="round"
           lineJoin="round"
           shadowColor={seg.line.color}
@@ -1623,11 +1673,23 @@ const Canvas: React.FC<CanvasProps> = ({
       })
       .flat();
 
-    return stations.reduce<Record<string, LabelRect>>((result, station) => {
+    // 按 Tier 1 优先排序：换乘+首末站先放（占据 occupied 列表），普通站后放并允许丢弃
+    const sortedStations = [...stations].sort((a, b) => {
+      const aT1 = tier1StationIds.has(a.id) ? 0 : 1;
+      const bT1 = tier1StationIds.has(b.id) ? 0 : 1;
+      return aT1 - bT1;
+    });
+
+    return sortedStations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
+      const isT1 = tier1StationIds.has(station.id);
+      // 仅关键模式：T2 完全不显示标签（圆点仍画在外面，这里只是没标签）
+      if (labelDensity === 'key' && !isT1) return result;
+
       const stationPoint = pointOf(station);
-      const labelWidth = Math.max(44, station.name.length * dotLabelStyle.fontSize);
-      const labelHeight = Math.max(22, dotLabelStyle.fontSize + 10);
+      // 用 scaledFontSize 算 rect 尺寸：collision detection 才能匹配实际渲染的视觉大小
+      const labelWidth = Math.max(44, station.name.length * scaledFontSize);
+      const labelHeight = Math.max(22, scaledFontSize + 10);
       const gap = 12;
       const candidates = [
         { key: 'right', x: stationPoint.x + gap, y: stationPoint.y - labelHeight / 2 },
@@ -1666,23 +1728,27 @@ const Canvas: React.FC<CanvasProps> = ({
         })
         .sort((a, b) => a.score - b.score)[0];
 
-      if (best) {
-        occupied.push(best.rect);
-        result[station.id] = best.rect;
-      }
+      if (!best) return result;
+      // T1 站必须放；T2 站当最优位置评分 ≥ 100（说明跟 T1 或别的标签强重叠）就丢
+      if (!isT1 && best.score >= 100) return result;
+
+      occupied.push(best.rect);
+      result[station.id] = best.rect;
       return result;
     }, {});
   }, [
     isLightAmapRender,
     sections,
     stations,
-    dotLabelStyle.fontSize,
+    scaledFontSize,
     stageSize.width,
     stageSize.height,
     stationDisplayPoints,
     isAmapMode,
     amapReady,
-    mapRenderTick
+    mapRenderTick,
+    tier1StationIds,
+    labelDensity
   ]);
 
   // 线路名标签布局：依赖 labelPlacements + stationDisplayPoints，跟着它们重算就够了
@@ -1694,10 +1760,10 @@ const Canvas: React.FC<CanvasProps> = ({
       ...stations.map(station => {
         const point = pointOf(station);
         return {
-          x: point.x - stylePreset.interchangeRadius - 8,
-          y: point.y - stylePreset.interchangeRadius - 8,
-          width: (stylePreset.interchangeRadius + 8) * 2,
-          height: (stylePreset.interchangeRadius + 8) * 2
+          x: point.x - scaledInterchangeRadius - 8,
+          y: point.y - scaledInterchangeRadius - 8,
+          width: (scaledInterchangeRadius + 8) * 2,
+          height: (scaledInterchangeRadius + 8) * 2
         };
       })
     ];
@@ -1738,7 +1804,7 @@ const Canvas: React.FC<CanvasProps> = ({
           const len = Math.hypot(dx, dy) || 1;
           const outward = { x: dx / len, y: dy / len };
           const normal = { x: -outward.y, y: outward.x };
-          const baseDistance = Math.max(24, stylePreset.interchangeRadius + 14);
+          const baseDistance = Math.max(24, scaledInterchangeRadius + 14);
           return [0, labelHeight + 8, -(labelHeight + 8), labelHeight * 2 + 16, -(labelHeight * 2 + 16)].map(
             (sideOffset, index) => {
               const centerX = terminalPoint.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
@@ -1790,6 +1856,7 @@ const Canvas: React.FC<CanvasProps> = ({
     labelPlacements,
     stations,
     stylePreset,
+    scaledInterchangeRadius,
     stageSize.width,
     stageSize.height,
     stationDisplayPoints
@@ -2167,15 +2234,15 @@ const Canvas: React.FC<CanvasProps> = ({
                     {isInterchangeStation ? (
                       <>
                         <Circle
-                          radius={stylePreset.interchangeRadius}
+                          radius={scaledInterchangeRadius}
                           fill={canvasPalette.stationStroke}
                           stroke={stationColor}
-                          strokeWidth={stylePreset.interchangeStrokeWidth}
+                          strokeWidth={scaledInterchangeStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
                           shadowBlur={isLightAmapRender ? 0 : 6}
                         />
                         <Circle
-                          radius={stylePreset.interchangeInnerRadius}
+                          radius={scaledInterchangeInnerRadius}
                           fill={stationColor}
                           stroke={mapSettings.cityStyle === 'mtr' ? canvasPalette.stationStroke : stationColor}
                           strokeWidth={mapSettings.cityStyle === 'mtr' ? 2 : 1}
@@ -2183,10 +2250,10 @@ const Canvas: React.FC<CanvasProps> = ({
                       </>
                     ) : (
                       <Circle
-                        radius={stylePreset.normalStationRadius}
+                        radius={scaledNormalStationRadius}
                         fill={stationColor}
                         stroke={canvasPalette.stationStroke}
-                        strokeWidth={stylePreset.normalStationStrokeWidth}
+                        strokeWidth={scaledNormalStationStrokeWidth}
                         shadowColor={canvasPalette.dotShadow}
                         shadowBlur={isLightAmapRender ? 0 : 4}
                       />
@@ -2197,8 +2264,8 @@ const Canvas: React.FC<CanvasProps> = ({
                           text={station.name}
                           width={labelRect.width}
                           height={labelRect.height}
-                          fontSize={dotLabelStyle.fontSize}
-                          fontStyle={`${dotLabelStyle.fontWeight}`}
+                          fontSize={scaledFontSize}
+                          fontStyle={`${mapSettings.dotLabelStyle.fontWeight}`}
                           fill={readableLabelText}
                           align="center"
                           verticalAlign="middle"
