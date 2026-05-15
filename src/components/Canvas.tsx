@@ -1419,8 +1419,10 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 计算"图纸缩放系数"——用于乘以 fontSize / dot radius / lineWidth / 线路名标签等所有"图纸元素"。
   // - paper:    plain 模式靠 Konva 自然缩放，返回 1；
-  //             amap 模式按 2^(zoom-11) —— AMap 每升 1 级 zoom 屏幕线性放大 2×，
-  //             用同样的指数才能保证站点圆点/字号"贴着地图一起放缩"，达到真·图纸感
+  //             amap 模式用 1.5^(zoom - 11) 做"半比例图纸缩放"：
+  //               * 纯 2^delta（跟 AMap 线性 1:1）在 zoom 14 已经是 8×，标签会炸；
+  //               * 1.5^delta 让 zoom 11→13 视觉上 1×→2.25× 比较明显，再用 clamp 锁住上限；
+  //               * 上限 2.5 / 下限 0.5：保证最大不致遮屏，最小不致看不见
   // - adaptive: 反向 damped 缩放，让屏幕显示接近恒定大小（plain canvas 缩远时不至于完全看不见）
   // - key:      跟 adaptive 同样的尺寸策略，差异只在于 labelPlacements 把 T2 全部丢掉
   const AMAP_BASELINE_ZOOM = 11;
@@ -1428,8 +1430,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (labelDensity === 'paper') {
       if (isAmapMode) {
         const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
-        // 1:1 跟随 AMap 线性比例；clamp 防止 zoom 4 / zoom 19 时炸成蚂蚁或巨人
-        return Math.max(0.3, Math.min(8, Math.pow(2, zoom - AMAP_BASELINE_ZOOM)));
+        return Math.max(0.5, Math.min(2.5, Math.pow(1.5, zoom - AMAP_BASELINE_ZOOM)));
       }
       return 1; // plain canvas：Konva Stage 自己会按 scale 放缩，我们不再额外乘
     }
