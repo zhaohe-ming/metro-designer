@@ -1417,8 +1417,10 @@ const Canvas: React.FC<CanvasProps> = ({
   // 站点标签密度：3 档，决定 fontSize / radius / lineWidth 怎么随缩放变化 + T2 显示策略
   const labelDensity = mapSettings.labelDensity;
 
-  // 计算"图纸缩放系数"——用于乘以 fontSize / dot radius / lineWidth。
-  // - paper:    plain 模式靠 Konva 自然缩放，返回 1；amap 模式靠 1.15^(zoom-11) 让站点跟着地图一起放缩。
+  // 计算"图纸缩放系数"——用于乘以 fontSize / dot radius / lineWidth / 线路名标签等所有"图纸元素"。
+  // - paper:    plain 模式靠 Konva 自然缩放，返回 1；
+  //             amap 模式按 2^(zoom-11) —— AMap 每升 1 级 zoom 屏幕线性放大 2×，
+  //             用同样的指数才能保证站点圆点/字号"贴着地图一起放缩"，达到真·图纸感
   // - adaptive: 反向 damped 缩放，让屏幕显示接近恒定大小（plain canvas 缩远时不至于完全看不见）
   // - key:      跟 adaptive 同样的尺寸策略，差异只在于 labelPlacements 把 T2 全部丢掉
   const AMAP_BASELINE_ZOOM = 11;
@@ -1426,7 +1428,8 @@ const Canvas: React.FC<CanvasProps> = ({
     if (labelDensity === 'paper') {
       if (isAmapMode) {
         const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
-        return Math.pow(1.15, zoom - AMAP_BASELINE_ZOOM);
+        // 1:1 跟随 AMap 线性比例；clamp 防止 zoom 4 / zoom 19 时炸成蚂蚁或巨人
+        return Math.max(0.3, Math.min(8, Math.pow(2, zoom - AMAP_BASELINE_ZOOM)));
       }
       return 1; // plain canvas：Konva Stage 自己会按 scale 放缩，我们不再额外乘
     }
@@ -1448,6 +1451,11 @@ const Canvas: React.FC<CanvasProps> = ({
   const scaledInterchangeInnerRadius = stylePreset.interchangeInnerRadius * effectiveScale;
   const scaledInterchangeStrokeWidth = stylePreset.interchangeStrokeWidth * effectiveScale;
   const scaledFontSize = mapSettings.dotLabelStyle.fontSize * effectiveScale;
+  // 线路名 pill 标签（终端"1 号线"那个色块）也要跟着缩放，跟 dot/线宽保持视觉一致
+  const scaledLineLabelFontSize = stylePreset.lineLabelFontSize * effectiveScale;
+  const scaledLineLabelStrokeWidth = stylePreset.lineLabelStrokeWidth * effectiveScale;
+  const scaledLineLabelPaddingX = stylePreset.lineLabelPaddingX * effectiveScale;
+  const scaledLineLabelPaddingY = stylePreset.lineLabelPaddingY * effectiveScale;
 
   // 渲染线路连接线（网状结构）
   const renderLines = () => {
@@ -1783,8 +1791,11 @@ const Canvas: React.FC<CanvasProps> = ({
         .filter(Boolean) as Station[];
       if (orderedStations.length < 2) return;
 
-      const labelWidth = Math.max(52, line.name.length * stylePreset.lineLabelFontSize + stylePreset.lineLabelPaddingX * 2);
-      const labelHeight = stylePreset.lineLabelFontSize + stylePreset.lineLabelPaddingY * 2 + 2;
+      const labelWidth = Math.max(
+        52 * effectiveScale,
+        line.name.length * scaledLineLabelFontSize + scaledLineLabelPaddingX * 2
+      );
+      const labelHeight = scaledLineLabelFontSize + scaledLineLabelPaddingY * 2 + 2;
       const terminalPairs = [
         { terminal: orderedStations[0], neighbor: orderedStations[1], preference: 0 },
         {
@@ -1857,6 +1868,7 @@ const Canvas: React.FC<CanvasProps> = ({
     stations,
     stylePreset,
     scaledInterchangeRadius,
+    effectiveScale,
     stageSize.width,
     stageSize.height,
     stationDisplayPoints
@@ -2119,7 +2131,11 @@ const Canvas: React.FC<CanvasProps> = ({
                 cornerRadius={label.height / 2}
                 fill={isMutedAmapStyle ? 'rgba(255,255,255,0.94)' : stylePreset.lineLabelFill}
                 stroke={label.line.color}
-                strokeWidth={isAmapMode ? Math.max(2.5, stylePreset.lineLabelStrokeWidth) : stylePreset.lineLabelStrokeWidth}
+                strokeWidth={
+                  isAmapMode
+                    ? Math.max(2.5 * effectiveScale, scaledLineLabelStrokeWidth)
+                    : scaledLineLabelStrokeWidth
+                }
                 shadowColor={label.line.color}
                 shadowBlur={isAmapMode ? 8 : 4}
                 shadowOpacity={isAmapMode ? 0.22 : 0.16}
@@ -2130,7 +2146,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 height={label.height}
                 align="center"
                 verticalAlign="middle"
-                fontSize={stylePreset.lineLabelFontSize}
+                fontSize={scaledLineLabelFontSize}
                 fontStyle={`${stylePreset.lineLabelFontWeight}`}
                 fill={isMutedAmapStyle ? '#0f172a' : stylePreset.lineLabelText}
               />
