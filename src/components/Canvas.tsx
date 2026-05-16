@@ -305,6 +305,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
+  const amapPaperScaleAnchorZoomRef = useRef<number | null>(null);
   const [amapReady, setAmapReady] = useState(false);
   const [amapError, setAmapError] = useState('');
   const [mapRenderTick, setMapRenderTick] = useState(0);
@@ -1426,11 +1427,29 @@ const Canvas: React.FC<CanvasProps> = ({
   // - adaptive: 反向 damped 缩放，让屏幕显示接近恒定大小（plain canvas 缩远时不至于完全看不见）
   // - key:      跟 adaptive 同样的尺寸策略，差异只在于 labelPlacements 把 T2 全部丢掉
   const AMAP_BASELINE_ZOOM = 11;
+  useEffect(() => {
+    if (!isAmapMode || labelDensity !== 'paper') {
+      amapPaperScaleAnchorZoomRef.current = null;
+      return;
+    }
+
+    if (amapPaperScaleAnchorZoomRef.current === null) {
+      amapPaperScaleAnchorZoomRef.current =
+        amapRef.current?.getZoom?.() ||
+        latestMapSettingsRef.current.baseMap.amap?.zoom ||
+        AMAP_BASELINE_ZOOM;
+    }
+  }, [amapReady, isAmapMode, labelDensity]);
+
   const effectiveScale = useMemo(() => {
     if (labelDensity === 'paper') {
       if (isAmapMode) {
         const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
-        return Math.max(0.5, Math.min(2.5, Math.pow(1.5, zoom - AMAP_BASELINE_ZOOM)));
+        const anchorZoom =
+          amapPaperScaleAnchorZoomRef.current ||
+          mapSettings.baseMap.amap?.zoom ||
+          AMAP_BASELINE_ZOOM;
+        return Math.max(0.72, Math.min(1.6, Math.pow(1.22, zoom - anchorZoom)));
       }
       return 1; // plain canvas：Konva Stage 自己会按 scale 放缩，我们不再额外乘
     }
@@ -2134,7 +2153,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 stroke={label.line.color}
                 strokeWidth={
                   isAmapMode
-                    ? Math.max(2.5 * effectiveScale, scaledLineLabelStrokeWidth)
+                    ? Math.max(2.5, scaledLineLabelStrokeWidth)
                     : scaledLineLabelStrokeWidth
                 }
                 shadowColor={label.line.color}
