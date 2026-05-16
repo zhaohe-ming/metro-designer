@@ -310,6 +310,9 @@ const Canvas: React.FC<CanvasProps> = ({
   const [amapError, setAmapError] = useState('');
   const [mapRenderTick, setMapRenderTick] = useState(0);
   const [isMapInteracting, setIsMapInteracting] = useState(false);
+  // 拖站点 / 拖途经点中：跟 isMapInteracting 一起作为"高频交互"标志，
+  // 屏蔽 O(n²) 的 label layout 和 line name 计算，让拖拽帧率不卡
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
   const isAmapMode = mapSettings.baseMap.mode === 'amap';
   const amapEnv = getAmapConfig();
 
@@ -1392,13 +1395,27 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const stylePreset = getCityStylePreset(mapSettings);
-  // 每个站点出现在多少条线路里（≥2 即换乘站）。O(stations × lines)，量大时这个缓存意义明显。
+  // 一次遍历建 station -> Line[] 的索引；后面 stationLineCounts / tier1 / getStationColor 全部走 O(1) 查表，
+  // 不再每个站重复扫一遍 lines.filter / lines.find。大线网下 O(stations × lines) 是大头之一
+  const stationToLines = useMemo(() => {
+    const map = new Map<string, LineType[]>();
+    lines.forEach(line => {
+      line.stationIds.forEach(id => {
+        const arr = map.get(id);
+        if (arr) arr.push(line);
+        else map.set(id, [line]);
+      });
+    });
+    return map;
+  }, [lines]);
+
+  // 每个站点出现在多少条线路里（≥2 即换乘站）。靠 stationToLines O(1) 查
   const stationLineCounts = useMemo(() => {
     return stations.reduce<Record<string, number>>((result, station) => {
-      result[station.id] = lines.filter(line => line.stationIds.includes(station.id)).length;
+      result[station.id] = stationToLines.get(station.id)?.length || 0;
       return result;
     }, {});
-  }, [stations, lines]);
+  }, [stations, stationToLines]);
 
   // Tier 1 = 必须显示站名 = 换乘站（≥2 线）+ 每条线的首末站。
   // 环线情况：如果 line.stationIds 首 === 末，会自动通过 Set 去重为一个。
@@ -1628,6 +1645,7 @@ const Canvas: React.FC<CanvasProps> = ({
               strokeWidth={1}
               dash={[6, 6]}
               opacity={0.8}
+              listening={false}
             />
           );
         }
@@ -1663,6 +1681,10 @@ const Canvas: React.FC<CanvasProps> = ({
   const dotLabelStyle = mapSettings.dotLabelStyle;
   const amapStyle = mapSettings.baseMap.amap?.style || 'normal';
   const isLightAmapRender = isAmapMode && isMapInteracting;
+  // 拖拽 / AMap 交互期间跳过 O(n²) 的 label / lineName 重排，复用上一次的缓存结果。
+  // 视觉上：拖动站点时旁边的标签会暂时"凝固"在旧位置，松开后立即重新布局——
+  // 60Hz 拖拽时省下大量算法成本，是大线网卡顿的主要来源
+  const skipHeavyLayout = isMapInteracting || isDraggingNode;
   const isMutedAmapStyle = isAmapMode && (amapStyle === 'dark' || amapStyle === 'grey');
   const isFreshAmapStyle = isAmapMode && amapStyle === 'fresh';
   const readableLabelText = isMutedAmapStyle ? '#ffffff' : isFreshAmapStyle ? '#0f172a' : dotLabelStyle.color || canvasPalette.labelText;
@@ -1682,16 +1704,23 @@ const Canvas: React.FC<CanvasProps> = ({
     return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
   };
 
+  // O(1) 查询：currentLine 一次查表；非当前线就取这个站第一条经过线的色；都没有给默认灰
+  const currentLine = currentLineId ? lines.find(line => line.id === currentLineId) : null;
   const getStationColor = (stationId: string) => {
-    const currentLine = currentLineId ? lines.find(line => line.id === currentLineId) : null;
-    if (currentLine?.stationIds.includes(stationId)) return currentLine.color;
-    return lines.find(line => line.stationIds.includes(stationId))?.color || '#64748b';
+    const passing = stationToLines.get(stationId);
+    if (currentLine && passing?.some(l => l.id === currentLine.id)) return currentLine.color;
+    return passing?.[0]?.color || '#64748b';
   };
 
   // 站名标注布局：O(stations × candidates × stations) 量级，必须缓存。
   // 依赖经过精挑：stationDisplayPoints 已捕获 mapRenderTick / AMap 状态等隐式输入。
+  // labelPlacementsCacheRef 在拖拽期间被 useMemo 复用，避免每个 mousemove 都重算
+  const labelPlacementsCacheRef = useRef<Record<string, LabelRect>>({});
   const labelPlacements = useMemo(() => {
     if (isLightAmapRender) return {} as Record<string, LabelRect>;
+    // 拖拽 / pan 中：直接复用上一次算好的，跳过 O(n²) 评分。松手时 useMemo 依赖
+    // skipHeavyLayout 翻 false 会立即重新计算并 cache。
+    if (skipHeavyLayout) return labelPlacementsCacheRef.current;
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
     const waypointPointOf = (point: Waypoint) => {
       const map = amapRef.current;
@@ -1723,7 +1752,7 @@ const Canvas: React.FC<CanvasProps> = ({
       return aT1 - bT1;
     });
 
-    return sortedStations.reduce<Record<string, LabelRect>>((result, station) => {
+    const computed = sortedStations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
       const isT1 = tier1StationIds.has(station.id);
       // 仅关键模式：T2 完全不显示标签（圆点仍画在外面，这里只是没标签）
@@ -1787,8 +1816,12 @@ const Canvas: React.FC<CanvasProps> = ({
       result[station.id] = best.rect;
       return result;
     }, {});
+    // 把结果存进 ref，交互期间的下次 render 直接复用，不再重算 O(n²)
+    labelPlacementsCacheRef.current = computed;
+    return computed;
   }, [
     isLightAmapRender,
+    skipHeavyLayout,
     sections,
     stations,
     scaledFontSize,
@@ -1809,8 +1842,10 @@ const Canvas: React.FC<CanvasProps> = ({
   ]);
 
   // 线路名标签布局：依赖 labelPlacements + stationDisplayPoints，跟着它们重算就够了
+  const lineNamePlacementsCacheRef = useRef<Array<{ key: string; line: LineType; x: number; y: number; width: number; height: number }>>([]);
   const lineNamePlacements = useMemo(() => {
     if (isLightAmapRender || !mapSettings.showLineNameLabels || lines.length === 0) return [];
+    if (skipHeavyLayout) return lineNamePlacementsCacheRef.current;
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
     const occupied: LabelRect[] = [
       ...Object.values(labelPlacements),
@@ -1914,9 +1949,11 @@ const Canvas: React.FC<CanvasProps> = ({
       }
     });
 
+    lineNamePlacementsCacheRef.current = placements;
     return placements;
   }, [
     isLightAmapRender,
+    skipHeavyLayout,
     mapSettings.showLineNameLabels,
     lines,
     labelPlacements,
@@ -2222,6 +2259,7 @@ const Canvas: React.FC<CanvasProps> = ({
               strokeWidth={1}
               dash={[6, 6]}
               opacity={0.9}
+              listening={false}
             />
           ))}
           {sections.map(section => {
@@ -2246,12 +2284,14 @@ const Canvas: React.FC<CanvasProps> = ({
                   draggable
                   onDragStart={() => {
                     onBeginInteraction?.();
+                    setIsDraggingNode(true);
                   }}
                   onDragMove={e => {
                     updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
                   }}
                   onDragEnd={() => {
                     setActiveCalibrationGuides([]);
+                    setIsDraggingNode(false);
                   }}
                   onContextMenu={e => {
                     e.evt.preventDefault();
@@ -2283,6 +2323,7 @@ const Canvas: React.FC<CanvasProps> = ({
               lineJoin="round"
               dash={[5, 5]}
               tension={0}
+              listening={false}
             />
           )}
           
@@ -2298,11 +2339,17 @@ const Canvas: React.FC<CanvasProps> = ({
                 x={stationPoint.x}
                 y={stationPoint.y}
                 draggable={activeTool === 'select' || activeTool === 'station'}
-                onDragStart={() => onBeginInteraction?.()}
+                onDragStart={() => {
+                  onBeginInteraction?.();
+                  setIsDraggingNode(true);
+                }}
                 onDragMove={e =>
                   handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
                 }
-                onDragEnd={() => setActiveCalibrationGuides([])}
+                onDragEnd={() => {
+                  setActiveCalibrationGuides([]);
+                  setIsDraggingNode(false);
+                }}
                 onClick={(e) => handleStationClick(station, e)}
                 onContextMenu={(e) => handleStationRightClick(e, station)}
                 style={{ cursor: isDrawingMode ? 'crosshair' : 'pointer' }}
