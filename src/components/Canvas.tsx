@@ -1476,6 +1476,21 @@ const Canvas: React.FC<CanvasProps> = ({
   const scaledLineLabelStrokeWidth = stylePreset.lineLabelStrokeWidth * effectiveScale;
   const scaledLineLabelPaddingX = stylePreset.lineLabelPaddingX * effectiveScale;
   const scaledLineLabelPaddingY = stylePreset.lineLabelPaddingY * effectiveScale;
+  const scaledStationLabelGap = 12 * effectiveScale;
+  const scaledStationLabelMinWidth = 44 * effectiveScale;
+  const scaledStationLabelMinHeight = 22 * effectiveScale;
+  const scaledStationCollisionRadius = 8 * effectiveScale;
+  const scaledLineCollisionDistance = 16 * effectiveScale;
+  const scaledLineLabelMinWidth = 52 * effectiveScale;
+  const scaledLineLabelTerminalGap = 14 * effectiveScale;
+  const scaledLineLabelMinDistance = 24 * effectiveScale;
+  const scaledLineLabelSideGap = 8 * effectiveScale;
+  const scaledClassicStationRadius = 20 * effectiveScale;
+  const scaledClassicInterchangeRadius = 24 * effectiveScale;
+  const scaledClassicStationStrokeWidth = 2 * effectiveScale;
+  const scaledClassicInterchangeStrokeWidth = 4 * effectiveScale;
+  const scaledClassicStationTextSize = 12 * effectiveScale;
+  const scaledClassicStationTextBox = 40 * effectiveScale;
 
   // 渲染线路连接线（网状结构）
   const renderLines = () => {
@@ -1716,9 +1731,9 @@ const Canvas: React.FC<CanvasProps> = ({
 
       const stationPoint = pointOf(station);
       // 用 scaledFontSize 算 rect 尺寸：collision detection 才能匹配实际渲染的视觉大小
-      const labelWidth = Math.max(44, station.name.length * scaledFontSize);
-      const labelHeight = Math.max(22, scaledFontSize + 10);
-      const gap = 12;
+      const labelWidth = Math.max(scaledStationLabelMinWidth, station.name.length * scaledFontSize);
+      const labelHeight = Math.max(scaledStationLabelMinHeight, scaledFontSize + 10 * effectiveScale);
+      const gap = scaledStationLabelGap;
       const candidates = [
         { key: 'right', x: stationPoint.x + gap, y: stationPoint.y - labelHeight / 2 },
         { key: 'left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y - labelHeight / 2 },
@@ -1739,7 +1754,15 @@ const Canvas: React.FC<CanvasProps> = ({
           });
           stations.forEach(other => {
             const otherPoint = pointOf(other);
-            if (other.id !== station.id && rectsOverlap(rect, { x: otherPoint.x - 8, y: otherPoint.y - 8, width: 16, height: 16 })) {
+            if (
+              other.id !== station.id &&
+              rectsOverlap(rect, {
+                x: otherPoint.x - scaledStationCollisionRadius,
+                y: otherPoint.y - scaledStationCollisionRadius,
+                width: scaledStationCollisionRadius * 2,
+                height: scaledStationCollisionRadius * 2
+              })
+            ) {
               score += 60;
             }
           });
@@ -1748,7 +1771,7 @@ const Canvas: React.FC<CanvasProps> = ({
           }
           const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
           lineSegments.forEach(([x1, y1, x2, y2]) => {
-            if (distanceToSegment(center.x, center.y, x1, y1, x2, y2) < 16) score += 18;
+            if (distanceToSegment(center.x, center.y, x1, y1, x2, y2) < scaledLineCollisionDistance) score += 18;
           });
           if (candidate.key === 'right') score -= 6;
           if (candidate.key === 'left') score -= 3;
@@ -1769,6 +1792,12 @@ const Canvas: React.FC<CanvasProps> = ({
     sections,
     stations,
     scaledFontSize,
+    effectiveScale,
+    scaledStationLabelGap,
+    scaledStationLabelMinWidth,
+    scaledStationLabelMinHeight,
+    scaledStationCollisionRadius,
+    scaledLineCollisionDistance,
     stageSize.width,
     stageSize.height,
     stationDisplayPoints,
@@ -1788,10 +1817,10 @@ const Canvas: React.FC<CanvasProps> = ({
       ...stations.map(station => {
         const point = pointOf(station);
         return {
-          x: point.x - scaledInterchangeRadius - 8,
-          y: point.y - scaledInterchangeRadius - 8,
-          width: (scaledInterchangeRadius + 8) * 2,
-          height: (scaledInterchangeRadius + 8) * 2
+          x: point.x - scaledInterchangeRadius - scaledStationCollisionRadius,
+          y: point.y - scaledInterchangeRadius - scaledStationCollisionRadius,
+          width: (scaledInterchangeRadius + scaledStationCollisionRadius) * 2,
+          height: (scaledInterchangeRadius + scaledStationCollisionRadius) * 2
         };
       })
     ];
@@ -1812,7 +1841,7 @@ const Canvas: React.FC<CanvasProps> = ({
       if (orderedStations.length < 2) return;
 
       const labelWidth = Math.max(
-        52 * effectiveScale,
+        scaledLineLabelMinWidth,
         line.name.length * scaledLineLabelFontSize + scaledLineLabelPaddingX * 2
       );
       const labelHeight = scaledLineLabelFontSize + scaledLineLabelPaddingY * 2 + 2;
@@ -1835,8 +1864,14 @@ const Canvas: React.FC<CanvasProps> = ({
           const len = Math.hypot(dx, dy) || 1;
           const outward = { x: dx / len, y: dy / len };
           const normal = { x: -outward.y, y: outward.x };
-          const baseDistance = Math.max(24, scaledInterchangeRadius + 14);
-          return [0, labelHeight + 8, -(labelHeight + 8), labelHeight * 2 + 16, -(labelHeight * 2 + 16)].map(
+          const baseDistance = Math.max(scaledLineLabelMinDistance, scaledInterchangeRadius + scaledLineLabelTerminalGap);
+          return [
+            0,
+            labelHeight + scaledLineLabelSideGap,
+            -(labelHeight + scaledLineLabelSideGap),
+            labelHeight * 2 + scaledLineLabelSideGap * 2,
+            -(labelHeight * 2 + scaledLineLabelSideGap * 2)
+          ].map(
             (sideOffset, index) => {
               const centerX = terminalPoint.x + outward.x * (baseDistance + labelWidth / 2) + normal.x * sideOffset;
               const centerY = terminalPoint.y + outward.y * (baseDistance + labelHeight / 2) + normal.y * sideOffset;
@@ -1888,7 +1923,14 @@ const Canvas: React.FC<CanvasProps> = ({
     stations,
     stylePreset,
     scaledInterchangeRadius,
-    effectiveScale,
+    scaledStationCollisionRadius,
+    scaledLineLabelMinWidth,
+    scaledLineLabelTerminalGap,
+    scaledLineLabelMinDistance,
+    scaledLineLabelSideGap,
+    scaledLineLabelFontSize,
+    scaledLineLabelPaddingX,
+    scaledLineLabelPaddingY,
     stageSize.width,
     stageSize.height,
     stationDisplayPoints
@@ -2153,7 +2195,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 stroke={label.line.color}
                 strokeWidth={
                   isAmapMode
-                    ? Math.max(2.5, scaledLineLabelStrokeWidth)
+                    ? Math.max(1.5, scaledLineLabelStrokeWidth)
                     : scaledLineLabelStrokeWidth
                 }
                 shadowColor={label.line.color}
@@ -2315,28 +2357,28 @@ const Canvas: React.FC<CanvasProps> = ({
                 ) : (
                   <>
                     <Circle
-                      radius={isInterchangeStation ? 24 : 20}
+                      radius={isInterchangeStation ? scaledClassicInterchangeRadius : scaledClassicStationRadius}
                       fill={isStationInCurrentLine(station.id) ? stationColor : canvasPalette.inactiveStationFill}
                       stroke={canvasPalette.stationStroke}
-                      strokeWidth={isInterchangeStation ? 4 : 2}
+                      strokeWidth={isInterchangeStation ? scaledClassicInterchangeStrokeWidth : scaledClassicStationStrokeWidth}
                       shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
                       shadowBlur={isLightAmapRender ? 0 : isDarkCanvas ? 7 : 4}
-                      shadowOffset={{ x: 2, y: 2 }}
+                      shadowOffset={{ x: 2 * effectiveScale, y: 2 * effectiveScale }}
                     />
                     {!isLightAmapRender ? (
                       <Text
                         text={station.name}
-                        fontSize={12}
+                        fontSize={scaledClassicStationTextSize}
                         fill={canvasPalette.stationText}
                         align="center"
                         verticalAlign="middle"
-                        width={40}
-                        height={40}
-                        offsetX={20}
-                        offsetY={20}
+                        width={scaledClassicStationTextBox}
+                        height={scaledClassicStationTextBox}
+                        offsetX={scaledClassicStationTextBox / 2}
+                        offsetY={scaledClassicStationTextBox / 2}
                         shadowColor={isAmapMode ? 'rgba(2,6,23,0.95)' : isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
                         shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
-                        shadowOffset={{ x: 1, y: 1 }}
+                        shadowOffset={{ x: effectiveScale, y: effectiveScale }}
                       />
                     ) : null}
                   </>
