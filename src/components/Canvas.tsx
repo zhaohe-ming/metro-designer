@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc } from 'react-konva';
+import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
 import {
   DownOutlined,
@@ -11,7 +11,7 @@ import {
 } from '@ant-design/icons';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
-import { planInterchange } from '../lib/interchange';
+import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
@@ -2374,28 +2374,36 @@ const Canvas: React.FC<CanvasProps> = ({
                               ? (linesHere[0]?.color || stationColor)
                               : 'transparent';
 
-                        if (plan.shape === 'pie') {
-                          // 整圆按线路色分扇形 + 外圈细深环
+                        if (plan.shape === 'curvedArrows') {
+                          // 弧形互锁箭头：refresh icon 风。
+                          // 每条线一个弧体 + 三角尖端，整体落在外圈深色描边内
+                          const innerR = scaledInterchangeRadius * 0.5;
+                          const outerR = scaledInterchangeRadius * 0.88;
                           return (
                             <>
-                              {plan.sectors.map((s, i) => (
-                                <Arc
-                                  key={`sec_${i}`}
-                                  innerRadius={0}
-                                  outerRadius={scaledInterchangeRadius}
-                                  angle={s.sweepDeg}
-                                  rotation={s.startDeg}
-                                  fill={s.color}
+                              {/* 白色填充作 wells 背景：让弧形箭头看起来"嵌"在圆内 */}
+                              <Circle
+                                radius={scaledInterchangeRadius}
+                                fill={canvasPalette.stationStroke}
+                                shadowColor={canvasPalette.dotShadow}
+                                shadowBlur={isLightAmapRender ? 0 : 6}
+                                listening={false}
+                              />
+                              {plan.curvedArrows.map((arrow, i) => (
+                                <Path
+                                  key={`arrow_${i}`}
+                                  data={buildCurvedArrowPath(0, 0, innerR, outerR, arrow)}
+                                  fill={arrow.color}
                                   listening={false}
                                 />
                               ))}
+                              {/* 外圈细深环 */}
                               <Circle
                                 radius={scaledInterchangeRadius}
                                 fill="transparent"
                                 stroke={outerStrokeColor}
                                 strokeWidth={scaledInterchangeStrokeWidth}
-                                shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={isLightAmapRender ? 0 : 6}
+                                listening={false}
                               />
                             </>
                           );

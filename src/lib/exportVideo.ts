@@ -10,7 +10,7 @@
 
 import { Line, MapSettings, Section, Station, DEFAULT_MAP_SETTINGS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
-import { planInterchange, degToRad } from './interchange';
+import { planInterchange, degToRad, fillCurvedArrowCanvas2d } from './interchange';
 import type { VideoSegmentInput } from '../components/VideoExportModal';
 
 export interface ExportVideoOptions {
@@ -354,16 +354,6 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
   const darkOutlineColor = usesDarkVideoSurface ? '#f8fafc' : '#0f172a';
 
-  // 画单条扇形（圆心 cx,cy，半径 r，degrees）。Canvas 2D 用：moveTo center, arc, closePath, fill
-  const fillSector = (cx: number, cy: number, r: number, startDeg: number, sweepDeg: number, color: string) => {
-    ctx.fillStyle = color;
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, degToRad(startDeg), degToRad(startDeg + sweepDeg));
-    ctx.closePath();
-    ctx.fill();
-  };
-
   // 画一段圆环上的弧带（外半径 ro 内半径 ri）。用于 lineColorArcs 形状
   const fillArcBand = (
     cx: number,
@@ -419,9 +409,17 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       const r = preset.interchangeRadius * mapScale;
       const ringW = preset.interchangeStrokeWidth * mapScale;
 
-      if (plan.shape === 'pie') {
-        plan.sectors.forEach(s => fillSector(point.x, point.y, r, s.startDeg, s.sweepDeg, s.color));
-        // 外圈细深环
+      if (plan.shape === 'curvedArrows') {
+        // 弧形互锁箭头（refresh icon 风）：白圆底 + 每条线一个弧形箭头 + 外圈细深环
+        const innerR = r * 0.5;
+        const outerR = r * 0.88;
+        ctx.fillStyle = mutedStationFill;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        plan.curvedArrows.forEach(arrow => {
+          fillCurvedArrowCanvas2d(ctx, point.x, point.y, innerR, outerR, arrow);
+        });
         const strokeColor =
           plan.outerStroke === 'lineColor' ? (colors[0] || fallbackColor) : darkOutlineColor;
         ctx.strokeStyle = strokeColor;

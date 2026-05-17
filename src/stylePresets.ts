@@ -3,10 +3,10 @@ import { CityStyle, MapSettings } from './types';
 // 换乘站的"结构外形"——这是 4 个预设之间真正拉开视觉差异的关键。
 // 之前所有预设都用同一个 "外圆 + 当前线色实心" 的画法，只差几像素，所以怎么切都长得像。
 // 现在每个预设走完全不同的结构：
-//  - pie:             外圈细深环 + 内部按线路色等分扇形（默认现代风）
+//  - curvedArrows:    外圈细深环 + 每条线一个弧形箭头互锁（refresh icon 风，最贴"换乘"语义）
 //  - lineColorArcs:   大白圆 + 周长按线路色分弧段（经典北京 / 老地铁图风）
 //  - concentricRing:  黑色双圆环 + 白心、不显示线路色（上海 / 上海粗体风）
-export type InterchangeShape = 'pie' | 'lineColorArcs' | 'concentricRing';
+export type InterchangeShape = 'curvedArrows' | 'lineColorArcs' | 'concentricRing';
 
 // 普通站点（非换乘）的画法：
 //  - dot:   线路色实心圆 + 浅色描边（视觉清晰）
@@ -53,7 +53,7 @@ export const CITY_STYLE_PRESETS: Record<CityStyle, CityStylePreset> = {
     interchangeRadius: 10,
     interchangeInnerRadius: 0,
     interchangeStrokeWidth: 2,
-    interchangeShape: 'pie',
+    interchangeShape: 'curvedArrows',
     stationShape: 'dot',
     interchangeOuterStroke: 'dark',
     lineLabelFontSize: 12,
@@ -128,7 +128,7 @@ export const CITY_STYLE_PRESETS: Record<CityStyle, CityStylePreset> = {
     interchangeRadius: 12,
     interchangeInnerRadius: 0,
     interchangeStrokeWidth: 3,
-    interchangeShape: 'pie',
+    interchangeShape: 'curvedArrows',
     stationShape: 'dot',
     interchangeOuterStroke: 'dark',
     lineLabelFontSize: 12,
