@@ -10,6 +10,7 @@
 
 import { Line, MapSettings, Section, Station, DEFAULT_MAP_SETTINGS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
+import { planInterchange, degToRad } from './interchange';
 import type { VideoSegmentInput } from '../components/VideoExportModal';
 
 export interface ExportVideoOptions {
@@ -76,8 +77,17 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const secondaryText = usesDarkVideoSurface ? '#cbd5e1' : '#475569';
   const textHalo = usesDarkVideoSurface ? 'rgba(2, 6, 23, 0.95)' : 'rgba(255, 255, 255, 0.98)';
   const stationById = new Map(allStations.map(station => [station.id, station]));
+  // 一次性建 station -> 经过它的线路颜色列表（用 allLines 数组顺序，等同 Canvas.tsx 里的 stationToLines）
+  const stationLineColors = new Map<string, string[]>();
+  allLines.forEach(line => {
+    line.stationIds.forEach(id => {
+      const arr = stationLineColors.get(id);
+      if (arr) arr.push(line.color);
+      else stationLineColors.set(id, [line.color]);
+    });
+  });
   const stationLineCounts = allStations.reduce<Record<string, number>>((result, station) => {
-    result[station.id] = allLines.filter(line => line.stationIds.includes(station.id)).length;
+    result[station.id] = stationLineColors.get(station.id)?.length || 0;
     return result;
   }, {});
 
@@ -342,40 +352,128 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.restore();
   };
 
+  const darkOutlineColor = usesDarkVideoSurface ? '#f8fafc' : '#0f172a';
+
+  // 画单条扇形（圆心 cx,cy，半径 r，degrees）。Canvas 2D 用：moveTo center, arc, closePath, fill
+  const fillSector = (cx: number, cy: number, r: number, startDeg: number, sweepDeg: number, color: string) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, degToRad(startDeg), degToRad(startDeg + sweepDeg));
+    ctx.closePath();
+    ctx.fill();
+  };
+
+  // 画一段圆环上的弧带（外半径 ro 内半径 ri）。用于 lineColorArcs 形状
+  const fillArcBand = (
+    cx: number,
+    cy: number,
+    rOuter: number,
+    rInner: number,
+    startDeg: number,
+    sweepDeg: number,
+    color: string
+  ) => {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rOuter, degToRad(startDeg), degToRad(startDeg + sweepDeg));
+    ctx.arc(cx, cy, rInner, degToRad(startDeg + sweepDeg), degToRad(startDeg), true);
+    ctx.closePath();
+    ctx.fill();
+  };
+
   const drawStation = (station: Station, activeColor?: string, pulse = 0) => {
     const point = toCanvasPoint(station);
     const isInterchange = (stationLineCounts[station.id] || 0) > 1;
-    const color = activeColor || mutedStationStroke;
+    const fallbackColor = activeColor || mutedStationStroke;
+    const isActive = !!activeColor;
     ctx.save();
     ctx.shadowColor = activeColor || 'transparent';
     ctx.shadowBlur = activeColor ? 8 : 0;
     if (pulse > 0) {
       ctx.globalAlpha = 0.25 * (1 - pulse);
-      ctx.fillStyle = color;
+      ctx.fillStyle = fallbackColor;
       ctx.beginPath();
       ctx.arc(point.x, point.y, (preset.interchangeRadius + 10 + pulse * 12) * mapScale, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
-    ctx.fillStyle = activeColor ? '#ffffff' : mutedStationFill;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = (isInterchange ? preset.interchangeStrokeWidth : preset.normalStationStrokeWidth) * mapScale;
+
+    if (isInterchange) {
+      // 已激活的换乘站：按 preset.interchangeShape 走结构化画法
+      // 未激活的：依然画一个 muted 圆，保留"准备亮起"的灰色提示
+      if (!isActive) {
+        ctx.fillStyle = mutedStationFill;
+        ctx.strokeStyle = mutedStationStroke;
+        ctx.lineWidth = preset.interchangeStrokeWidth * mapScale;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, preset.interchangeRadius * mapScale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+        return;
+      }
+
+      const colors = stationLineColors.get(station.id) || [];
+      const plan = planInterchange(preset.interchangeShape, preset.interchangeOuterStroke, colors);
+      const r = preset.interchangeRadius * mapScale;
+      const ringW = preset.interchangeStrokeWidth * mapScale;
+
+      if (plan.shape === 'pie') {
+        plan.sectors.forEach(s => fillSector(point.x, point.y, r, s.startDeg, s.sweepDeg, s.color));
+        // 外圈细深环
+        const strokeColor =
+          plan.outerStroke === 'lineColor' ? (colors[0] || fallbackColor) : darkOutlineColor;
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = ringW;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (plan.shape === 'lineColorArcs') {
+        // 白圆底
+        ctx.fillStyle = mutedStationFill;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        // 周长上的彩色弧段
+        const rInner = Math.max(0, r - ringW);
+        plan.sectors.forEach(s => fillArcBand(point.x, point.y, r, rInner, s.startDeg, s.sweepDeg, s.color));
+      } else {
+        // concentricRing: 双圆环 + 白心
+        ctx.fillStyle = mutedStationFill;
+        ctx.strokeStyle = darkOutlineColor;
+        ctx.lineWidth = ringW;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.lineWidth = ringW * 0.5;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, preset.interchangeInnerRadius * mapScale, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      ctx.restore();
+      return;
+    }
+
+    // 普通单线站
+    const r = preset.normalStationRadius * mapScale;
+    const sw = preset.normalStationStrokeWidth * mapScale;
+    if (preset.stationShape === 'ring') {
+      // 白填 + 线路色描边
+      ctx.fillStyle = mutedStationFill;
+      ctx.strokeStyle = fallbackColor;
+      ctx.lineWidth = sw;
+    } else {
+      // dot：实心 + 浅描边
+      ctx.fillStyle = isActive ? fallbackColor : mutedStationFill;
+      ctx.strokeStyle = isActive ? '#ffffff' : mutedStationStroke;
+      ctx.lineWidth = sw;
+    }
     ctx.beginPath();
-    ctx.arc(
-      point.x,
-      point.y,
-      (isInterchange ? preset.interchangeRadius : preset.normalStationRadius) * mapScale,
-      0,
-      Math.PI * 2
-    );
+    ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
-    if (isInterchange && activeColor) {
-      ctx.fillStyle = activeColor;
-      ctx.beginPath();
-      ctx.arc(point.x, point.y, preset.interchangeInnerRadius * mapScale, 0, Math.PI * 2);
-      ctx.fill();
-    }
     ctx.restore();
   };
 

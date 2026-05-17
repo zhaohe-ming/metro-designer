@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
-import { Stage, Layer, Circle, Text, Group, Line, Rect } from 'react-konva';
+import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc } from 'react-konva';
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
 import {
   DownOutlined,
@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
+import { planInterchange } from '../lib/interchange';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
@@ -2357,31 +2358,118 @@ const Canvas: React.FC<CanvasProps> = ({
                 {isDotLabelStyle ? (
                   <>
                     {isInterchangeStation ? (
-                      <>
+                      // 换乘站：按 preset.interchangeShape 分 3 种结构（pie / lineColorArcs / concentricRing）
+                      (() => {
+                        const linesHere = stationToLines.get(station.id) || [];
+                        const plan = planInterchange(
+                          stylePreset.interchangeShape,
+                          stylePreset.interchangeOuterStroke,
+                          linesHere.map((l) => l.color)
+                        );
+                        const darkOutline = isDarkCanvas ? '#f8fafc' : '#0f172a';
+                        const outerStrokeColor =
+                          plan.outerStroke === 'dark'
+                            ? darkOutline
+                            : plan.outerStroke === 'lineColor'
+                              ? (linesHere[0]?.color || stationColor)
+                              : 'transparent';
+
+                        if (plan.shape === 'pie') {
+                          // 整圆按线路色分扇形 + 外圈细深环
+                          return (
+                            <>
+                              {plan.sectors.map((s, i) => (
+                                <Arc
+                                  key={`sec_${i}`}
+                                  innerRadius={0}
+                                  outerRadius={scaledInterchangeRadius}
+                                  angle={s.sweepDeg}
+                                  rotation={s.startDeg}
+                                  fill={s.color}
+                                  listening={false}
+                                />
+                              ))}
+                              <Circle
+                                radius={scaledInterchangeRadius}
+                                fill="transparent"
+                                stroke={outerStrokeColor}
+                                strokeWidth={scaledInterchangeStrokeWidth}
+                                shadowColor={canvasPalette.dotShadow}
+                                shadowBlur={isLightAmapRender ? 0 : 6}
+                              />
+                            </>
+                          );
+                        }
+
+                        if (plan.shape === 'lineColorArcs') {
+                          // 大白圆 + 周长按线路色分弧段（经典图册风）
+                          return (
+                            <>
+                              <Circle
+                                radius={scaledInterchangeRadius}
+                                fill={canvasPalette.stationStroke}
+                                shadowColor={canvasPalette.dotShadow}
+                                shadowBlur={isLightAmapRender ? 0 : 6}
+                                listening={false}
+                              />
+                              {plan.sectors.map((s, i) => (
+                                <Arc
+                                  key={`arc_${i}`}
+                                  innerRadius={Math.max(0, scaledInterchangeRadius - scaledInterchangeStrokeWidth)}
+                                  outerRadius={scaledInterchangeRadius}
+                                  angle={s.sweepDeg}
+                                  rotation={s.startDeg}
+                                  fill={s.color}
+                                  listening={false}
+                                />
+                              ))}
+                            </>
+                          );
+                        }
+
+                        // concentricRing：黑色双圆环 + 白心，线路色不显示在符号内（靠线条颜色穿入识别）
+                        return (
+                          <>
+                            <Circle
+                              radius={scaledInterchangeRadius}
+                              fill={canvasPalette.stationStroke}
+                              stroke={darkOutline}
+                              strokeWidth={scaledInterchangeStrokeWidth}
+                              shadowColor={canvasPalette.dotShadow}
+                              shadowBlur={isLightAmapRender ? 0 : 6}
+                              listening={false}
+                            />
+                            <Circle
+                              radius={scaledInterchangeInnerRadius}
+                              fill="transparent"
+                              stroke={darkOutline}
+                              strokeWidth={scaledInterchangeStrokeWidth * 0.5}
+                              listening={false}
+                            />
+                          </>
+                        );
+                      })()
+                    ) : (
+                      // 普通站：dot = 线路色实心 + 浅描边；ring = 白填 + 线路色描边
+                      stylePreset.stationShape === 'ring' ? (
                         <Circle
-                          radius={scaledInterchangeRadius}
+                          radius={scaledNormalStationRadius}
                           fill={canvasPalette.stationStroke}
                           stroke={stationColor}
-                          strokeWidth={scaledInterchangeStrokeWidth}
+                          strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={isLightAmapRender ? 0 : 6}
+                          shadowBlur={isLightAmapRender ? 0 : 4}
                         />
+                      ) : (
                         <Circle
-                          radius={scaledInterchangeInnerRadius}
+                          radius={scaledNormalStationRadius}
                           fill={stationColor}
-                          stroke={mapSettings.cityStyle === 'mtr' ? canvasPalette.stationStroke : stationColor}
-                          strokeWidth={mapSettings.cityStyle === 'mtr' ? 2 : 1}
+                          stroke={canvasPalette.stationStroke}
+                          strokeWidth={scaledNormalStationStrokeWidth}
+                          shadowColor={canvasPalette.dotShadow}
+                          shadowBlur={isLightAmapRender ? 0 : 4}
                         />
-                      </>
-                    ) : (
-                      <Circle
-                        radius={scaledNormalStationRadius}
-                        fill={stationColor}
-                        stroke={canvasPalette.stationStroke}
-                        strokeWidth={scaledNormalStationStrokeWidth}
-                        shadowColor={canvasPalette.dotShadow}
-                        shadowBlur={isLightAmapRender ? 0 : 4}
-                      />
+                      )
                     )}
                     {labelRect ? (
                       <Group x={labelRect.x - stationPoint.x} y={labelRect.y - stationPoint.y} listening={false}>
