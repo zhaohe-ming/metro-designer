@@ -71,7 +71,10 @@ const { Header, Sider, Content } = Layout;
 
 type UserProfile = {
   id: string;
+  // 老账号迁移期：phone 可能仍有值；新账号 phone 为空。
   phone: string;
+  email: string;
+  emailVerified: boolean;
   username: string;
   avatar?: string;
   password?: string;
@@ -139,6 +142,9 @@ const i18n = {
     signOut: '退出登录',
     close: '关闭',
     phone: '手机号',
+    email: '邮箱',
+    emailVerified: '已验证',
+    emailUnverified: '未验证',
     avatarHint: '点击头像可上传本机图片',
     profileChangeAvatar: '更换头像',
     profileAccountSection: '账号信息',
@@ -205,6 +211,9 @@ const i18n = {
     signOut: 'Sign out',
     close: 'Close',
     phone: 'Phone',
+    email: 'Email',
+    emailVerified: 'Verified',
+    emailUnverified: 'Unverified',
     avatarHint: 'Click avatar to upload an image',
     profileChangeAvatar: 'Change avatar',
     profileAccountSection: 'Account info',
@@ -769,36 +778,13 @@ const App: React.FC = () => {
     message.success('线路顺序已更新');
   };
 
-  const handleLogin = async ({ phone, password }: { phone: string; password: string }) => {
-    try {
-      const { token, user } = await api.login({ phone, password });
-      setToken(token);
-      setUserProfile({ ...user, password: '' });
-      refreshSavedMaps(false);
-      message.success('登录成功');
-    } catch (error: any) {
-      message.error(error.message || '登录失败');
-    }
-  };
-
-  const handleRegister = async ({
-    phone,
-    username,
-    password
-  }: {
-    phone: string;
-    username: string;
-    password: string;
-  }) => {
-    try {
-      const { token, user } = await api.register({ phone, username, password });
-      setToken(token);
-      setUserProfile({ ...user, password: '' });
-      refreshSavedMaps(false);
-      message.success('注册成功，已自动登录');
-    } catch (error: any) {
-      message.error(error.message || '注册失败');
-    }
+  // AuthPanel 走完整的登录 / 注册 / 验证 / 重置流程后，统一通过 onAuthenticated 回调
+  // 交付 { token, user } —— 我们只关心持久化和切到工作台。
+  const handleAuthenticated = async ({ token, user }: { token: string; user: UserProfile }) => {
+    setToken(token);
+    setUserProfile({ ...user, password: '' });
+    refreshSavedMaps(false);
+    message.success('登录成功');
   };
 
   const handleLogout = () => {
@@ -1221,15 +1207,25 @@ const App: React.FC = () => {
   };
 
   const displayName = userProfile?.username || text.defaultUserName;
-  const displayInitial = (userProfile?.username || userProfile?.phone || 'M').charAt(0).toUpperCase();
+  const displayInitial = (userProfile?.username || userProfile?.email || userProfile?.phone || 'M').charAt(0).toUpperCase();
   const mapDisplayName = currentMap?.name || text.unnamedMap;
 
-  // 把手机号脱敏到 +86 133****6715 这种格式，dropdown 里展示用
-  const maskedPhone = userProfile?.phone
-    ? userProfile.phone.length >= 11
-      ? `+86 ${userProfile.phone.slice(0, 3)}****${userProfile.phone.slice(-4)}`
-      : `+86 ${userProfile.phone}`
-    : '';
+  // 邮箱脱敏：dro****@example.com 这种，dropdown 展示用。
+  // 没邮箱的 legacy 账号兜底展示已脱敏的手机号。
+  const maskedEmail = (() => {
+    const e = userProfile?.email || '';
+    if (e) {
+      const [local, domain] = e.split('@');
+      if (!local || !domain) return e;
+      if (local.length <= 3) return `${local}@${domain}`;
+      return `${local.slice(0, 3)}****@${domain}`;
+    }
+    const p = userProfile?.phone || '';
+    if (!p) return '';
+    return p.length >= 11
+      ? `+86 ${p.slice(0, 3)}****${p.slice(-4)}`
+      : `+86 ${p}`;
+  })();
 
   // 画布左上角浮动的方案名 chip 被点击时的行为：
   // - 已经保存过 → 直接进重命名小弹窗
@@ -1242,14 +1238,14 @@ const App: React.FC = () => {
     }
   };
 
-  // 右上角头像 dropdown 的菜单项。手机号置顶展示，三个常用入口 + 危险操作分隔。
+  // 右上角头像 dropdown 的菜单项。邮箱置顶展示（legacy 账号兜底脱敏手机号），三个常用入口 + 危险操作分隔。
   const userMenuItems = [
     {
-      key: 'phone',
+      key: 'identity',
       disabled: true,
       label: (
         <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-meta)' }}>
-          {maskedPhone}
+          {maskedEmail}
         </span>
       )
     },
@@ -1307,7 +1303,7 @@ const App: React.FC = () => {
       <ConfigProvider theme={antdThemeConfig}>
         <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
           <div className="auth-layout" data-interface-theme={resolvedInterfaceTheme}>
-            <AuthPanel onLogin={handleLogin} onRegister={handleRegister} />
+            <AuthPanel onAuthenticated={handleAuthenticated} />
           </div>
         </AntdApp>
       </ConfigProvider>
@@ -1900,7 +1896,7 @@ const App: React.FC = () => {
             style={{ display: 'none' }}
           />
 
-          {/* 顶部身份卡：大头像 + 名字 + 脱敏手机号 + 单独的"更换头像"按钮。
+          {/* 顶部身份卡：大头像 + 名字 + 邮箱（legacy 兜底手机号）+ 单独的"更换头像"按钮。
               头像也可以点击直接触发上传，提供两种入口 */}
           <div className="metro-profile-identity">
             <Avatar
@@ -1913,7 +1909,9 @@ const App: React.FC = () => {
             </Avatar>
             <div className="metro-profile-identity__main">
               <div className="metro-profile-identity__name">{displayName}</div>
-              <div className="metro-profile-identity__phone">+86 {userProfile.phone}</div>
+              <div className="metro-profile-identity__phone">
+                {userProfile.email || (userProfile.phone ? `+86 ${userProfile.phone}` : '')}
+              </div>
               <button
                 type="button"
                 className="metro-profile-identity__change"
@@ -1946,17 +1944,34 @@ const App: React.FC = () => {
                 <Input placeholder={text.profileUsernamePlaceholder} maxLength={16} />
               </Form.Item>
 
-              {/* 手机号纯展示，不再是 disabled Input —— 视觉重量更轻，匹配只读语义 */}
-              <div className="metro-profile-field">
-                <div className="metro-profile-field__label">{text.phone}</div>
-                <div className="metro-profile-field__value">
-                  <span>+86 {userProfile.phone}</span>
-                  <span className="metro-profile-field__badge">
-                    <span className="metro-profile-field__badge-dot" />
-                    {text.profilePhoneBound}
-                  </span>
+              {/* 邮箱：主标识，只读。带"已验证 / 未验证"badge。
+                  legacy 用户没邮箱时这里展示手机号 + 提示去补邮箱（升级流程已在登录处理）。 */}
+              {userProfile.email ? (
+                <div className="metro-profile-field">
+                  <div className="metro-profile-field__label">{text.email}</div>
+                  <div className="metro-profile-field__value">
+                    <span>{userProfile.email}</span>
+                    <span
+                      className="metro-profile-field__badge"
+                      style={userProfile.emailVerified ? undefined : { color: 'var(--color-warning, #d97706)' }}
+                    >
+                      <span className="metro-profile-field__badge-dot" />
+                      {userProfile.emailVerified ? text.emailVerified : text.emailUnverified}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              ) : userProfile.phone ? (
+                <div className="metro-profile-field">
+                  <div className="metro-profile-field__label">{text.phone}</div>
+                  <div className="metro-profile-field__value">
+                    <span>+86 {userProfile.phone}</span>
+                    <span className="metro-profile-field__badge">
+                      <span className="metro-profile-field__badge-dot" />
+                      {text.profilePhoneBound}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             {/* 修改密码分组 */}

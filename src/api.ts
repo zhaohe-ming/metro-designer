@@ -3,17 +3,13 @@ import { Line, MapSettings, Section, Station } from './types';
 const TOKEN_KEY = 'metro_token';
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
 
-function normalizeAuthPayload<T extends { phone: string; password: string }>(payload: T): T {
-  return {
-    ...payload,
-    phone: payload.phone.trim(),
-    password: payload.password
-  };
-}
-
 export interface UserDto {
   id: string;
+  // 老账号会带 phone（升级前），新账号 phone 为空。
   phone: string;
+  // 新主标识符：邮箱。注册即必填，登录前必须验证。
+  email: string;
+  emailVerified: boolean;
   username: string;
   avatar?: string;
 }
@@ -37,6 +33,19 @@ export interface FullMap extends MapSummary {
   mapSettings?: MapSettings;
 }
 
+// 登录返回三种状态：
+//  - ok                正常登录，给主 JWT 和完整 user
+//  - verify_required   邮箱未验证，前端要引导用户去邮箱
+//  - upgrade_required  legacy 手机号账号，必须先绑邮箱并验证；upgradeToken 只能调 upgrade-email
+export type LoginResult =
+  | { status: 'ok'; token: string; user: UserDto }
+  | { status: 'verify_required'; email: string }
+  | { status: 'upgrade_required'; upgradeToken: string; hint?: string };
+
+export type RegisterResult = { status: 'verify_sent'; email: string };
+export type VerifySentResult = { status: 'verify_sent'; email: string };
+export type ResetSentResult = { status: 'reset_sent'; email: string };
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -49,14 +58,21 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
-async function request<T>(path: string, options: RequestInit = {}, auth = false): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  authMode: 'none' | 'login' | 'custom' = 'none',
+  customToken?: string
+): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined)
   };
-  if (auth) {
+  if (authMode === 'login') {
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
+  } else if (authMode === 'custom' && customToken) {
+    headers.Authorization = `Bearer ${customToken}`;
   }
   const url = `${API_BASE_URL}${path}`;
   const res = await fetch(url, { ...options, headers });
@@ -83,29 +99,74 @@ async function requestBlob(path: string, options: RequestInit = {}, auth = false
 }
 
 export const api = {
-  login: (payload: { phone: string; password: string }) =>
-    request<{ token: string; user: UserDto }>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(normalizeAuthPayload(payload))
-    }),
-  register: (payload: { phone: string; password: string; username: string }) =>
-    request<{ token: string; user: UserDto }>('/api/auth/register', {
+  // 邮箱或老手机号都从 `account` 字段送，后端会自动按是否含 @ 路由。
+  login: (payload: { account: string; password: string }) =>
+    request<LoginResult>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({
-        ...normalizeAuthPayload(payload),
+        account: payload.account.trim(),
+        password: payload.password
+      })
+    }),
+
+  register: (payload: { email: string; password: string; username: string }) =>
+    request<RegisterResult>('/api/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: payload.email.trim().toLowerCase(),
+        password: payload.password,
         username: payload.username.trim()
       })
     }),
-  me: () => request<{ user: UserDto }>('/api/me', {}, true),
+
+  // 用 upgradeToken（不是主 JWT）调，给 legacy 手机号账号补绑邮箱
+  upgradeEmail: (payload: { email: string; upgradeToken: string }) =>
+    request<VerifySentResult>(
+      '/api/auth/upgrade-email',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email: payload.email.trim().toLowerCase() })
+      },
+      'custom',
+      payload.upgradeToken
+    ),
+
+  // 消费一次性 verify token；服务端响应里带 token + user，前端拿到就当登录成功
+  verifyEmail: (token: string) =>
+    request<{ status: 'ok'; token: string; user: UserDto }>('/api/auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ token })
+    }),
+
+  resendVerification: (email: string) =>
+    request<VerifySentResult>('/api/auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim().toLowerCase() })
+    }),
+
+  forgotPassword: (email: string) =>
+    request<ResetSentResult>('/api/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim().toLowerCase() })
+    }),
+
+  // 消费一次性 reset token，并设置新密码；成功后服务端也回主 JWT
+  resetPassword: (payload: { token: string; password: string }) =>
+    request<{ status: 'ok'; token: string; user: UserDto }>('/api/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ token: payload.token, password: payload.password })
+    }),
+
+  me: () => request<{ user: UserDto }>('/api/me', {}, 'login'),
   updateMe: (payload: { username?: string; avatar?: string; password?: string }) =>
-    request<{ user: UserDto }>('/api/me', { method: 'PUT', body: JSON.stringify(payload) }, true),
-  listMaps: () => request<{ maps: MapSummary[] }>('/api/maps', {}, true),
-  getMap: (id: string) => request<{ map: FullMap }>(`/api/maps/${id}`, {}, true),
+    request<{ user: UserDto }>('/api/me', { method: 'PUT', body: JSON.stringify(payload) }, 'login'),
+  listMaps: () => request<{ maps: MapSummary[] }>('/api/maps', {}, 'login'),
+  getMap: (id: string) => request<{ map: FullMap }>(`/api/maps/${id}`, {}, 'login'),
   createMap: (payload: { name: string; lines: Line[]; stations: Station[]; sections: Section[]; mapSettings?: MapSettings }) =>
-    request<{ map: MapSummary }>('/api/maps', { method: 'POST', body: JSON.stringify(payload) }, true),
+    request<{ map: MapSummary }>('/api/maps', { method: 'POST', body: JSON.stringify(payload) }, 'login'),
   updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[]; mapSettings?: MapSettings }) =>
-    request<{ map: MapSummary }>(`/api/maps/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, true),
-  deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, true),
+    request<{ map: MapSummary }>(`/api/maps/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, 'login'),
+  deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, 'login'),
   getAmapStaticMap: (params: {
     center: [number, number];
     zoom: number;
