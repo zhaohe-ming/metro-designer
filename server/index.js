@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -9,6 +11,15 @@ const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+// ── 速率限制 + 自动封禁策略 ────────────────────────────────────────────────
+// 触发任何一个速率限制器 = 一次 'rate_429' violation
+// 登录失败 = 一次 'login_fail' violation
+// 24 小时内 violation 累计达 BAN_THRESHOLD 自动拉黑 IP 24 小时
+const VIOLATION_WINDOW_MS = 24 * 60 * 60 * 1000;
+const BAN_DURATION_MS = 24 * 60 * 60 * 1000;
+const BAN_THRESHOLD = 50;          // 登录失败 / 限流触发数量阈值（24h 内）
+const VIOLATION_KEEP_MS = 7 * 24 * 60 * 60 * 1000; // 老 violation 7 天清理
 const RAW_JWT_SECRET = (process.env.JWT_SECRET || '').trim();
 if (!RAW_JWT_SECRET) {
   if (process.env.NODE_ENV === 'production') {
@@ -62,6 +73,20 @@ const pgPool = DATABASE_URL
   : null;
 let pgReadyPromise = null;
 
+// Render / Vercel 都把流量走代理，req.ip 必须信任 X-Forwarded-For 第一跳，
+// 否则所有限流器看到的都是 127.0.0.1 / 0.0.0.0 等同形同虚设。
+// 注意：只信任 1 跳，多层代理需手动调整。
+app.set('trust proxy', 1);
+
+// 安全 HTTP headers：X-Content-Type-Options / X-Frame-Options / HSTS / Referrer-Policy 等。
+// 后端只返回 JSON，CSP 默认配置不会阻挡前端（前端 HTML 由 Vercel 单独 serve），
+// 所以放心用默认；contentSecurityPolicy 留默认（仅影响 JSON 响应）。
+app.use(helmet({
+  // crossOriginResourcePolicy: 'same-site' 会阻止跨域 fetch 拿 amap proxy 图片，
+  // 而 amap proxy 必须能被前端跨域取，所以放松到 cross-origin。
+  crossOriginResourcePolicy: { policy: 'cross-origin' }
+}));
+
 app.use(cors({
   origin(origin, callback) {
     if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin)) {
@@ -71,7 +96,16 @@ app.use(cors({
     callback(new Error('Not allowed by CORS'));
   }
 }));
-app.use(express.json({ limit: '10mb' }));
+// body limit 收紧到 1MB：avatar 上限 200KB，地图 payload 历史上不超过几百 KB。
+// 真有大数据需求再单独走分块或专用 endpoint。
+app.use(express.json({ limit: '1mb' }));
+
+// 每个请求生成 requestId，500 时透出去方便定位日志
+app.use((req, res, next) => {
+  req.requestId = crypto.randomBytes(6).toString('hex');
+  res.setHeader('X-Request-Id', req.requestId);
+  next();
+});
 
 const asyncHandler = fn => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(next);
@@ -82,7 +116,11 @@ function ensureJsonDb() {
   if (!fs.existsSync(DB_PATH)) {
     fs.writeFileSync(
       DB_PATH,
-      JSON.stringify({ users: [], maps: [], seq: { user: 1, map: 1 } }, null, 2),
+      JSON.stringify(
+        { users: [], maps: [], bans: [], rate_violations: [], seq: { user: 1, map: 1 } },
+        null,
+        2
+      ),
       'utf8'
     );
   }
@@ -93,6 +131,9 @@ function readJsonDb() {
   const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
   db.users = Array.isArray(db.users) ? db.users : [];
   db.maps = Array.isArray(db.maps) ? db.maps : [];
+  // bans / rate_violations 在 dev JSON 模式下也保存，跨重启不丢
+  db.bans = Array.isArray(db.bans) ? db.bans : [];
+  db.rate_violations = Array.isArray(db.rate_violations) ? db.rate_violations : [];
   db.seq = db.seq || { user: 1, map: 1 };
   return db;
 }
@@ -219,6 +260,26 @@ async function ensurePgSchema() {
       );
 
       CREATE INDEX IF NOT EXISTS maps_user_updated_idx ON maps(user_id, updated_at DESC);
+
+      -- 速率限制相关：违规事件流水 + 当前生效封禁
+      CREATE TABLE IF NOT EXISTS rate_violations (
+        id TEXT PRIMARY KEY,
+        scope TEXT NOT NULL,
+        key TEXT NOT NULL,
+        occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS rate_violations_key_time_idx
+        ON rate_violations(key, occurred_at DESC);
+
+      CREATE TABLE IF NOT EXISTS bans (
+        id TEXT PRIMARY KEY,
+        key TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        banned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        unban_at TIMESTAMPTZ NOT NULL,
+        created_by TEXT NOT NULL DEFAULT 'system'
+      );
+      CREATE INDEX IF NOT EXISTS bans_key_unban_idx ON bans(key, unban_at DESC);
     `);
   }
   await pgReadyPromise;
@@ -463,6 +524,124 @@ const storage = {
     db.maps.splice(index, 1);
     writeJsonDb(db);
     return true;
+  },
+
+  // ── 限流违规事件 & 自动封禁 ────────────────────────────────────────────
+  // 这些方法都 try/catch 包了一层，永远不让限流/记录失败影响业务请求。
+  async recordViolation(scope, key) {
+    if (!key) return;
+    const id = generateId();
+    const now = new Date().toISOString();
+    try {
+      if (pgPool) {
+        await ensurePgSchema();
+        await pgPool.query(
+          'INSERT INTO rate_violations (id, scope, key, occurred_at) VALUES ($1, $2, $3, $4)',
+          [id, scope, key, now]
+        );
+        return;
+      }
+      const db = readJsonDb();
+      db.rate_violations.push({ id, scope, key, occurredAt: now });
+      writeJsonDb(db);
+    } catch (e) {
+      console.error('[rate] recordViolation failed', e);
+    }
+  },
+
+  async countRecentViolations(key, windowMs) {
+    if (!key) return 0;
+    const since = new Date(Date.now() - windowMs).toISOString();
+    try {
+      if (pgPool) {
+        await ensurePgSchema();
+        const { rows } = await pgPool.query(
+          'SELECT COUNT(*)::int AS n FROM rate_violations WHERE key = $1 AND occurred_at >= $2',
+          [key, since]
+        );
+        return rows[0]?.n || 0;
+      }
+      const db = readJsonDb();
+      return db.rate_violations.filter(v => v.key === key && v.occurredAt >= since).length;
+    } catch (e) {
+      console.error('[rate] countRecentViolations failed', e);
+      return 0;
+    }
+  },
+
+  async findActiveBan(key) {
+    if (!key) return null;
+    const now = new Date().toISOString();
+    try {
+      if (pgPool) {
+        await ensurePgSchema();
+        const { rows } = await pgPool.query(
+          'SELECT * FROM bans WHERE key = $1 AND unban_at > $2 ORDER BY unban_at DESC LIMIT 1',
+          [key, now]
+        );
+        const row = rows[0];
+        return row
+          ? { id: String(row.id), key: row.key, reason: row.reason, bannedAt: toIsoDate(row.banned_at), unbanAt: toIsoDate(row.unban_at) }
+          : null;
+      }
+      const db = readJsonDb();
+      const ban = db.bans
+        .filter(b => b.key === key && b.unbanAt > now)
+        .sort((a, b) => (a.unbanAt < b.unbanAt ? 1 : -1))[0];
+      return ban || null;
+    } catch (e) {
+      console.error('[rate] findActiveBan failed', e);
+      return null;
+    }
+  },
+
+  async createBan(key, reason, durationMs) {
+    if (!key) return null;
+    const id = generateId();
+    const now = Date.now();
+    const bannedAt = new Date(now).toISOString();
+    const unbanAt = new Date(now + durationMs).toISOString();
+    try {
+      if (pgPool) {
+        await ensurePgSchema();
+        await pgPool.query(
+          'INSERT INTO bans (id, key, reason, banned_at, unban_at, created_by) VALUES ($1, $2, $3, $4, $5, $6)',
+          [id, key, reason, bannedAt, unbanAt, 'system']
+        );
+      } else {
+        const db = readJsonDb();
+        db.bans.push({ id, key, reason, bannedAt, unbanAt, createdBy: 'system' });
+        writeJsonDb(db);
+      }
+      console.warn(`[rate] BAN created key=${key} reason=${reason} unban=${unbanAt}`);
+      return { id, key, reason, bannedAt, unbanAt };
+    } catch (e) {
+      console.error('[rate] createBan failed', e);
+      return null;
+    }
+  },
+
+  async cleanupExpired() {
+    const violationCutoff = new Date(Date.now() - VIOLATION_KEEP_MS).toISOString();
+    const now = new Date().toISOString();
+    try {
+      if (pgPool) {
+        await ensurePgSchema();
+        await pgPool.query('DELETE FROM rate_violations WHERE occurred_at < $1', [violationCutoff]);
+        await pgPool.query('DELETE FROM bans WHERE unban_at < $1', [now]);
+        return;
+      }
+      const db = readJsonDb();
+      const beforeV = db.rate_violations.length;
+      const beforeB = db.bans.length;
+      db.rate_violations = db.rate_violations.filter(v => v.occurredAt >= violationCutoff);
+      db.bans = db.bans.filter(b => b.unbanAt >= now);
+      if (db.rate_violations.length !== beforeV || db.bans.length !== beforeB) {
+        writeJsonDb(db);
+      }
+    } catch (e) {
+      console.error('[rate] cleanupExpired failed', e);
+    }
   }
 };
 
@@ -479,11 +658,105 @@ function auth(req, res, next) {
   }
 }
 
+// ── 输入校验工具 ──────────────────────────────────────────────────────────
+// 长度上限保护两件事：1) bcrypt 72 字节静默截断 → 我们直接拒绝 >128；
+// 2) JSON body 内逻辑字段不应单独超过 1KB，避免下游 storage 被滥用。
+const validatePhone = (raw) => {
+  const v = normalizePhone(raw);
+  if (!/^\d{6,15}$/.test(v)) return { ok: false, message: '手机号格式无效' };
+  return { ok: true, value: v };
+};
+const validatePassword = (raw) => {
+  const v = String(raw || '');
+  if (v.length < 6) return { ok: false, message: '密码至少 6 位' };
+  if (v.length > 128) return { ok: false, message: '密码过长（≤128）' };
+  return { ok: true, value: v };
+};
+const validateUsername = (raw) => {
+  const v = String(raw || '').trim();
+  if (!v) return { ok: false, message: '昵称必填' };
+  if ([...v].length > 32) return { ok: false, message: '昵称过长（≤32）' };
+  return { ok: true, value: v };
+};
+
+// ── 拉黑检查 + 违规计数升级到 BAN ─────────────────────────────────────────
+const clientKey = (req) => req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
+
+async function banCheck(req, res, next) {
+  const key = clientKey(req);
+  const ban = await storage.findActiveBan(key);
+  if (ban) {
+    const retryAfterSec = Math.max(1, Math.ceil((new Date(ban.unbanAt).getTime() - Date.now()) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(403).json({
+      message: '请求过于频繁，已被临时限制访问，请稍后再试',
+      unbanAt: ban.unbanAt
+    });
+  }
+  next();
+}
+
+// 记录一次违规事件；若 24h 内累计达 BAN_THRESHOLD，自动开 24h 封禁。
+async function escalateViolation(scope, key, req) {
+  await storage.recordViolation(scope, key);
+  const count = await storage.countRecentViolations(key, VIOLATION_WINDOW_MS);
+  if (count >= BAN_THRESHOLD) {
+    const existing = await storage.findActiveBan(key);
+    if (!existing) {
+      await storage.createBan(key, `${scope}_threshold_${count}_in_24h`, BAN_DURATION_MS);
+      console.warn(`[rate] auto-ban key=${key} after ${count} violations (reqId=${req?.requestId || '-'})`);
+    }
+  }
+}
+
+// ── 速率限制器 ────────────────────────────────────────────────────────────
+// 命中 429 后通过 handler 回调记录一次 'rate_429' violation 并尝试升级到封禁。
+const buildLimiter = (options) => rateLimit({
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  // express-rate-limit v7 在 trust proxy 设置不当时会报错。我们已 app.set('trust proxy', 1)
+  validate: { trustProxy: false }, // 已自行处理，关掉它自己的 X-Forwarded-For 警告
+  handler: async (req, res /* next, options */) => {
+    const key = clientKey(req);
+    // 不要 await，让响应尽快回出去；记录失败也只是丢一条日志
+    escalateViolation('rate_429', key, req).catch(() => {});
+    res.status(429).json({
+      message: '请求过于频繁，请稍后重试',
+      requestId: req.requestId
+    });
+  },
+  ...options
+});
+
+// /api/auth/login + /register + /forgot-password：10 次 / 15 分钟 / IP
+const authLimiter = buildLimiter({ windowMs: 15 * 60 * 1000, max: 10 });
+// PUT /api/me：30 次 / 15 分钟 / 用户（按 userId 限，未登录场景退化到 IP）
+const meLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => req.userId || clientKey(req)
+});
+// AMap 静态地图代理：60 次 / 15 分钟 / 用户。保 amap 配额。
+const amapLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  keyGenerator: (req) => req.userId || clientKey(req)
+});
+// 全局兜底：每个 IP 每 5 分钟最多 300 次。
+const globalLimiter = buildLimiter({ windowMs: 5 * 60 * 1000, max: 300 });
+
+// 顺序：requestId → 拉黑检查 → 全局兜底限流 → 业务路由
+app.use(banCheck);
+app.use(globalLimiter);
+
+// 每 30 分钟跑一次清理（删过期 ban + 7 天前的 violation）
+setInterval(() => { storage.cleanupExpired().catch(() => {}); }, 30 * 60 * 1000).unref();
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true, storage: pgPool ? 'postgres' : 'json' });
 });
 
-app.get('/api/amap/static-map', auth, asyncHandler(async (req, res) => {
+app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res) => {
   if (!AMAP_WEB_SERVICE_KEY) {
     return res.status(400).json({ message: '高德静态地图服务未配置 AMAP_WEB_SERVICE_KEY' });
   }
@@ -528,30 +801,45 @@ app.get('/api/amap/static-map', auth, asyncHandler(async (req, res) => {
   res.send(Buffer.from(arrayBuffer));
 }));
 
-app.post('/api/auth/register', asyncHandler(async (req, res) => {
-  const phone = normalizePhone(req.body?.phone);
-  const password = String(req.body?.password || '').trim();
-  const username = String(req.body?.username || '').trim();
-  if (!phone || !password || !username) {
-    return res.status(400).json({ message: '参数不完整' });
-  }
-  const existingUser = await storage.findUserByPhone(phone);
+app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
+  const phoneCheck = validatePhone(req.body?.phone);
+  if (!phoneCheck.ok) return res.status(400).json({ message: phoneCheck.message });
+  const passwordCheck = validatePassword(req.body?.password);
+  if (!passwordCheck.ok) return res.status(400).json({ message: passwordCheck.message });
+  const usernameCheck = validateUsername(req.body?.username);
+  if (!usernameCheck.ok) return res.status(400).json({ message: usernameCheck.message });
+
+  const existingUser = await storage.findUserByPhone(phoneCheck.value);
   if (existingUser) {
     return res.status(409).json({ message: '手机号已注册' });
   }
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user = await storage.createUser({ phone, username, passwordHash });
+  const passwordHash = await bcrypt.hash(passwordCheck.value, 10);
+  const user = await storage.createUser({
+    phone: phoneCheck.value,
+    username: usernameCheck.value,
+    passwordHash
+  });
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
   res.json({ token, user: sanitizeUser(user) });
 }));
 
-app.post('/api/auth/login', asyncHandler(async (req, res) => {
-  const phone = normalizePhone(req.body?.phone);
+app.post('/api/auth/login', authLimiter, asyncHandler(async (req, res) => {
+  const phoneCheck = validatePhone(req.body?.phone);
   const password = String(req.body?.password || '');
+  // 校验失败也算一次轻度违规 —— 注释掉的话攻击者可以拿超长 / 异常 phone 探测后端行为
+  if (!phoneCheck.ok || !password) {
+    await escalateViolation('login_fail', clientKey(req), req);
+    return res.status(400).json({ message: phoneCheck.ok ? '参数不完整' : phoneCheck.message });
+  }
+  if (password.length > 256) {
+    await escalateViolation('login_fail', clientKey(req), req);
+    return res.status(400).json({ message: '密码过长' });
+  }
+
   const trimmedPassword = password.trim();
-  if (!phone || !password) return res.status(400).json({ message: '参数不完整' });
-  const user = await storage.findUserByPhone(phone);
+  const user = await storage.findUserByPhone(phoneCheck.value);
   if (!user || !user.passwordHash) {
+    await escalateViolation('login_fail', clientKey(req), req);
     return res.status(401).json({ message: '手机号或密码错误' });
   }
   // 同时尝试原值和去空格值，覆盖部分输入法在前后留空格的情况；
@@ -559,9 +847,20 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   const ok =
     (await bcrypt.compare(password, user.passwordHash)) ||
     (trimmedPassword !== password && (await bcrypt.compare(trimmedPassword, user.passwordHash)));
-  if (!ok) return res.status(401).json({ message: '手机号或密码错误' });
+  if (!ok) {
+    await escalateViolation('login_fail', clientKey(req), req);
+    return res.status(401).json({ message: '手机号或密码错误' });
+  }
   const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '30d' });
   res.json({ token, user: sanitizeUser(user) });
+}));
+
+// 忘记密码占位路由：短信/邮箱接口接好之前固定返回 501。
+// 仍然挂 authLimiter，避免被人当探针频繁打。
+app.post('/api/auth/forgot-password', authLimiter, asyncHandler(async (_req, res) => {
+  res.status(501).json({
+    message: '密码找回功能即将上线，目前请联系管理员协助重置'
+  });
 }));
 
 app.get('/api/me', auth, asyncHandler(async (req, res) => {
@@ -570,13 +869,17 @@ app.get('/api/me', auth, asyncHandler(async (req, res) => {
   res.json({ user: sanitizeUser(user) });
 }));
 
-app.put('/api/me', auth, asyncHandler(async (req, res) => {
+app.put('/api/me', auth, meLimiter, asyncHandler(async (req, res) => {
   const { username, avatar, password } = req.body || {};
   const user = await storage.findUserById(req.userId);
   if (!user) return res.status(404).json({ message: '用户不存在' });
 
   const updates = {};
-  if (typeof username === 'string' && username.trim()) updates.username = username.trim();
+  if (typeof username === 'string' && username.trim()) {
+    const u = validateUsername(username);
+    if (!u.ok) return res.status(400).json({ message: u.message });
+    updates.username = u.value;
+  }
   if (typeof avatar === 'string') {
     if (avatar.length > MAX_AVATAR_LENGTH) {
       return res.status(413).json({ message: '头像过大，请使用 150KB 以内的图片' });
@@ -584,7 +887,9 @@ app.put('/api/me', auth, asyncHandler(async (req, res) => {
     updates.avatar = avatar;
   }
   if (typeof password === 'string' && password.trim()) {
-    updates.passwordHash = await bcrypt.hash(password.trim(), 10);
+    const p = validatePassword(password.trim());
+    if (!p.ok) return res.status(400).json({ message: p.message });
+    updates.passwordHash = await bcrypt.hash(p.value, 10);
   }
 
   const updatedUser = await storage.updateUser(req.userId, updates);
@@ -624,9 +929,17 @@ app.delete('/api/maps/:id', auth, asyncHandler(async (req, res) => {
   res.json({ ok: true });
 }));
 
-app.use((error, _req, res, _next) => {
-  console.error(error);
-  res.status(500).json({ message: '服务器错误，请稍后重试' });
+app.use((error, req, res, _next) => {
+  // CORS 拒绝的 origin 走错误中间件，单独返回 403 + 明确信息（不算 500）
+  if (error && /CORS/i.test(error.message || '')) {
+    return res.status(403).json({ message: '来源不允许', requestId: req.requestId });
+  }
+  // 完整堆栈写日志，响应只透 requestId，方便用户提交工单时定位
+  console.error(`[500] reqId=${req.requestId} ${req.method} ${req.originalUrl}`, error);
+  res.status(500).json({
+    message: '服务器错误，请稍后重试',
+    requestId: req.requestId
+  });
 });
 
 if (!pgPool) ensureJsonDb();
