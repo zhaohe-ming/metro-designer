@@ -227,15 +227,26 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       image.src = url;
     });
 
-  const amapBackgroundImage = isAmapVideo
-    ? await fetchAmapStaticMap({
+  // 高德静态地图：服务端要单独配 AMAP_WEB_SERVICE_KEY，不少自部署用户只配了浏览器 JS API key
+  // 没配 / 配额超 / 网络不通时不再让整个视频导出失败，软退化到画布渐变背景 + 警告
+  let amapBackgroundImage: HTMLImageElement | null = null;
+  if (isAmapVideo) {
+    try {
+      const blob = await fetchAmapStaticMap({
         center: amapOptions.center,
         zoom: amapOptions.zoom,
         width,
         height,
         style: amapOptions.style
-      }).then(loadImageFromBlob)
-    : null;
+      });
+      amapBackgroundImage = await loadImageFromBlob(blob);
+    } catch (error: any) {
+      onWarn?.(
+        `无法加载高德静态地图作为视频底图${error?.message ? `（${error.message}）` : ''}，将使用纯色背景导出。如需带地图背景，请在服务端配置 AMAP_WEB_SERVICE_KEY。`
+      );
+      amapBackgroundImage = null;
+    }
+  }
 
   type VideoPoint = { x: number; y: number };
   type RectBox = { x: number; y: number; width: number; height: number };
