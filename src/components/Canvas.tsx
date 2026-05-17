@@ -2376,18 +2376,19 @@ const Canvas: React.FC<CanvasProps> = ({
 
                         if (plan.shape === 'curvedArrows') {
                           // 弧形互锁箭头：refresh icon 风。
-                          // 每条线一个弧体 + 三角尖端，整体落在外圈深色描边内
-                          const innerR = scaledInterchangeRadius * 0.5;
-                          const outerR = scaledInterchangeRadius * 0.88;
+                          // 每条线一个弧体 + 三角尖端，整体往内收一截、不顶到外圈描边
+                          // —— 之前 0.5/0.88 太粗太外扩；现在 0.42/0.72 让箭头看起来"嵌"得更深、视觉更轻
+                          const innerR = scaledInterchangeRadius * 0.42;
+                          const outerR = scaledInterchangeRadius * 0.72;
                           return (
                             <>
-                              {/* 白色填充作 wells 背景：让弧形箭头看起来"嵌"在圆内 */}
+                              {/* 白色填充作背景圆 + 命中区：保留 listening 让 Group 的 onContextMenu / onClick 能落到这里
+                                  （否则三个 Path 都是 listening=false，点击会穿到下面的区间 Line） */}
                               <Circle
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
                                 shadowBlur={isLightAmapRender ? 0 : 6}
-                                listening={false}
                               />
                               {plan.curvedArrows.map((arrow, i) => (
                                 <Path
@@ -2411,6 +2412,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
                         if (plan.shape === 'lineColorArcs') {
                           // 大白圆 + 周长按线路色分弧段（经典图册风）
+                          // 底圆保留 listening，让父 Group 的右键/点击事件能命中
                           return (
                             <>
                               <Circle
@@ -2418,7 +2420,6 @@ const Canvas: React.FC<CanvasProps> = ({
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
                                 shadowBlur={isLightAmapRender ? 0 : 6}
-                                listening={false}
                               />
                               {plan.sectors.map((s, i) => (
                                 <Arc
@@ -2436,6 +2437,7 @@ const Canvas: React.FC<CanvasProps> = ({
                         }
 
                         // concentricRing：黑色双圆环 + 白心，线路色不显示在符号内（靠线条颜色穿入识别）
+                        // 外圆保留 listening，让父 Group 的右键/点击事件能命中
                         return (
                           <>
                             <Circle
@@ -2445,7 +2447,6 @@ const Canvas: React.FC<CanvasProps> = ({
                               strokeWidth={scaledInterchangeStrokeWidth}
                               shadowColor={canvasPalette.dotShadow}
                               shadowBlur={isLightAmapRender ? 0 : 6}
-                              listening={false}
                             />
                             <Circle
                               radius={scaledInterchangeInnerRadius}

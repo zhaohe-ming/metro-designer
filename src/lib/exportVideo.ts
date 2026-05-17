@@ -411,8 +411,9 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
       if (plan.shape === 'curvedArrows') {
         // 弧形互锁箭头（refresh icon 风）：白圆底 + 每条线一个弧形箭头 + 外圈细深环
-        const innerR = r * 0.5;
-        const outerR = r * 0.88;
+        // 比例和 Canvas.tsx 保持一致：内 0.42 / 外 0.72（往内收，不顶外圈）
+        const innerR = r * 0.42;
+        const outerR = r * 0.72;
         ctx.fillStyle = mutedStationFill;
         ctx.beginPath();
         ctx.arc(point.x, point.y, r, 0, Math.PI * 2);
