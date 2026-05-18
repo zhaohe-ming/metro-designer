@@ -21,8 +21,14 @@ yarn-error.log*
 server/data/*.json
 server/data/*.tmp
 
+# Locally-exported demo videos (导出演示视频功能产物)
+metro-designer-video/
+
 # Editor and OS files
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+
+# Claude Code worktrees / state
+.claude/

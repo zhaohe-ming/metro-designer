@@ -7,7 +7,9 @@ import {
   UserOutlined,
   SettingOutlined,
   LogoutOutlined,
-  EditOutlined
+  EditOutlined,
+  MenuOutlined,
+  SaveOutlined
 } from '@ant-design/icons';
 import { api, clearToken, getToken, setToken } from './api';
 import { createId } from './utils/id';
@@ -261,6 +263,8 @@ const App: React.FC = () => {
   const [saveMapSaving, setSaveMapSaving] = useState(false);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [mapName, setMapName] = useState('');
   const [savedMaps, setSavedMaps] = useState<MapSummaryState[]>([]);
   const [currentMap, setCurrentMap] = useState<MapSummaryState | null>(null);
@@ -1318,6 +1322,15 @@ const App: React.FC = () => {
         <Header className="metro-header">
           <div className="app-header">
             <section className="metro-brand-panel">
+              {/* 移动端汉堡按钮：仅 ≤768px 通过 CSS 显示，点击切换抽屉式侧栏 */}
+              <button
+                type="button"
+                className="metro-mobile-toggle"
+                aria-label="打开侧栏"
+                onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
+              >
+                <MenuOutlined />
+              </button>
               <div className="metro-brand-mark">
                 <span className="metro-brand-mark__dot" />
                 <div className="metro-brand-title">Metro Designer</div>
@@ -1352,10 +1365,13 @@ const App: React.FC = () => {
               <Button
                 type="primary"
                 className="metro-header-save-btn"
+                icon={<SaveOutlined />}
                 loading={saveMapSaving}
                 onClick={handleOpenSaveMap}
               >
-                {currentMap ? text.overwriteSave : text.saveMap}
+                <span className="metro-header-save-btn__label">
+                  {currentMap ? text.overwriteSave : text.saveMap}
+                </span>
               </Button>
 
               <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
@@ -1372,15 +1388,28 @@ const App: React.FC = () => {
         </Header>
 
         <Layout className="metro-body">
-          <Sider className="metro-sider" width={252}>
+          {/* 移动端抽屉遮罩：点击关闭。桌面端 CSS 隐藏。 */}
+          <div
+            className={`metro-mobile-overlay${isMobileSidebarOpen ? ' is-active' : ''}`}
+            onClick={() => setIsMobileSidebarOpen(false)}
+            aria-hidden="true"
+          />
+          <Sider
+            className={`metro-sider${isMobileSidebarOpen ? ' is-mobile-open' : ''}`}
+            width={252}
+          >
             <Sidebar
               language={language}
               lines={lines}
               stations={stations}
               currentLineId={currentLineId}
-              onSelectLine={handleSelectLine}
+              onSelectLine={(id) => { handleSelectLine(id); setIsMobileSidebarOpen(false); }}
               onDeselectLine={handleDeselectLine}
-              onAddLine={handleAddLine}
+              onAddLine={(name, color) => {
+                const ok = handleAddLine(name, color);
+                if (ok) setIsMobileSidebarOpen(false);
+                return ok;
+              }}
               onDeleteLine={handleDeleteLine}
               onChangeLineColor={handleChangeLineColor}
               onChangeLineName={handleChangeLineName}
