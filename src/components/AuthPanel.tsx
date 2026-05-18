@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Button, Form, Input, Typography, message } from 'antd';
 import {
   ArrowRightOutlined,
@@ -59,8 +59,13 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
   // 跨状态共享的数据
   const [pendingEmail, setPendingEmail] = useState('');
   const [upgradeToken, setUpgradeToken] = useState('');
+  const [pollKey, setPollKey] = useState('');
   const [hint, setHint] = useState('');
   const [errorBanner, setErrorBanner] = useState('');
+  // 跨设备轮询：onAuthenticated 是 prop，组件卸载/状态切换时要 clear interval，
+  // 用 ref 拿最新引用避免闭包陈旧。
+  const onAuthenticatedRef = useRef(onAuthenticated);
+  onAuthenticatedRef.current = onAuthenticated;
 
   // 一进页面就消费 URL 中的 verify token；用户体验上不让他多点一次
   useEffect(() => {
@@ -85,6 +90,34 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
     };
   }, [initialTokenInUrl, onAuthenticated]);
 
+  // 跨设备验证轮询：处于 verify_pending 状态且有 pollKey 时，每 5 秒静默 ping 后端。
+  // 用户在另一设备点完邮件链接的瞬间，下一次 poll 会拿到主 JWT → 自动 onAuthenticated。
+  useEffect(() => {
+    if (mode !== 'verify_pending' || !pollKey) return;
+    let cancelled = false;
+    const interval = window.setInterval(async () => {
+      try {
+        const result = await api.checkPending(pollKey);
+        if (cancelled) return;
+        if (result.status === 'ok') {
+          window.clearInterval(interval);
+          await onAuthenticatedRef.current({ token: result.token, user: result.user });
+        } else if (result.status === 'expired') {
+          // pollKey 已过期 / 已被消费 → 停止轮询，让用户走"返回登录"手动 path
+          window.clearInterval(interval);
+          setPollKey('');
+        }
+        // pending：什么都不做，下一次 tick 再来
+      } catch {
+        // 网络抖动等暂时失败：不停止轮询，让下一次重试
+      }
+    }, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [mode, pollKey]);
+
   const switchMode = (next: Mode) => {
     setErrorBanner('');
     setHint('');
@@ -102,6 +135,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
       }
       if (result.status === 'verify_required') {
         setPendingEmail(result.email);
+        setPollKey(result.pollKey);
         switchMode('verify_pending');
         return;
       }
@@ -133,6 +167,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
         username: values.username
       });
       setPendingEmail(result.email);
+      setPollKey(result.pollKey);
       switchMode('verify_pending');
     } catch (e: any) {
       setErrorBanner(e?.message || '注册失败');
@@ -161,6 +196,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
     try {
       const result = await api.upgradeEmail({ email: values.email, upgradeToken });
       setPendingEmail(result.email);
+      if (result.pollKey) setPollKey(result.pollKey);
       switchMode('verify_pending');
     } catch (e: any) {
       setErrorBanner(e?.message || '提交失败');
@@ -216,7 +252,9 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
     switch (mode) {
       case 'register': return '注册后会向你的邮箱发送一封验证邮件。';
       case 'forgot': return '我们会向你的注册邮箱发送一次性重置链接（15 分钟内有效）。';
-      case 'verify_pending': return `验证邮件已发送到 ${pendingEmail}，请前往邮箱完成验证（15 分钟内有效）。`;
+      case 'verify_pending': return pollKey
+        ? `验证邮件已发送到 ${pendingEmail}，请前往邮箱完成验证（15 分钟内有效）。即使在其他设备点链接，这台设备也会自动登录。`
+        : `验证邮件已发送到 ${pendingEmail}，请前往邮箱完成验证（15 分钟内有效）。验证完成后，请点下方按钮重新登录。`;
       case 'upgrade_required': return '为了提升账户安全，请绑定邮箱并完成验证。';
       case 'reset_sent': return `若 ${pendingEmail} 已注册，重置链接将很快送达；如长时间未收到请检查垃圾邮件。`;
       case 'reset_form': return '请设置新密码，提交后将自动登录。';
@@ -423,6 +461,22 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
 
             {mode === 'verify_pending' && (
               <div className="auth-form" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* 正在轮询：低调地告诉用户"在你点链接的瞬间这页会自动跳" */}
+                {pollKey ? (
+                  <Alert
+                    type="info"
+                    showIcon
+                    message="正在等待验证完成…完成后本页将自动登录"
+                    style={{ marginBottom: 0 }}
+                  />
+                ) : (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    message="自动等待已超时。验证完成后请点下方「立即登录」。"
+                    style={{ marginBottom: 0 }}
+                  />
+                )}
                 <Paragraph type="secondary" style={{ marginBottom: 0 }}>
                   没收到？检查垃圾邮件；或点击重发。
                 </Paragraph>
@@ -435,8 +489,9 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
                 >
                   重新发送验证邮件
                 </Button>
-                <Button type="link" block onClick={() => switchMode('login')}>
-                  返回登录
+                {/* 主动 path：在其他设备验证完后点这里手动登录，不依赖轮询 */}
+                <Button type="primary" block size="large" onClick={() => switchMode('login')}>
+                  我已完成验证，立即登录
                 </Button>
               </div>
             )}

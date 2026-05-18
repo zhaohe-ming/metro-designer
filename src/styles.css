@@ -1094,6 +1094,9 @@ body {
   border-color: #bdd5ef;
   background: #ffffff;
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.03);
+  /* 触屏环境下告诉浏览器：这块区域的手势我自己处理，不要尝试滚动 / 缩放页面。
+     没这条的话移动浏览器会先把 touchstart 当作页面滚动消费掉，Konva 永远收不到 pointer down。 */
+  touch-action: none;
 }
 
 .metro-canvas-surface {
@@ -2874,13 +2877,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     pointer-events: auto;
   }
 
-  /* ── 画布工具面板：移动端搬到底部居中浮岛 ── */
+  /* ── 画布工具面板：移动端搬到画布顶端居中（紧贴 52px header 下方）──
+     原本放底部会被 iOS Safari 的地址栏弹出 / Android 系统导航条遮住；
+     放顶部既稳定可见，又不会跟底部安全区抢空间。 */
   .metro-canvas-tools {
     position: fixed !important;
-    top: auto !important;
+    top: calc(52px + 8px) !important;
+    bottom: auto !important;
     left: 50% !important;
     right: auto !important;
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
     transform: translateX(-50%);
     max-width: calc(100vw - 24px) !important;
     flex-direction: row !important;

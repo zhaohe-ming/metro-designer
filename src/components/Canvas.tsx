@@ -211,7 +211,14 @@ const Canvas: React.FC<CanvasProps> = ({
   const [adding, setAdding] = useState(false);
   const [newStation, setNewStation] = useState<{ x: number; y: number; lng?: number; lat?: number } | null>(null);
   const [stationName, setStationName] = useState('');
-  const [activeTool, setActiveTool] = useState<CanvasTool>('station');
+  // 默认工具：桌面端"站点"（最常用），移动端"移动"（先让人能拖图，再让他想加站点）。
+  // 仅 mount 时检测一次，之后用户切换 tool 由 setCanvasTool 接管。
+  const [activeTool, setActiveTool] = useState<CanvasTool>(() => {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px)').matches) {
+      return 'pan';
+    }
+    return 'station';
+  });
   
   // 绘制模式相关状态
   const [isDrawingMode, setIsDrawingMode] = useState(false);
@@ -2168,6 +2175,11 @@ const Canvas: React.FC<CanvasProps> = ({
           // 拖拽结束（handleMouseUp 内部已经按 click 距离阈值决定要不要触发 handleStageClick）
           handleMouseUp(e);
         }}
+        // 触摸事件：Konva 自带的 mouse↔touch 合成在某些移动浏览器里会被 touch-action:auto
+        // 吃掉（手势被浏览器解读成页面滚动），所以这里显式挂三个 onTouch*，行为完全镜像鼠标。
+        onTouchStart={handleMouseDown}
+        onTouchMove={handleMouseMove}
+        onTouchEnd={handleMouseUp}
         onContextMenu={handleCanvasContextMenu}
         onWheel={handleWheel}
         onClick={e => {

@@ -938,6 +938,9 @@ const amapLimiter = buildLimiter({
 });
 // 全局兜底：每个 IP 每 5 分钟最多 300 次。
 const globalLimiter = buildLimiter({ windowMs: 5 * 60 * 1000, max: 300 });
+// 跨设备验证轮询：前端每 5 秒查一次"我这个会话验证好了没"，所以 1 分钟里有上限 12 次正常请求。
+// 设 60/min/IP 给点裕量；触发限流照样记 violation。
+const pollLimiter = buildLimiter({ windowMs: 60 * 1000, max: 60 });
 
 // 顺序：requestId → 拉黑检查 → 全局兜底限流 → 业务路由
 app.use(banCheck);
@@ -1021,7 +1024,11 @@ app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
   });
   const raw = await storage.createEmailToken(user.id, 'verify', EMAIL_TOKEN_TTL_MS);
   await sendVerificationEmail({ to: emailCheck.value, username: usernameCheck.value, token: raw });
-  res.json({ status: 'verify_sent', email: emailCheck.value });
+  // 跨设备轮询令牌：注册端本来停在"等待验证"状态，
+  // 用这个 pollKey 静默 polling /api/auth/check-pending，
+  // 一旦用户在另一设备上点验证链接，下次 poll 就回主 JWT。
+  const pollKey = await storage.createEmailToken(user.id, 'poll', EMAIL_TOKEN_TTL_MS);
+  res.json({ status: 'verify_sent', email: emailCheck.value, pollKey });
 }));
 
 // 登录：支持 account = 邮箱 或 (legacy) 手机号 两种格式。
@@ -1071,9 +1078,12 @@ app.post('/api/auth/login', authLimiter, asyncHandler(async (req, res) => {
   }
   // 已有邮箱但未验证 → 提示用户去邮箱（前端可以加重发按钮）
   if (!user.emailVerified) {
+    // 同样发一个 pollKey，让等待中的设备能跨设备自动登录
+    const pollKey = await storage.createEmailToken(user.id, 'poll', EMAIL_TOKEN_TTL_MS);
     return res.json({
       status: 'verify_required',
-      email: user.email
+      email: user.email,
+      pollKey
     });
   }
   // 正常登录
@@ -1095,7 +1105,9 @@ app.post('/api/auth/upgrade-email', authLimiter, authUpgrade, asyncHandler(async
   await storage.updateUser(user.id, { email: emailCheck.value, emailVerified: false });
   const raw = await storage.createEmailToken(user.id, 'verify', EMAIL_TOKEN_TTL_MS);
   await sendVerificationEmail({ to: emailCheck.value, username: user.username, token: raw });
-  res.json({ status: 'verify_sent', email: emailCheck.value });
+  // 升级路径同样发 pollKey：legacy 用户在电脑上补完邮箱后，可以在手机点链接，电脑端自动进系统
+  const pollKey = await storage.createEmailToken(user.id, 'poll', EMAIL_TOKEN_TTL_MS);
+  res.json({ status: 'verify_sent', email: emailCheck.value, pollKey });
 }));
 
 // 验证邮箱：消费一次性 token，标记 verified，发主登录 JWT
@@ -1125,6 +1137,46 @@ app.post('/api/auth/resend-verification', authLimiter, asyncHandler(async (req, 
   }
   // 不暴露用户是否存在 / 是否已验证
   res.json({ status: 'verify_sent', email: emailCheck.value });
+}));
+
+// 跨设备轮询：等待验证的设备每 5 秒静默查一次"我那台用户的邮箱验证好了没"。
+// 三种状态：
+//   pending  → 还没验证，继续轮
+//   ok       → 已验证，连同主 JWT 一起回；前端拿到就当登录成功
+//   expired  → pollKey 已过期 / 已消费 / 找不到，前端应停止轮询并提示重新登录
+app.post('/api/auth/check-pending', pollLimiter, asyncHandler(async (req, res) => {
+  const rawPollKey = String(req.body?.pollKey || '').trim();
+  if (!rawPollKey) return res.status(400).json({ message: '缺少 pollKey' });
+  // 先 peek 这个 poll token 是否还有效，不要消费它（用户可能要继续 poll）
+  const tokenHash = hashToken(rawPollKey);
+  const now = new Date().toISOString();
+
+  let tokenRow = null;
+  if (pgPool) {
+    await ensurePgSchema();
+    const { rows } = await pgPool.query(
+      "SELECT * FROM email_tokens WHERE token_hash = $1 AND type = 'poll' LIMIT 1",
+      [tokenHash]
+    );
+    tokenRow = rows[0];
+  } else {
+    const db = readJsonDb();
+    tokenRow = db.email_tokens.find(t => t.tokenHash === tokenHash && t.type === 'poll');
+  }
+  if (!tokenRow) return res.json({ status: 'expired' });
+  const usedAt = tokenRow.used_at || tokenRow.usedAt;
+  const expiresAt = tokenRow.expires_at ? toIsoDate(tokenRow.expires_at) : tokenRow.expiresAt;
+  if (usedAt) return res.json({ status: 'expired' });
+  if (expiresAt < now) return res.json({ status: 'expired' });
+
+  const userId = tokenRow.user_id ? String(tokenRow.user_id) : tokenRow.userId;
+  const user = await storage.findUserById(userId);
+  if (!user) return res.json({ status: 'expired' });
+  if (!user.emailVerified) return res.json({ status: 'pending' });
+
+  // 已验证：消费 poll token（一次性签出主 JWT 后就失效），回给前端
+  await storage.consumeEmailToken(rawPollKey, 'poll');
+  res.json({ status: 'ok', token: signLoginToken(user.id), user: sanitizeUser(user) });
 }));
 
 // 忘记密码：发 reset 邮件。无论邮箱是否存在，统一回 200。

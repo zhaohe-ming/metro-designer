@@ -35,16 +35,24 @@ export interface FullMap extends MapSummary {
 
 // 登录返回三种状态：
 //  - ok                正常登录，给主 JWT 和完整 user
-//  - verify_required   邮箱未验证，前端要引导用户去邮箱
+//  - verify_required   邮箱未验证，前端要引导用户去邮箱；带 pollKey 给跨设备轮询用
 //  - upgrade_required  legacy 手机号账号，必须先绑邮箱并验证；upgradeToken 只能调 upgrade-email
 export type LoginResult =
   | { status: 'ok'; token: string; user: UserDto }
-  | { status: 'verify_required'; email: string }
+  | { status: 'verify_required'; email: string; pollKey: string }
   | { status: 'upgrade_required'; upgradeToken: string; hint?: string };
 
-export type RegisterResult = { status: 'verify_sent'; email: string };
-export type VerifySentResult = { status: 'verify_sent'; email: string };
+// 注册 / 升级邮箱 / 重发都返回 verify_sent；其中只有"刚提交"那次会带 pollKey
+export type RegisterResult = { status: 'verify_sent'; email: string; pollKey: string };
+export type VerifySentResult = { status: 'verify_sent'; email: string; pollKey?: string };
 export type ResetSentResult = { status: 'reset_sent'; email: string };
+
+// 跨设备等待验证的轮询响应。一旦后端见到 user.email_verified === true，
+// 就消费 pollKey 并连同主 JWT 一起回来；前端拿到 ok 后停止轮询当登录处理。
+export type CheckPendingResult =
+  | { status: 'pending' }
+  | { status: 'expired' }
+  | { status: 'ok'; token: string; user: UserDto };
 
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -142,6 +150,13 @@ export const api = {
     request<VerifySentResult>('/api/auth/resend-verification', {
       method: 'POST',
       body: JSON.stringify({ email: email.trim().toLowerCase() })
+    }),
+
+  // 跨设备验证轮询：等待中的设备每 ~5s 调一次，确认另一设备是否完成了验证
+  checkPending: (pollKey: string) =>
+    request<CheckPendingResult>('/api/auth/check-pending', {
+      method: 'POST',
+      body: JSON.stringify({ pollKey })
     }),
 
   forgotPassword: (email: string) =>
