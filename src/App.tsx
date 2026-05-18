@@ -1455,7 +1455,7 @@ const App: React.FC = () => {
           open={videoModalOpen}
           lines={lines}
           stations={stations}
-          defaultTitle={currentMap?.name || mapSettings ? '城市轨道线网历程' : undefined}
+          defaultTitle={currentMap?.name || '城市轨道线网历程'}
           onCancel={() => setVideoModalOpen(false)}
           onConfirm={handleConfirmSegments}
         />

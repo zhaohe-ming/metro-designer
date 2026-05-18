@@ -175,21 +175,48 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     };
   };
   const amapCenterPoint = mercatorProject(amapOptions.center[0], amapOptions.center[1], amapOptions.zoom);
-  const toCanvasPoint = (station: Station) => {
+
+  // ── Phase 2 相机模型 ───────────────────────────────────────────────────
+  // 把"画布坐标"拆成两步：
+  //   stationWorld(station)        → 世界坐标（与 camera 无关）
+  //   worldToCanvas(point, camera) → 当前相机下的画布像素
+  // toCanvasPoint(station) = worldToCanvas(stationWorld(station), 当前camera)
+  //
+  // 相机默认就是"全图居中" —— 跟 Phase 1 之前的视觉一致。
+  // 单段绘制时相机会以 0.12 的系数 ease 到"当前动画头位置 + 1.6× 缩放"，
+  // 完成段落跟随的平移效果。
+  const stationWorld = (station: Station) => {
     if (isAmapVideo && typeof station.lng === 'number' && typeof station.lat === 'number') {
-      const point = mercatorProject(station.lng, station.lat, amapOptions.zoom);
-      return {
-        x: width / 2 + point.x - amapCenterPoint.x,
-        y: height / 2 + point.y - amapCenterPoint.y
-      };
+      const p = mercatorProject(station.lng, station.lat, amapOptions.zoom);
+      return { x: p.x - amapCenterPoint.x, y: p.y - amapCenterPoint.y };
     }
-    return {
-      x: station.x * plainMapScale + mapOffset.x,
-      y: station.y * plainMapScale + mapOffset.y
-    };
+    return { x: station.x, y: station.y };
   };
-  const pathToPoints = (stationIds: string[]) =>
-    stationIds.map(id => stationById.get(id)).filter(Boolean).map(station => toCanvasPoint(station!));
+
+  const defaultCamera = isAmapVideo
+    ? { x: 0, y: 0, scale: 1 }
+    : { x: (minX + maxX) / 2, y: (minY + maxY) / 2, scale: plainMapScale };
+
+  // 当前相机：可变；初始化为 default。AMap 模式下保持静态（不参与相机动画）。
+  const camera = { x: defaultCamera.x, y: defaultCamera.y, scale: defaultCamera.scale };
+
+  const worldToCanvas = (p: { x: number; y: number }) => ({
+    x: (p.x - camera.x) * camera.scale + width / 2,
+    y: (p.y - camera.y) * camera.scale + height / 2
+  });
+
+  // 占位 / 标签布局时需要拿"全图相机"下的位置（不受动画相机扰动），用这个版本。
+  const worldToCanvasFitAll = (p: { x: number; y: number }) => ({
+    x: (p.x - defaultCamera.x) * defaultCamera.scale + width / 2,
+    y: (p.y - defaultCamera.y) * defaultCamera.scale + height / 2
+  });
+
+  const toCanvasPoint = (station: Station) => worldToCanvas(stationWorld(station));
+  const toFitAllCanvasPoint = (station: Station) => worldToCanvasFitAll(stationWorld(station));
+
+  // 段落路径用世界坐标存，每帧再投影 —— 这样相机平移 / 缩放都能正确反映在线条位置上
+  const pathToWorldPoints = (stationIds: string[]) =>
+    stationIds.map(id => stationById.get(id)).filter(Boolean).map(station => stationWorld(station!));
 
   const canvasThemeGradient = (ctx: CanvasRenderingContext2D) => {
     const gradient = ctx.createLinearGradient(0, 0, width, height);
@@ -306,37 +333,48 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const rectsOverlap = (a: RectBox, b: RectBox) =>
     a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
+  // 入参 worldPoints 是世界坐标；内部用 worldToCanvas 投影。
+  // 段长度 / progress 都基于世界距离（与相机无关，保证缓动可控）。
   const drawLinePath = (
-    points: VideoPoint[],
+    worldPoints: VideoPoint[],
     color: string,
     progress = 1,
     alpha = 1,
     lineWidth = preset.lineWidth
   ) => {
-    if (points.length < 2 || progress <= 0) return;
-    const lengths = points.slice(1).map((point, index) => Math.hypot(point.x - points[index].x, point.y - points[index].y));
+    if (worldPoints.length < 2 || progress <= 0) return;
+    const lengths = worldPoints.slice(1).map((point, index) =>
+      Math.hypot(point.x - worldPoints[index].x, point.y - worldPoints[index].y)
+    );
     const totalLength = lengths.reduce((sum, value) => sum + value, 0);
     let remaining = totalLength * Math.min(1, progress);
     ctx.save();
     ctx.globalAlpha = alpha;
     ctx.strokeStyle = color;
-    ctx.lineWidth = lineWidth;
+    // 相机缩放后线宽也按比例放大，保证视觉上线条厚度跟随
+    ctx.lineWidth = lineWidth * (camera.scale / defaultCamera.scale);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.shadowColor = color;
     ctx.shadowBlur = preset.lineShadowBlur;
     ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let index = 1; index < points.length; index += 1) {
-      const previous = points[index - 1];
-      const current = points[index];
+    const start = worldToCanvas(worldPoints[0]);
+    ctx.moveTo(start.x, start.y);
+    for (let index = 1; index < worldPoints.length; index += 1) {
+      const previous = worldPoints[index - 1];
+      const current = worldPoints[index];
       const length = lengths[index - 1];
       if (remaining >= length) {
-        ctx.lineTo(current.x, current.y);
+        const c = worldToCanvas(current);
+        ctx.lineTo(c.x, c.y);
         remaining -= length;
       } else {
         const ratio = length === 0 ? 0 : remaining / length;
-        ctx.lineTo(previous.x + (current.x - previous.x) * ratio, previous.y + (current.y - previous.y) * ratio);
+        const blend = worldToCanvas({
+          x: previous.x + (current.x - previous.x) * ratio,
+          y: previous.y + (current.y - previous.y) * ratio
+        });
+        ctx.lineTo(blend.x, blend.y);
         break;
       }
     }
@@ -344,21 +382,24 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.restore();
   };
 
-  const drawMovingHead = (point: VideoPoint, color: string, pulse: number) => {
-    const radius = 8 + Math.sin(pulse * Math.PI * 2) * 1.5;
+  // 入参 worldPoint 是世界坐标。
+  const drawMovingHead = (worldPoint: VideoPoint, color: string, pulse: number) => {
+    const canvasPoint = worldToCanvas(worldPoint);
+    const scaleRatio = camera.scale / defaultCamera.scale;
+    const radius = (8 + Math.sin(pulse * Math.PI * 2) * 1.5) * scaleRatio;
     ctx.save();
     ctx.shadowColor = color;
     ctx.shadowBlur = 18;
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = color;
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 5 * scaleRatio;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+    ctx.arc(canvasPoint.x, canvasPoint.y, radius, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(point.x, point.y, 3.5, 0, Math.PI * 2);
+    ctx.arc(canvasPoint.x, canvasPoint.y, 3.5 * scaleRatio, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   };
@@ -388,6 +429,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     const isInterchange = (stationLineCounts[station.id] || 0) > 1;
     const fallbackColor = activeColor || mutedStationStroke;
     const isActive = !!activeColor;
+    // 站点尺寸跟随相机缩放：相机拉近时站点更大、外圈描边更显眼
+    const stationScale = mapScale * (camera.scale / defaultCamera.scale);
     ctx.save();
     ctx.shadowColor = activeColor || 'transparent';
     ctx.shadowBlur = activeColor ? 8 : 0;
@@ -395,7 +438,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       ctx.globalAlpha = 0.25 * (1 - pulse);
       ctx.fillStyle = fallbackColor;
       ctx.beginPath();
-      ctx.arc(point.x, point.y, (preset.interchangeRadius + 10 + pulse * 12) * mapScale, 0, Math.PI * 2);
+      ctx.arc(point.x, point.y, (preset.interchangeRadius + 10 + pulse * 12) * stationScale, 0, Math.PI * 2);
       ctx.fill();
       ctx.globalAlpha = 1;
     }
@@ -406,9 +449,9 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       if (!isActive) {
         ctx.fillStyle = mutedStationFill;
         ctx.strokeStyle = mutedStationStroke;
-        ctx.lineWidth = preset.interchangeStrokeWidth * mapScale;
+        ctx.lineWidth = preset.interchangeStrokeWidth * stationScale;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, preset.interchangeRadius * mapScale, 0, Math.PI * 2);
+        ctx.arc(point.x, point.y, preset.interchangeRadius * stationScale, 0, Math.PI * 2);
         ctx.fill();
         ctx.stroke();
         ctx.restore();
@@ -417,8 +460,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
       const colors = stationLineColors.get(station.id) || [];
       const plan = planInterchange(preset.interchangeShape, preset.interchangeOuterStroke, colors);
-      const r = preset.interchangeRadius * mapScale;
-      const ringW = preset.interchangeStrokeWidth * mapScale;
+      const r = preset.interchangeRadius * stationScale;
+      const ringW = preset.interchangeStrokeWidth * stationScale;
 
       if (plan.shape === 'curvedArrows') {
         // 弧形互锁箭头（refresh icon 风）：白圆底 + 每条线一个弧形箭头 + 外圈细深环
@@ -459,7 +502,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
         ctx.stroke();
         ctx.lineWidth = ringW * 0.5;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, preset.interchangeInnerRadius * mapScale, 0, Math.PI * 2);
+        ctx.arc(point.x, point.y, preset.interchangeInnerRadius * stationScale, 0, Math.PI * 2);
         ctx.stroke();
       }
       ctx.restore();
@@ -467,8 +510,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     }
 
     // 普通单线站
-    const r = preset.normalStationRadius * mapScale;
-    const sw = preset.normalStationStrokeWidth * mapScale;
+    const r = preset.normalStationRadius * stationScale;
+    const sw = preset.normalStationStrokeWidth * stationScale;
     if (preset.stationShape === 'ring') {
       // 白填 + 线路色描边
       ctx.fillStyle = mutedStationFill;
@@ -567,6 +610,10 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     });
   };
 
+  // 标签位置在"全图相机"下计算（不受动画相机影响），
+  // 返回的 placement 存的是 station→label 的"画布像素 delta"。
+  // 绘制时再加上 stations 在当前相机下的位置，得到最终落点。
+  // 这样镜头平移 / 缩放，标签始终以固定像素偏移跟随站点。
   const createStationLabelPlacements = (stationIds: string[]) => {
     const uniqueStations = stationIds
       .map(id => stationById.get(id))
@@ -574,14 +621,14 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       .filter((station, index, list) => list.findIndex(item => item!.id === station!.id) === index) as Station[];
     const placements = new Map<string, LabelPlacement>();
     const occupied: RectBox[] = allStations.map(station => {
-      const point = toCanvasPoint(station);
+      const point = toFitAllCanvasPoint(station);
       const radius = ((stationLineCounts[station.id] || 0) > 1 ? preset.interchangeRadius : preset.normalStationRadius) * mapScale + 6;
       return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
     });
 
     ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
     uniqueStations.forEach(station => {
-      const point = toCanvasPoint(station);
+      const point = toFitAllCanvasPoint(station);
       const textWidth = Math.max(24, ctx.measureText(station.name).width);
       const labelWidth = textWidth + 18;
       const labelHeight = settings.dotLabelStyle.fontSize + 12;
@@ -612,6 +659,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
         })
         .sort((a, b) => a.score - b.score)[0];
       if (!best) return;
+      // 存的 textX/Y 这里仍然是"全图相机下的绝对画布像素"。绘制时换算成 delta（见 drawStationLabel）。
       const placement = {
         x: best.x,
         y: best.y,
@@ -628,12 +676,16 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   };
 
   const segmentPlans = animationSegments.map(item => {
-    const points = pathToPoints(item.stationIds);
-    const metrics = getPathMetrics(points);
-    const durationSeconds = Math.min(8, Math.max(3.8, 2.6 + metrics.totalLength / 260));
+    // 路径用世界坐标存；metrics.totalLength 也是世界单位
+    const worldPoints = pathToWorldPoints(item.stationIds);
+    const metrics = getPathMetrics(worldPoints);
+    // 把世界长度换算成"全图相机下的画布像素"，跟 Phase 1 之前的视觉长度对齐，
+    // 这样旧的 duration 经验值依然有意义。Phase 2 把上限放宽到 12s（之前 8s）。
+    const canvasLength = metrics.totalLength * defaultCamera.scale;
+    const durationSeconds = Math.min(12, Math.max(4.5, 3.4 + canvasLength / 240));
     return {
       ...item,
-      points,
+      points: worldPoints,
       metrics,
       durationFrames: Math.round(durationSeconds * fps),
       revealFrames: Math.round(fps * 0.55),
@@ -644,10 +696,16 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
   type SegmentPlan = typeof segmentPlans[number];
 
+  // 标签 placement 存的是"全图相机下的画布像素"。绘制时换算成 station→label 的 delta，
+  // 再加上 station 在"当前相机"下的画布位置，得到正确落点 —— 相机平移 / 缩放时标签跟随站点。
   const drawStationLabel = (station: Station, placement: LabelPlacement, reveal: number, alpha: number) => {
     const visibleLength = Math.max(0, Math.min(station.name.length, Math.ceil(station.name.length * reveal)));
     if (visibleLength <= 0 || alpha <= 0) return;
     const text = station.name.slice(0, visibleLength);
+    const stationFitAll = toFitAllCanvasPoint(station);
+    const stationNow = toCanvasPoint(station);
+    const textX = stationNow.x + (placement.textX - stationFitAll.x);
+    const textY = stationNow.y + (placement.textY - stationFitAll.y);
     ctx.save();
     ctx.globalAlpha = alpha * Math.max(0.15, reveal);
     ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
@@ -657,11 +715,47 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.strokeStyle = textHalo;
     ctx.shadowColor = textHalo;
     ctx.shadowBlur = 4;
-    ctx.strokeText(text, placement.textX, placement.textY);
+    ctx.strokeText(text, textX, textY);
     ctx.shadowBlur = 0;
     ctx.fillStyle = isMutedAmapStyle ? '#ffffff' : settings.dotLabelStyle.color || primaryText;
-    ctx.fillText(text, placement.textX, placement.textY);
+    ctx.fillText(text, textX, textY);
     ctx.restore();
+  };
+
+  // Phase 2 相机控制：每帧调用一次。
+  // 没有当前段落时 → 回到全图视角；
+  // 有当前段落时 → 把相机 ease 到"当前动画头位置 + 1.6× 放大"。
+  // AMap 模式相机保持静态。
+  let cameraInitialized = false;
+  const updateCameraForFrame = (currentPlan?: SegmentPlan, currentDistance = 0) => {
+    if (isAmapVideo) {
+      camera.x = defaultCamera.x;
+      camera.y = defaultCamera.y;
+      camera.scale = defaultCamera.scale;
+      cameraInitialized = true;
+      return;
+    }
+    let targetX = defaultCamera.x;
+    let targetY = defaultCamera.y;
+    let targetScale = defaultCamera.scale;
+    if (currentPlan) {
+      const head = getPointAtDistance(currentPlan.metrics, currentDistance);
+      targetX = head.x;
+      targetY = head.y;
+      targetScale = defaultCamera.scale * 1.6;
+    }
+    if (!cameraInitialized) {
+      camera.x = targetX;
+      camera.y = targetY;
+      camera.scale = targetScale;
+      cameraInitialized = true;
+      return;
+    }
+    // ease 系数 0.12：30fps 下 half-life ≈ 5.4 帧（180ms），既跟得上动画头又不抖
+    const t = 0.12;
+    camera.x += (targetX - camera.x) * t;
+    camera.y += (targetY - camera.y) * t;
+    camera.scale += (targetScale - camera.scale) * t;
   };
 
   const drawBaseMap = (
@@ -670,6 +764,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     currentDistance = 0,
     segmentFrame = 0
   ) => {
+    // Phase 2：每帧先 ease 相机 → 后续所有绘制都用最新相机
+    updateCameraForFrame(currentPlan, currentDistance);
     ctx.clearRect(0, 0, width, height);
     if (amapBackgroundImage) {
       ctx.drawImage(amapBackgroundImage, 0, 0, width, height);
@@ -682,7 +778,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       const start = stationById.get(section.startStationId);
       const end = stationById.get(section.endStationId);
       if (!start || !end) return;
-      drawLinePath([toCanvasPoint(start), toCanvasPoint(end)], mutedLineColor, 1, 0.8, preset.lineWidth);
+      // drawLinePath 现在吃世界坐标 → 直接传 stationWorld，让它内部走相机投影
+      drawLinePath([stationWorld(start), stationWorld(end)], mutedLineColor, 1, 0.8, preset.lineWidth);
     });
 
     segmentPlans.slice(0, openedCount).forEach(item => {
