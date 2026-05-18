@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, Button, Form, Input, Modal, Select, Space, Typography, message } from 'antd';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
 import { Line, Station } from '../types';
 import DraggableModal from './DraggableModal';
@@ -14,12 +14,24 @@ export interface VideoSegmentInput {
   openDate: string;
 }
 
+// 完整的导出参数：除了区间表，还有片头标题等观感配置。
+// 加新字段时只用扩展这里 + exportVideo.ts 的 ExportVideoOptions，
+// VideoExportModal 自己消化默认值。
+export interface VideoExportConfig {
+  segments: VideoSegmentInput[];
+  title: string;
+  subtitle: string;
+  titleDurationSec: number;
+}
+
 interface VideoExportModalProps {
   open: boolean;
   lines: Line[];
   stations: Station[];
+  // 当前方案名 → 作为默认主标题；空时退回到通用文案
+  defaultTitle?: string;
   onCancel: () => void;
-  onConfirm: (segments: VideoSegmentInput[]) => void;
+  onConfirm: (config: VideoExportConfig) => void;
 }
 
 const createEmptySegment = (): VideoSegmentInput => ({
@@ -30,14 +42,27 @@ const createEmptySegment = (): VideoSegmentInput => ({
   openDate: ''
 });
 
+const DEFAULT_TITLE_DURATION_SEC = 3;
+
 const VideoExportModal: React.FC<VideoExportModalProps> = ({
   open,
   lines,
   stations,
+  defaultTitle,
   onCancel,
   onConfirm
 }) => {
   const [segments, setSegments] = useState<VideoSegmentInput[]>([createEmptySegment()]);
+  // 片头配置；title 默认 = 当前方案名；模态被打开 / defaultTitle 变化时同步一次
+  const [title, setTitle] = useState<string>(defaultTitle || '城市轨道线网历程');
+  const [subtitle, setSubtitle] = useState<string>('');
+  const [titleDurationSec, setTitleDurationSec] = useState<number>(DEFAULT_TITLE_DURATION_SEC);
+
+  useEffect(() => {
+    if (open) {
+      setTitle((prev) => prev || defaultTitle || '城市轨道线网历程');
+    }
+  }, [open, defaultTitle]);
 
   const lineOptions = lines.map((line) => ({ label: line.name, value: line.id }));
 
@@ -97,7 +122,12 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       return;
     }
 
-    onConfirm(sortedSegments);
+    onConfirm({
+      segments: sortedSegments,
+      title: title.trim() || '城市轨道线网历程',
+      subtitle: subtitle.trim(),
+      titleDurationSec: Math.max(1, Math.min(8, titleDurationSec || DEFAULT_TITLE_DURATION_SEC))
+    });
   };
 
   return (
@@ -115,9 +145,50 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
         style={{ marginBottom: 12 }}
       />
 
+      {/* 片头自定义：主+副+时长。折一个浅色盒子里跟下面的区间表区隔。 */}
+      <div
+        style={{
+          border: '1px solid #d9e2f2',
+          borderRadius: 12,
+          padding: 12,
+          marginBottom: 12,
+          background: '#f9fbff'
+        }}
+      >
+        <Text strong style={{ display: 'block', marginBottom: 8 }}>片头</Text>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 130px', gap: 8 }}>
+          <Form.Item label="主标题" style={{ marginBottom: 0 }}>
+            <Input
+              placeholder="例：北京轨道交通线网历程"
+              value={title}
+              maxLength={32}
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </Form.Item>
+          <Form.Item label="副标题（可选）" style={{ marginBottom: 0 }}>
+            <Input
+              placeholder="例：1969 - 2024"
+              value={subtitle}
+              maxLength={48}
+              onChange={(e) => setSubtitle(e.target.value)}
+            />
+          </Form.Item>
+          <Form.Item label="片头停留 (秒)" style={{ marginBottom: 0 }}>
+            <InputNumber
+              min={1}
+              max={8}
+              step={0.5}
+              value={titleDurationSec}
+              onChange={(value) => setTitleDurationSec(Number(value) || DEFAULT_TITLE_DURATION_SEC)}
+              style={{ width: '100%' }}
+            />
+          </Form.Item>
+        </div>
+      </div>
+
       <Space
         direction="vertical"
-        style={{ width: '100%', maxHeight: 520, minHeight: 360, overflowY: 'auto', paddingRight: 4 }}
+        style={{ width: '100%', maxHeight: 460, minHeight: 280, overflowY: 'auto', paddingRight: 4 }}
         size="middle"
       >
         {sortedSegments.map((segment, index) => (

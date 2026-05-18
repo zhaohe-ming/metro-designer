@@ -20,6 +20,10 @@ export interface ExportVideoOptions {
   stations: Station[];
   sections: Section[];
   settings: MapSettings;
+  // 片头（Phase 1）：用户可在 VideoExportModal 自定义。不传时退化到通用文案。
+  title?: string;
+  subtitle?: string;
+  titleDurationSec?: number;
   fetchAmapStaticMap: (params: {
     center: [number, number];
     zoom: number;
@@ -40,9 +44,15 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     stations: allStations,
     sections: allSections,
     settings,
+    title: rawTitle,
+    subtitle: rawSubtitle,
+    titleDurationSec: rawTitleDurationSec,
     fetchAmapStaticMap,
     onWarn
   } = opts;
+  const titleText = (rawTitle || '').trim() || '城市轨道线网历程';
+  const subtitleText = (rawSubtitle || '').trim();
+  const titleDurationSec = Math.max(1, Math.min(8, rawTitleDurationSec || 3));
 
   if (!segments.length) throw new Error('请至少填写一个开通区间');
   if (!allStations.length) throw new Error('请先创建站点后再导出视频');
@@ -53,15 +63,16 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const stageWidth = Math.max(1, Number(stage?.width?.() || 1280));
   const stageHeight = Math.max(1, Number(stage?.height?.() || 720));
   const aspectRatio = Math.max(0.45, Math.min(2.4, stageWidth / stageHeight));
-  const maxVideoEdge = 1280;
-  const minVideoEdge = 540;
+  // Phase 1：从 720p → 1080p。长边封顶 1920，短边 720。横屏 16:9 → 1920×1080。
+  const maxVideoEdge = 1920;
+  const minVideoEdge = 720;
   const width = aspectRatio >= 1
     ? roundEven(maxVideoEdge)
     : roundEven(Math.max(minVideoEdge, maxVideoEdge * aspectRatio));
   const height = aspectRatio >= 1
     ? roundEven(Math.max(minVideoEdge, maxVideoEdge / aspectRatio))
     : roundEven(maxVideoEdge);
-  const titleFrames = Math.round(fps * 0.8);
+  const titleFrames = Math.round(fps * titleDurationSec);
   const outroFrames = fps;
   const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
   const preset = getCityStylePreset(settings);
@@ -760,25 +771,48 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.restore();
   };
 
-  const drawTitle = () => {
+  const drawTitle = (titleFrame: number) => {
+    // 淡入 / 淡出：分别取片头总时长的 20%（最少 4 帧）。中段满 alpha。
+    const fadeFrames = Math.max(4, Math.round(titleFrames * 0.2));
+    let alpha = 1;
+    if (titleFrame < fadeFrames) {
+      alpha = titleFrame / fadeFrames;
+    } else if (titleFrame > titleFrames - fadeFrames) {
+      alpha = Math.max(0, (titleFrames - titleFrame) / fadeFrames);
+    }
+    alpha = Math.max(0, Math.min(1, alpha));
+
     drawBaseMap(0);
     ctx.save();
-    ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.54)' : 'rgba(255, 255, 255, 0.56)';
+    // 半透明遮罩：让底图变暗 / 变浅，突出标题
+    ctx.globalAlpha = alpha * 0.72;
+    ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.85)' : 'rgba(255, 255, 255, 0.85)';
     ctx.fillRect(0, 0, width, height);
+    ctx.globalAlpha = alpha;
     ctx.fillStyle = primaryText;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '900 44px "Microsoft YaHei", "PingFang SC", Arial';
-    ctx.fillText('线路开通演示', width / 2, height / 2 - 18);
-    ctx.fillStyle = secondaryText;
-    ctx.font = '500 18px "Microsoft YaHei", "PingFang SC", Arial';
-    ctx.fillText('按开通日期逐步点亮城市轨道网络', width / 2, height / 2 + 30);
+
+    // 字号按视频宽度比例缩放，1920px 宽时取 76px。
+    const scale = width / 1920;
+    const mainFontSize = Math.round(76 * scale);
+    const subFontSize = Math.round(30 * scale);
+    const gap = subtitleText ? Math.round(46 * scale) : 0;
+
+    ctx.font = `900 ${mainFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+    ctx.fillText(titleText, width / 2, height / 2 - gap / 2);
+
+    if (subtitleText) {
+      ctx.fillStyle = secondaryText;
+      ctx.font = `500 ${subFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+      ctx.fillText(subtitleText, width / 2, height / 2 + gap);
+    }
     ctx.restore();
   };
 
   const drawFrame = (frame: number) => {
     if (frame < titleFrames) {
-      drawTitle();
+      drawTitle(frame);
       return;
     }
     const animatedFrame = frame - titleFrames;
@@ -808,7 +842,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
       ? 'video/webm;codecs=vp8'
       : 'video/webm';
-  const recorder = new MediaRecorder(stream, { mimeType });
+  // 1080p 默认 8 Mbps，让画面边缘 / 文字保持清晰；浏览器若不支持该参数会自动忽略。
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
   const chunks: BlobPart[] = [];
   const videoTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack & { requestFrame?: () => void };
   recorder.ondataavailable = (event) => {

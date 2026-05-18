@@ -18,7 +18,7 @@ import Canvas from './components/Canvas';
 import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
-import VideoExportModal, { VideoSegmentInput } from './components/VideoExportModal';
+import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import { exportVideoFromStage } from './lib/exportVideo';
 import { compressImageDataUrl } from './utils/imageCompress';
@@ -1108,7 +1108,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleConfirmSegments = async (segments: VideoSegmentInput[]) => {
+  const handleConfirmSegments = async (config: VideoExportConfig) => {
     if (!stageRef.current) {
       message.error('画布尚未准备好');
       return;
@@ -1120,11 +1120,14 @@ const App: React.FC = () => {
     try {
       const blob = await exportVideoFromStage({
         stage: stageRef.current,
-        segments,
+        segments: config.segments,
         lines,
         stations,
         sections,
         settings: mapSettings,
+        title: config.title,
+        subtitle: config.subtitle,
+        titleDurationSec: config.titleDurationSec,
         fetchAmapStaticMap: api.getAmapStaticMap,
         onWarn: (msg) => message.warning(msg)
       });
@@ -1452,6 +1455,7 @@ const App: React.FC = () => {
           open={videoModalOpen}
           lines={lines}
           stations={stations}
+          defaultTitle={currentMap?.name || mapSettings ? '城市轨道线网历程' : undefined}
           onCancel={() => setVideoModalOpen(false)}
           onConfirm={handleConfirmSegments}
         />
