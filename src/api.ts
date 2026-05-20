@@ -54,6 +54,18 @@ export type CheckPendingResult =
   | { status: 'expired' }
   | { status: 'ok'; token: string; user: UserDto };
 
+// AI 自然语言编辑返回的操作类型。后端用 DeepSeek tool calls 翻译用户意图，
+// 已经过 id / 颜色 / 长度校验，前端直接 apply 即可。
+export type AIOperation =
+  | { type: 'create_line'; name: string; color: string; stationIds: string[] }
+  | { type: 'recolor_line'; lineId: string; color: string }
+  | { type: 'rename_line'; lineId: string; name: string }
+  | { type: 'delete_line'; lineId: string }
+  | { type: 'attach_station_to_line'; lineId: string; stationId: string; position: 'start' | 'end' }
+  | { type: 'create_station_between'; lineId: string; afterStationId: string; beforeStationId: string; name: string }
+  | { type: 'rename_station'; stationId: string; name: string }
+  | { type: 'delete_station'; stationId: string };
+
 export function getToken() {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -177,6 +189,23 @@ export const api = {
     request<{ name: string; english: string }>('/api/ai/translate-station', {
       method: 'POST',
       body: JSON.stringify({ name: name.trim() })
+    }, 'login'),
+
+  // 自然语言编辑：把当前地图状态 + 用户描述送给 LLM，回一组结构化 operations
+  aiEdit: (payload: {
+    message: string;
+    mapState: {
+      lines: { id: string; name: string; color: string; stationIds: string[] }[];
+      stations: { id: string; name: string }[];
+    };
+  }) =>
+    request<{
+      operations: AIOperation[];
+      explanation: string;
+      skipped: { name: string; reason: string }[];
+    }>('/api/ai/edit', {
+      method: 'POST',
+      body: JSON.stringify(payload)
     }, 'login'),
 
   me: () => request<{ user: UserDto }>('/api/me', {}, 'login'),

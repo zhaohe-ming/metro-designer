@@ -2811,7 +2811,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-user-panel {
     gap: 6px !important;
   }
-  .metro-header-save-btn {
+  .metro-header-save-btn,
+  .metro-header-ai-btn {
     width: 40px;
     min-width: 40px;
     padding: 0 !important;
@@ -2819,8 +2820,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     align-items: center;
     justify-content: center;
   }
-  /* 只隐藏文字标签，保留 antd 注入的 SaveOutlined icon 作为按钮内容 */
-  .metro-header-save-btn__label {
+  /* 只隐藏文字标签，保留 antd 注入的 icon 作为按钮内容 */
+  .metro-header-save-btn__label,
+  .metro-header-ai-btn__label {
     display: none !important;
   }
   .user-chip__name {

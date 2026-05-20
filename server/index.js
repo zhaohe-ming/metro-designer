@@ -1298,6 +1298,239 @@ app.post('/api/ai/translate-station', auth, aiLimiter, asyncHandler(async (req, 
   res.json({ name, english });
 }));
 
+// ── AI Phase B: 自然语言编辑 ─────────────────────────────────────────────
+// 思路：用户用中文描述意图 → DeepSeek tool calling 把它拆成一组结构化操作
+// → 后端做必要校验（id 存在、颜色合法、长度限制）→ 前端直接 apply（用现有 mutation 路径，
+// 走 pushHistory 拿到统一 undo）。本路由本身不修改地图持久化，只翻译意图。
+const AI_EDIT_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'create_line',
+      description: '创建一条新线路；stationIds 必须按线路顺序排列，至少 2 个；所有 id 必须是当前地图中已存在的站点。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '线路名，如"2号线"' },
+          color: { type: 'string', description: '6 位十六进制颜色，如 #ffaa00' },
+          stationIds: { type: 'array', items: { type: 'string' }, description: '站点 id 顺序数组' }
+        },
+        required: ['name', 'color', 'stationIds']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'recolor_line',
+      description: '修改某条线路的颜色',
+      parameters: {
+        type: 'object',
+        properties: {
+          lineId: { type: 'string' },
+          color: { type: 'string', description: '6 位十六进制' }
+        },
+        required: ['lineId', 'color']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'rename_line',
+      description: '重命名某条线路',
+      parameters: {
+        type: 'object',
+        properties: { lineId: { type: 'string' }, name: { type: 'string' } },
+        required: ['lineId', 'name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_line',
+      description: '删除某条线路（站点保留，只移除线路 + 经过的区间）',
+      parameters: {
+        type: 'object',
+        properties: { lineId: { type: 'string' } },
+        required: ['lineId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'attach_station_to_line',
+      description: '把已存在的站点接到某条线路的端点（开头或末尾）',
+      parameters: {
+        type: 'object',
+        properties: {
+          lineId: { type: 'string' },
+          stationId: { type: 'string' },
+          position: { type: 'string', enum: ['start', 'end'] }
+        },
+        required: ['lineId', 'stationId', 'position']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_station_between',
+      description: '在某条线路上、两个相邻站点之间插入一个新站点',
+      parameters: {
+        type: 'object',
+        properties: {
+          lineId: { type: 'string' },
+          afterStationId: { type: 'string', description: '插入位置前一站的 id' },
+          beforeStationId: { type: 'string', description: '插入位置后一站的 id' },
+          name: { type: 'string' }
+        },
+        required: ['lineId', 'afterStationId', 'beforeStationId', 'name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'rename_station',
+      description: '重命名站点',
+      parameters: {
+        type: 'object',
+        properties: { stationId: { type: 'string' }, name: { type: 'string' } },
+        required: ['stationId', 'name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_station',
+      description: '删除站点（会从所有经过它的线路中移除）',
+      parameters: {
+        type: 'object',
+        properties: { stationId: { type: 'string' } },
+        required: ['stationId']
+      }
+    }
+  }
+];
+
+const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
+// 后端做防御性校验：LLM 偶尔幻觉出不存在的 id 或离谱的颜色，必须在我们这一层挡掉。
+function validateAIOperation(op, lineIds, stationIds) {
+  const inLines = (id) => lineIds.has(id);
+  const inStations = (id) => stationIds.has(id);
+  const checkName = (n) => typeof n === 'string' && n.trim().length > 0 && [...n].length <= 32;
+  const checkColor = (c) => typeof c === 'string' && HEX_COLOR_RE.test(c);
+  switch (op.type) {
+    case 'create_line':
+      if (!checkName(op.name) || !checkColor(op.color)) return false;
+      if (!Array.isArray(op.stationIds) || op.stationIds.length < 2) return false;
+      return op.stationIds.every(inStations);
+    case 'recolor_line':
+      return inLines(op.lineId) && checkColor(op.color);
+    case 'rename_line':
+      return inLines(op.lineId) && checkName(op.name);
+    case 'delete_line':
+      return inLines(op.lineId);
+    case 'attach_station_to_line':
+      return inLines(op.lineId) && inStations(op.stationId) && ['start', 'end'].includes(op.position);
+    case 'create_station_between':
+      return inLines(op.lineId) && inStations(op.afterStationId) && inStations(op.beforeStationId) && checkName(op.name);
+    case 'rename_station':
+      return inStations(op.stationId) && checkName(op.name);
+    case 'delete_station':
+      return inStations(op.stationId);
+    default:
+      return false;
+  }
+}
+
+app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
+  const userMessage = String(req.body?.message || '').trim();
+  if (!userMessage) return res.status(400).json({ message: '请描述你想做的修改' });
+  if (userMessage.length > 500) return res.status(400).json({ message: '描述过长，请精简到 500 字以内' });
+  if (!ai.hasKey()) {
+    return res.status(503).json({ message: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）' });
+  }
+  const mapState = req.body?.mapState || {};
+  const linesArr = Array.isArray(mapState.lines) ? mapState.lines : [];
+  const stationsArr = Array.isArray(mapState.stations) ? mapState.stations : [];
+  // 用 Set 做 O(1) 校验
+  const lineIds = new Set(linesArr.map((l) => String(l.id)));
+  const stationIds = new Set(stationsArr.map((s) => String(s.id)));
+
+  // 压缩地图状态进 prompt：只送 id + name（+ 颜色 / 站点序列），不送坐标。
+  // 坐标 LLM 用不上反而吃 token。
+  const stateLines = linesArr
+    .slice(0, 50)
+    .map(
+      (l) => `- {id: "${l.id}", name: "${l.name}", color: "${l.color}", stationIds: [${(l.stationIds || []).map((s) => `"${s}"`).join(', ')}]}`
+    )
+    .join('\n');
+  const stateStations = stationsArr
+    .slice(0, 200)
+    .map((s) => `- {id: "${s.id}", name: "${s.name}"}`)
+    .join('\n');
+
+  const result = await ai.chatCompletion({
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是一个地铁线路图设计助手。\n' +
+          '规则：\n' +
+          '1. 用户用中文描述编辑意图，你把它翻译成对当前地图的具体工具调用。\n' +
+          '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
+          '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
+          '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
+          '5. 如果用户的请求无法用工具完成（比如要操作不存在的站点 / 要新建站点但没指定相邻站点），直接用中文解释为什么做不了，不要瞎调工具。\n' +
+          '6. 一次可以连续调用多个工具，按操作顺序排列。'
+      },
+      {
+        role: 'user',
+        content:
+          `【当前地图】\n线路:\n${stateLines || '（无）'}\n\n站点:\n${stateStations || '（无）'}\n\n` +
+          `【用户请求】\n${userMessage}`
+      }
+    ],
+    tools: AI_EDIT_TOOLS,
+    toolChoice: 'auto',
+    temperature: 0.1,
+    maxTokens: 800
+  });
+
+  if (!result.ok) {
+    return res.status(502).json({ message: `AI 调用失败（${result.reason}），请稍后重试` });
+  }
+  const msg = result.data?.choices?.[0]?.message;
+  const toolCalls = Array.isArray(msg?.tool_calls) ? msg.tool_calls : [];
+  const explanation = (msg?.content || '').trim();
+  // 解析 tool_calls → operations[]，逐个校验，跳过非法的
+  const operations = [];
+  const skipped = [];
+  for (const tc of toolCalls) {
+    if (tc.type !== 'function') continue;
+    const name = tc.function?.name;
+    let args;
+    try {
+      args = JSON.parse(tc.function?.arguments || '{}');
+    } catch {
+      skipped.push({ name, reason: 'invalid_json' });
+      continue;
+    }
+    const op = { type: name, ...args };
+    if (!validateAIOperation(op, lineIds, stationIds)) {
+      skipped.push({ name, reason: 'validation_failed' });
+      continue;
+    }
+    operations.push(op);
+  }
+  res.json({ operations, explanation, skipped });
+}));
+
 app.get('/api/maps', auth, asyncHandler(async (req, res) => {
   const maps = await storage.listMaps(req.userId);
   res.json({ maps });

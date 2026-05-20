@@ -9,9 +9,10 @@ import {
   LogoutOutlined,
   EditOutlined,
   MenuOutlined,
-  SaveOutlined
+  SaveOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
-import { api, clearToken, getToken, setToken } from './api';
+import { api, clearToken, getToken, setToken, AIOperation } from './api';
 import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
 import Canvas from './components/Canvas';
@@ -19,6 +20,7 @@ import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
+import AIAssistantModal from './components/AIAssistantModal';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import { exportVideoFromStage } from './lib/exportVideo';
 import { compressImageDataUrl } from './utils/imageCompress';
@@ -265,6 +267,9 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  // AI 助手对话框
+  const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
   const [mapName, setMapName] = useState('');
   const [savedMaps, setSavedMaps] = useState<MapSummaryState[]>([]);
   const [currentMap, setCurrentMap] = useState<MapSummaryState | null>(null);
@@ -1146,6 +1151,195 @@ const App: React.FC = () => {
     }
   };
 
+  // 把 AI 返回的 operations 列表逐条 apply 到 lines / stations / sections 上。
+  // 一组 operations 算作一次撤销单位（开头只 pushHistory 一次）。
+  // 所有操作走"新数组替换"路径，避免半截 React state 引用旧的另一半。
+  const applyAIOperations = (operations: AIOperation[]) => {
+    if (!operations.length) return 0;
+    pushHistory();
+    let nextLines = [...lines];
+    let nextStations = [...stations];
+    let nextSections = [...sections];
+    let applied = 0;
+
+    for (const op of operations) {
+      switch (op.type) {
+        case 'create_line': {
+          // 创建新线路 + 相邻站点之间生成 sections
+          const lineId = createId();
+          const sectionIds: string[] = [];
+          const newSections: Section[] = [];
+          for (let i = 0; i < op.stationIds.length - 1; i += 1) {
+            const sectionId = createId();
+            sectionIds.push(sectionId);
+            newSections.push({
+              id: sectionId,
+              lineId,
+              startStationId: op.stationIds[i],
+              endStationId: op.stationIds[i + 1]
+            });
+          }
+          nextLines.push({ id: lineId, name: op.name, color: op.color, stationIds: [...op.stationIds], sectionIds });
+          nextSections = [...nextSections, ...newSections];
+          applied += 1;
+          break;
+        }
+        case 'recolor_line':
+          nextLines = nextLines.map((l) => (l.id === op.lineId ? { ...l, color: op.color } : l));
+          applied += 1;
+          break;
+        case 'rename_line':
+          nextLines = nextLines.map((l) => (l.id === op.lineId ? { ...l, name: op.name } : l));
+          applied += 1;
+          break;
+        case 'delete_line': {
+          nextLines = nextLines.filter((l) => l.id !== op.lineId);
+          nextSections = nextSections.filter((s) => s.lineId !== op.lineId);
+          applied += 1;
+          break;
+        }
+        case 'attach_station_to_line': {
+          const line = nextLines.find((l) => l.id === op.lineId);
+          if (!line) break;
+          if (line.stationIds.includes(op.stationId)) break;
+          const isStart = op.position === 'start';
+          const adjacent = isStart ? line.stationIds[0] : line.stationIds[line.stationIds.length - 1];
+          if (!adjacent) break;
+          const sectionId = createId();
+          const newSection: Section = {
+            id: sectionId,
+            lineId: op.lineId,
+            startStationId: isStart ? op.stationId : adjacent,
+            endStationId: isStart ? adjacent : op.stationId
+          };
+          nextSections = [...nextSections, newSection];
+          nextLines = nextLines.map((l) =>
+            l.id === op.lineId
+              ? {
+                  ...l,
+                  stationIds: isStart ? [op.stationId, ...l.stationIds] : [...l.stationIds, op.stationId],
+                  sectionIds: isStart ? [sectionId, ...l.sectionIds] : [...l.sectionIds, sectionId]
+                }
+              : l
+          );
+          applied += 1;
+          break;
+        }
+        case 'create_station_between': {
+          const line = nextLines.find((l) => l.id === op.lineId);
+          if (!line) break;
+          const aIdx = line.stationIds.indexOf(op.afterStationId);
+          const bIdx = line.stationIds.indexOf(op.beforeStationId);
+          if (aIdx < 0 || bIdx < 0 || Math.abs(aIdx - bIdx) !== 1) break;
+          const stationA = nextStations.find((s) => s.id === op.afterStationId);
+          const stationB = nextStations.find((s) => s.id === op.beforeStationId);
+          if (!stationA || !stationB) break;
+          const newStationId = createId();
+          const newStation: Station = {
+            id: newStationId,
+            name: op.name,
+            x: (stationA.x + stationB.x) / 2,
+            y: (stationA.y + stationB.y) / 2,
+            ...(typeof stationA.lng === 'number' && typeof stationB.lng === 'number'
+              ? { lng: (stationA.lng + stationB.lng) / 2 }
+              : {}),
+            ...(typeof stationA.lat === 'number' && typeof stationB.lat === 'number'
+              ? { lat: (stationA.lat + stationB.lat) / 2 }
+              : {})
+          };
+          const insertIdx = Math.min(aIdx, bIdx);
+          const oldSectionId = line.sectionIds[insertIdx];
+          const newSectionA: Section = {
+            id: createId(),
+            lineId: op.lineId,
+            startStationId: line.stationIds[insertIdx],
+            endStationId: newStationId
+          };
+          const newSectionB: Section = {
+            id: createId(),
+            lineId: op.lineId,
+            startStationId: newStationId,
+            endStationId: line.stationIds[insertIdx + 1]
+          };
+          nextStations = [...nextStations, newStation];
+          nextSections = nextSections.filter((s) => s.id !== oldSectionId).concat(newSectionA, newSectionB);
+          nextLines = nextLines.map((l) =>
+            l.id === op.lineId
+              ? {
+                  ...l,
+                  stationIds: [
+                    ...l.stationIds.slice(0, insertIdx + 1),
+                    newStationId,
+                    ...l.stationIds.slice(insertIdx + 1)
+                  ],
+                  sectionIds: [
+                    ...l.sectionIds.slice(0, insertIdx),
+                    newSectionA.id,
+                    newSectionB.id,
+                    ...l.sectionIds.slice(insertIdx + 1)
+                  ]
+                }
+              : l
+          );
+          applied += 1;
+          break;
+        }
+        case 'rename_station':
+          nextStations = nextStations.map((s) => (s.id === op.stationId ? { ...s, name: op.name } : s));
+          applied += 1;
+          break;
+        case 'delete_station': {
+          nextStations = nextStations.filter((s) => s.id !== op.stationId);
+          const survivingSections = nextSections.filter(
+            (s) => s.startStationId !== op.stationId && s.endStationId !== op.stationId
+          );
+          const removedSectionIds = new Set(
+            nextSections.filter((s) => !survivingSections.includes(s)).map((s) => s.id)
+          );
+          nextSections = survivingSections;
+          nextLines = nextLines.map((line) => ({
+            ...line,
+            stationIds: line.stationIds.filter((id) => id !== op.stationId),
+            sectionIds: line.sectionIds.filter((sid) => !removedSectionIds.has(sid))
+          }));
+          applied += 1;
+          break;
+        }
+      }
+    }
+
+    setLines(nextLines);
+    setStations(nextStations);
+    setSections(nextSections);
+    return applied;
+  };
+
+  const handleAiSubmit = async (userMessage: string) => {
+    setAiBusy(true);
+    try {
+      // 序列化当前地图状态送给后端 LLM。只送 id + name + 颜色 + stationIds，
+      // 不送站点坐标 / 路径数据等会膨胀 prompt 的字段。
+      const mapState = {
+        lines: lines.map((l) => ({
+          id: l.id,
+          name: l.name,
+          color: l.color,
+          stationIds: [...l.stationIds]
+        })),
+        stations: stations.map((s) => ({ id: s.id, name: s.name }))
+      };
+      const result = await api.aiEdit({ message: userMessage, mapState });
+      const appliedCount = applyAIOperations(result.operations);
+      return {
+        explanation: result.explanation || (appliedCount > 0 ? '' : 'AI 没有生成可执行的操作。'),
+        appliedCount,
+        skippedCount: result.skipped?.length || 0
+      };
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
   const handleExportImage = () => {
     if (!stageRef.current) {
       message.error('无法获取画布');
@@ -1365,6 +1559,16 @@ const App: React.FC = () => {
             </section>
 
             <section className="metro-user-panel">
+              {/* AI 助手按钮：移动端通过 CSS 收成 icon-only */}
+              <Tooltip title="AI 助手 —— 用自然语言编辑线路图">
+                <Button
+                  className="metro-header-ai-btn"
+                  icon={<ThunderboltOutlined />}
+                  onClick={() => setAiModalOpen(true)}
+                >
+                  <span className="metro-header-ai-btn__label">AI 助手</span>
+                </Button>
+              </Tooltip>
               <Button
                 type="primary"
                 className="metro-header-save-btn"
@@ -1458,6 +1662,13 @@ const App: React.FC = () => {
           defaultTitle={currentMap?.name || '城市轨道线网历程'}
           onCancel={() => setVideoModalOpen(false)}
           onConfirm={handleConfirmSegments}
+        />
+
+        <AIAssistantModal
+          open={aiModalOpen}
+          busy={aiBusy}
+          onSubmit={handleAiSubmit}
+          onCancel={() => setAiModalOpen(false)}
         />
 
         <DraggableModal
