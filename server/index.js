@@ -9,6 +9,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { sendVerificationEmail, sendPasswordResetEmail, hasResendKey, APP_BASE_URL } = require('./lib/email');
+const ai = require('./lib/ai');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -48,6 +49,7 @@ const EMAIL_TOKEN_TTL_MS = 15 * 60 * 1000;
 const UPGRADE_TOKEN_TTL = '15m';
 
 console.log(`[email] provider=${hasResendKey() ? 'resend' : 'console-fallback'} app_base=${APP_BASE_URL}`);
+console.log(`[ai] provider=${ai.hasKey() ? `deepseek (${ai.DEEPSEEK_MODEL})` : 'disabled'}`);
 
 const DEFAULT_MAP_SETTINGS = {
   mapStyle: 'classic-badge',
@@ -941,6 +943,13 @@ const globalLimiter = buildLimiter({ windowMs: 5 * 60 * 1000, max: 300 });
 // 跨设备验证轮询：前端每 5 秒查一次"我这个会话验证好了没"，所以 1 分钟里有上限 12 次正常请求。
 // 设 60/min/IP 给点裕量；触发限流照样记 violation。
 const pollLimiter = buildLimiter({ windowMs: 60 * 1000, max: 60 });
+// AI 接口：每用户 30 次 / 15 分钟。超出走 429 触发自动封禁累计。
+// 单次 prompt 后端会强制截到合理长度，所以这里只控频次不控字符。
+const aiLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => req.userId || clientKey(req)
+});
 
 // 顺序：requestId → 拉黑检查 → 全局兜底限流 → 业务路由
 app.use(banCheck);
@@ -1240,6 +1249,53 @@ app.put('/api/me', auth, meLimiter, asyncHandler(async (req, res) => {
 
   const updatedUser = await storage.updateUser(req.userId, updates);
   res.json({ user: sanitizeUser(updatedUser) });
+}));
+
+// ── AI 接入（Phase A）─────────────────────────────────────────────────────
+// 站名中 → 英 翻译：单次 chat 调用，限制字数防滥用。
+// 没配 DEEPSEEK_API_KEY 时直接 503，让前端拿到明确提示。
+app.post('/api/ai/translate-station', auth, aiLimiter, asyncHandler(async (req, res) => {
+  const name = String(req.body?.name || '').trim();
+  if (!name) return res.status(400).json({ message: '请提供要翻译的站名' });
+  if (name.length > 64) return res.status(400).json({ message: '站名过长' });
+  if (!ai.hasKey()) {
+    return res.status(503).json({ message: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）' });
+  }
+
+  // System prompt 锁死输出格式；约束 LLM 只回拼音 / 英文，不带任何额外文字。
+  const result = await ai.chatCompletion({
+    messages: [
+      {
+        role: 'system',
+        content:
+          '你是一个专业的轨道交通站名翻译。\n' +
+          '规则：\n' +
+          '1. 把用户给的中文站名翻译为常见的英文 / 拼音写法（用于地铁线路图）。\n' +
+          '2. 通用规则：地名用拼音首字母大写（如 "北京西站" → "Beijing West Railway Station"）；\n' +
+          '   含通用词的（机场、火车站、公园、广场、医院等）用英文意译 + 拼音地名。\n' +
+          '3. 只输出最终英文 / 拼音，不要任何解释、引号、标点。\n' +
+          '4. 严格控制在一行内，60 字符以内。'
+      },
+      { role: 'user', content: name }
+    ],
+    temperature: 0.2,
+    maxTokens: 64
+  });
+
+  if (!result.ok) {
+    return res.status(502).json({ message: `翻译失败（${result.reason}），请稍后重试` });
+  }
+  const choice = result.data?.choices?.[0]?.message?.content || '';
+  // 防御性裁剪：模型偶尔会回带引号 / 多行的输出
+  const english = String(choice)
+    .split('\n')[0]
+    .replace(/^["'""]+|["'""]+$/g, '')
+    .trim()
+    .slice(0, 80);
+  if (!english) {
+    return res.status(502).json({ message: '翻译返回为空，请重试' });
+  }
+  res.json({ name, english });
 }));
 
 app.get('/api/maps', auth, asyncHandler(async (req, res) => {

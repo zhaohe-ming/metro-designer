@@ -172,6 +172,13 @@ export const api = {
       body: JSON.stringify({ token: payload.token, password: payload.password })
     }),
 
+  // AI 助手相关接口（后端代理 DeepSeek）
+  translateStation: (name: string) =>
+    request<{ name: string; english: string }>('/api/ai/translate-station', {
+      method: 'POST',
+      body: JSON.stringify({ name: name.trim() })
+    }, 'login'),
+
   me: () => request<{ user: UserDto }>('/api/me', {}, 'login'),
   updateMe: (payload: { username?: string; avatar?: string; password?: string }) =>
     request<{ user: UserDto }>('/api/me', { method: 'PUT', body: JSON.stringify(payload) }, 'login'),

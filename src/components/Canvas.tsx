@@ -7,8 +7,10 @@ import {
   EnvironmentOutlined,
   NodeIndexOutlined,
   LineOutlined,
-  DragOutlined
+  DragOutlined,
+  TranslationOutlined
 } from '@ant-design/icons';
+import { api } from '../api';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
@@ -295,6 +297,26 @@ const Canvas: React.FC<CanvasProps> = ({
     station: null,
     name: ''
   });
+  // 站名翻译按钮的 loading 标志（独立于 modal state，避免每次输入都触发重渲）
+  const [translatingStation, setTranslatingStation] = useState(false);
+
+  const handleTranslateStationName = async () => {
+    const raw = renameStationModal.name.trim();
+    if (!raw) {
+      message.warning('请先输入要翻译的站名');
+      return;
+    }
+    setTranslatingStation(true);
+    try {
+      const { english } = await api.translateStation(raw);
+      setRenameStationModal(prev => ({ ...prev, name: english }));
+      message.success(`已翻译：${english}`);
+    } catch (e: any) {
+      message.error(e?.message || '翻译失败，请稍后再试');
+    } finally {
+      setTranslatingStation(false);
+    }
+  };
   const [stationInfoModal, setStationInfoModal] = useState<{ visible: boolean; station: Station | null; note: string }>({
     visible: false,
     station: null,
@@ -2670,7 +2692,22 @@ const Canvas: React.FC<CanvasProps> = ({
           value={renameStationModal.name}
           onChange={(e) => setRenameStationModal(prev => ({ ...prev, name: e.target.value }))}
           placeholder="请输入站点名称"
-          maxLength={20}
+          maxLength={64}
+          // AntD 5 的 Input 支持 addonAfter；把"翻译"按钮挂在右侧
+          addonAfter={
+            <Tooltip title="把当前输入的中文站名翻译成英文 / 拼音（AI）">
+              <Button
+                type="text"
+                size="small"
+                icon={<TranslationOutlined />}
+                loading={translatingStation}
+                onClick={handleTranslateStationName}
+                style={{ padding: '0 4px' }}
+              >
+                翻译
+              </Button>
+            </Tooltip>
+          }
         />
       </DraggableModal>
       <DraggableModal
