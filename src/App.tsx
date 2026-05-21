@@ -1489,11 +1489,40 @@ const App: React.FC = () => {
     return applied;
   };
 
-  const handleAiSubmit = async (userMessage: string) => {
+  // 把一个 AI 操作 op 转成人类能读的中文摘要，给确认弹窗展示。
+  // 用当前的 lines / stations 解析 id → 名字；解析不到的 fallback 到 id 前 6 位。
+  const summarizeOperation = (op: AIOperation): string => {
+    const lineName = (id: string) => lines.find((l) => l.id === id)?.name || `#${id.slice(0, 6)}`;
+    const stationName = (id: string) => stations.find((s) => s.id === id)?.name || `#${id.slice(0, 6)}`;
+    switch (op.type) {
+      case 'create_line':
+        return `新建线路「${op.name}」（${op.color}），共 ${op.stationIds.length} 个站点`;
+      case 'create_line_via_extension':
+        return `新建线路「${op.name}」（${op.color}），从「${stationName(op.anchorStationId)}」延伸 ${op.newStationNames.length} 个新站：${op.newStationNames.join('、')}`;
+      case 'recolor_line':
+        return `「${lineName(op.lineId)}」颜色改为 ${op.color}`;
+      case 'rename_line':
+        return `线路「${lineName(op.lineId)}」改名为「${op.name}」`;
+      case 'delete_line':
+        return `删除线路「${lineName(op.lineId)}」`;
+      case 'attach_station_to_line':
+        return `把「${stationName(op.stationId)}」接到「${lineName(op.lineId)}」的${op.position === 'start' ? '起点' : '终点'}`;
+      case 'create_station_between':
+        return `在「${lineName(op.lineId)}」上「${stationName(op.afterStationId)}」和「${stationName(op.beforeStationId)}」之间新增 ${op.names.length} 个站：${op.names.join('、')}`;
+      case 'create_station_at_line_end':
+        return `在「${lineName(op.lineId)}」的${op.position === 'start' ? '起点' : '终点'}延伸 ${op.names.length} 个新站：${op.names.join('、')}`;
+      case 'rename_station':
+        return `站点「${stationName(op.stationId)}」改名为「${op.name}」`;
+      case 'delete_station':
+        return `删除站点「${stationName(op.stationId)}」`;
+    }
+  };
+
+  // 让 AI 分析意图，但**不要**直接 apply。返回操作列表 + 人类可读摘要 + AI 的解释文字，
+  // 由 AIAssistantModal 渲染确认面板；用户点"应用"时才调 applyAIOperations。
+  const handleAiAnalyze = async (userMessage: string) => {
     setAiBusy(true);
     try {
-      // 序列化当前地图状态送给后端 LLM。只送 id + name + 颜色 + stationIds，
-      // 不送站点坐标 / 路径数据等会膨胀 prompt 的字段。
       const mapState = {
         lines: lines.map((l) => ({
           id: l.id,
@@ -1504,15 +1533,19 @@ const App: React.FC = () => {
         stations: stations.map((s) => ({ id: s.id, name: s.name }))
       };
       const result = await api.aiEdit({ message: userMessage, mapState });
-      const appliedCount = applyAIOperations(result.operations);
       return {
-        explanation: result.explanation || (appliedCount > 0 ? '' : 'AI 没有生成可执行的操作。'),
-        appliedCount,
+        explanation: result.explanation || '',
+        operations: result.operations || [],
+        summaries: (result.operations || []).map(summarizeOperation),
         skippedCount: result.skipped?.length || 0
       };
     } finally {
       setAiBusy(false);
     }
+  };
+
+  const handleAiApply = (operations: AIOperation[]) => {
+    return applyAIOperations(operations);
   };
 
   const handleExportImage = () => {
@@ -1845,7 +1878,8 @@ const App: React.FC = () => {
         <AIAssistantModal
           open={aiModalOpen}
           busy={aiBusy}
-          onSubmit={handleAiSubmit}
+          onAnalyze={handleAiAnalyze}
+          onApply={handleAiApply}
           onCancel={() => setAiModalOpen(false)}
         />
 
