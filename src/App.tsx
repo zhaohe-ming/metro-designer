@@ -1234,48 +1234,55 @@ const App: React.FC = () => {
           const stationA = nextStations.find((s) => s.id === op.afterStationId);
           const stationB = nextStations.find((s) => s.id === op.beforeStationId);
           if (!stationA || !stationB) break;
-          const newStationId = createId();
-          const newStation: Station = {
-            id: newStationId,
-            name: op.name,
-            x: (stationA.x + stationB.x) / 2,
-            y: (stationA.y + stationB.y) / 2,
-            ...(typeof stationA.lng === 'number' && typeof stationB.lng === 'number'
-              ? { lng: (stationA.lng + stationB.lng) / 2 }
-              : {}),
-            ...(typeof stationA.lat === 'number' && typeof stationB.lat === 'number'
-              ? { lat: (stationA.lat + stationB.lat) / 2 }
-              : {})
-          };
+          // 批量：N 个新站点等距分布在 A→B 之间，比例 1/(N+1), 2/(N+1), ...
+          // 原 A→B 区间一拆为 N+1 段
+          const names = (op.names || []).filter((n) => typeof n === 'string' && n.trim());
+          if (names.length === 0) break;
           const insertIdx = Math.min(aIdx, bIdx);
+          // 注意方向：op.afterStationId 在线路 stationIds 里的"前一位"，所以从这一端开始插
+          const fromStation = line.stationIds[insertIdx] === op.afterStationId ? stationA : stationB;
+          const toStation = fromStation === stationA ? stationB : stationA;
+          const newStations: Station[] = names.map((rawName, i) => {
+            const t = (i + 1) / (names.length + 1);
+            return {
+              id: createId(),
+              name: rawName.trim(),
+              x: fromStation.x + (toStation.x - fromStation.x) * t,
+              y: fromStation.y + (toStation.y - fromStation.y) * t,
+              ...(typeof fromStation.lng === 'number' && typeof toStation.lng === 'number'
+                ? { lng: fromStation.lng + (toStation.lng - fromStation.lng) * t }
+                : {}),
+              ...(typeof fromStation.lat === 'number' && typeof toStation.lat === 'number'
+                ? { lat: fromStation.lat + (toStation.lat - fromStation.lat) * t }
+                : {})
+            };
+          });
           const oldSectionId = line.sectionIds[insertIdx];
-          const newSectionA: Section = {
-            id: createId(),
-            lineId: op.lineId,
-            startStationId: line.stationIds[insertIdx],
-            endStationId: newStationId
-          };
-          const newSectionB: Section = {
-            id: createId(),
-            lineId: op.lineId,
-            startStationId: newStationId,
-            endStationId: line.stationIds[insertIdx + 1]
-          };
-          nextStations = [...nextStations, newStation];
-          nextSections = nextSections.filter((s) => s.id !== oldSectionId).concat(newSectionA, newSectionB);
+          // 构造新区间链：fromStation → new[0] → new[1] → ... → toStation
+          const chainIds = [fromStation.id, ...newStations.map((s) => s.id), toStation.id];
+          const newSections: Section[] = [];
+          for (let i = 0; i < chainIds.length - 1; i += 1) {
+            newSections.push({
+              id: createId(),
+              lineId: op.lineId,
+              startStationId: chainIds[i],
+              endStationId: chainIds[i + 1]
+            });
+          }
+          nextStations = [...nextStations, ...newStations];
+          nextSections = nextSections.filter((s) => s.id !== oldSectionId).concat(newSections);
           nextLines = nextLines.map((l) =>
             l.id === op.lineId
               ? {
                   ...l,
                   stationIds: [
                     ...l.stationIds.slice(0, insertIdx + 1),
-                    newStationId,
+                    ...newStations.map((s) => s.id),
                     ...l.stationIds.slice(insertIdx + 1)
                   ],
                   sectionIds: [
                     ...l.sectionIds.slice(0, insertIdx),
-                    newSectionA.id,
-                    newSectionB.id,
+                    ...newSections.map((s) => s.id),
                     ...l.sectionIds.slice(insertIdx + 1)
                   ]
                 }
@@ -1287,9 +1294,11 @@ const App: React.FC = () => {
         case 'create_station_at_line_end': {
           const line = nextLines.find((l) => l.id === op.lineId);
           if (!line || line.stationIds.length < 2) break;
+          const names = (op.names || []).filter((n) => typeof n === 'string' && n.trim());
+          if (names.length === 0) break;
           const isStart = op.position === 'start';
           // 取该端点的最后 2 个站点：endStation 是最末端，beforeEnd 是倒数第二
-          // 新站点放在 endStation 沿 beforeEnd → endStation 方向再前推一段（保持同样间距）
+          // 方向向量 = endStation - beforeEnd；批量延伸 N 站，每一站继续沿该向量再外推一段
           const endStationId = isStart ? line.stationIds[0] : line.stationIds[line.stationIds.length - 1];
           const beforeEndId = isStart ? line.stationIds[1] : line.stationIds[line.stationIds.length - 2];
           const endStation = nextStations.find((s) => s.id === endStationId);
@@ -1297,34 +1306,64 @@ const App: React.FC = () => {
           if (!endStation || !beforeEnd) break;
           const dx = endStation.x - beforeEnd.x;
           const dy = endStation.y - beforeEnd.y;
-          const newStationId = createId();
-          const newStation: Station = {
-            id: newStationId,
-            name: op.name,
-            x: endStation.x + dx,
-            y: endStation.y + dy,
-            ...(typeof endStation.lng === 'number' && typeof beforeEnd.lng === 'number'
-              ? { lng: endStation.lng + (endStation.lng - beforeEnd.lng) }
-              : {}),
-            ...(typeof endStation.lat === 'number' && typeof beforeEnd.lat === 'number'
-              ? { lat: endStation.lat + (endStation.lat - beforeEnd.lat) }
-              : {})
-          };
-          const sectionId = createId();
-          const newSection: Section = {
-            id: sectionId,
-            lineId: op.lineId,
-            startStationId: isStart ? newStationId : endStationId,
-            endStationId: isStart ? endStationId : newStationId
-          };
-          nextStations = [...nextStations, newStation];
-          nextSections = [...nextSections, newSection];
+          const dLng = typeof endStation.lng === 'number' && typeof beforeEnd.lng === 'number'
+            ? endStation.lng - beforeEnd.lng
+            : null;
+          const dLat = typeof endStation.lat === 'number' && typeof beforeEnd.lat === 'number'
+            ? endStation.lat - beforeEnd.lat
+            : null;
+          // 一串新站点：第 i 个在 endStation 沿向量再外推 (i+1) 段距离
+          const newStations: Station[] = names.map((rawName, i) => {
+            const step = i + 1;
+            return {
+              id: createId(),
+              name: rawName.trim(),
+              x: endStation.x + dx * step,
+              y: endStation.y + dy * step,
+              ...(dLng !== null ? { lng: endStation.lng! + dLng * step } : {}),
+              ...(dLat !== null ? { lat: endStation.lat! + dLat * step } : {})
+            };
+          });
+          // 配套 sections：把每相邻两站连上
+          // 顺序：从原端点向外（end 方向: end → new[0] → new[1] ... / start 方向: new[N-1] → ... → new[0] → end）
+          const newSections: Section[] = [];
+          if (isStart) {
+            // start 方向：插到线路开头时，区间方向是 [newest...new[0], end]
+            // 但为了 stationIds/sectionIds 对齐，倒序构造：
+            const reversed = [...newStations].reverse();  // new[N-1] ... new[0]
+            const chain = [...reversed, endStation];  // chain[i] → chain[i+1]
+            for (let i = 0; i < chain.length - 1; i += 1) {
+              newSections.push({
+                id: createId(),
+                lineId: op.lineId,
+                startStationId: chain[i].id,
+                endStationId: chain[i + 1].id
+              });
+            }
+          } else {
+            const chain = [endStation, ...newStations];
+            for (let i = 0; i < chain.length - 1; i += 1) {
+              newSections.push({
+                id: createId(),
+                lineId: op.lineId,
+                startStationId: chain[i].id,
+                endStationId: chain[i + 1].id
+              });
+            }
+          }
+          nextStations = [...nextStations, ...newStations];
+          nextSections = [...nextSections, ...newSections];
           nextLines = nextLines.map((l) =>
             l.id === op.lineId
               ? {
                   ...l,
-                  stationIds: isStart ? [newStationId, ...l.stationIds] : [...l.stationIds, newStationId],
-                  sectionIds: isStart ? [sectionId, ...l.sectionIds] : [...l.sectionIds, sectionId]
+                  // start: 把 new[N-1]...new[0] 接在原 stationIds 前；end: new[0]...new[N-1] 接在后
+                  stationIds: isStart
+                    ? [...[...newStations].reverse().map((s) => s.id), ...l.stationIds]
+                    : [...l.stationIds, ...newStations.map((s) => s.id)],
+                  sectionIds: isStart
+                    ? [...newSections.map((s) => s.id), ...l.sectionIds]
+                    : [...l.sectionIds, ...newSections.map((s) => s.id)]
                 }
               : l
           );

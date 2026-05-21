@@ -1378,16 +1378,20 @@ const AI_EDIT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_station_between',
-      description: '在某条线路上、两个相邻站点之间插入一个新站点',
+      description: '在某条线路上、两个相邻站点之间插入一个或多个新站点。多个站点会沿 after → before 方向等距分布。',
       parameters: {
         type: 'object',
         properties: {
           lineId: { type: 'string' },
           afterStationId: { type: 'string', description: '插入位置前一站的 id' },
           beforeStationId: { type: 'string', description: '插入位置后一站的 id' },
-          name: { type: 'string' }
+          names: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '要插入的新站点名字列表，按从 after 到 before 的顺序。最少 1 个，建议不超过 10 个。'
+          }
         },
-        required: ['lineId', 'afterStationId', 'beforeStationId', 'name']
+        required: ['lineId', 'afterStationId', 'beforeStationId', 'names']
       }
     }
   },
@@ -1395,15 +1399,19 @@ const AI_EDIT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_station_at_line_end',
-      description: '在线路的端点（start = 起点之前 / end = 终点之后）新建一个全新站点并自动连上区间。前端会根据线路末尾两站推算新站点的坐标。线路必须至少已有 2 个站点。',
+      description: '在线路的端点（start = 起点之前 / end = 终点之后）新建一个或多个全新站点并自动连上区间。多个站点会沿线路延伸方向、等距外推。线路必须至少已有 2 个站点。',
       parameters: {
         type: 'object',
         properties: {
           lineId: { type: 'string' },
           position: { type: 'string', enum: ['start', 'end'], description: 'start = 接到起点之前，end = 接到终点之后' },
-          name: { type: 'string', description: '新站点的名字' }
+          names: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '要追加的新站点名字列表，按从端点向外的顺序。最少 1 个，建议不超过 10 个。'
+          }
         },
-        required: ['lineId', 'position', 'name']
+        required: ['lineId', 'position', 'names']
       }
     }
   },
@@ -1453,10 +1461,16 @@ function validateAIOperation(op, lineIds, stationIds) {
       return inLines(op.lineId);
     case 'attach_station_to_line':
       return inLines(op.lineId) && inStations(op.stationId) && ['start', 'end'].includes(op.position);
-    case 'create_station_between':
-      return inLines(op.lineId) && inStations(op.afterStationId) && inStations(op.beforeStationId) && checkName(op.name);
-    case 'create_station_at_line_end':
-      return inLines(op.lineId) && ['start', 'end'].includes(op.position) && checkName(op.name);
+    case 'create_station_between': {
+      if (!inLines(op.lineId) || !inStations(op.afterStationId) || !inStations(op.beforeStationId)) return false;
+      if (!Array.isArray(op.names) || op.names.length < 1 || op.names.length > 20) return false;
+      return op.names.every(checkName);
+    }
+    case 'create_station_at_line_end': {
+      if (!inLines(op.lineId) || !['start', 'end'].includes(op.position)) return false;
+      if (!Array.isArray(op.names) || op.names.length < 1 || op.names.length > 20) return false;
+      return op.names.every(checkName);
+    }
     case 'rename_station':
       return inStations(op.stationId) && checkName(op.name);
     case 'delete_station':
@@ -1505,11 +1519,12 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
           '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
           '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
           '5. 区分"新建站点"和"已存在站点"：\n' +
-          '   - 用户要"在线路终点之外加一个新站点叫 X"（X 是新名字）→ 用 create_station_at_line_end\n' +
-          '   - 用户要"在 A、B 之间加一个新站点叫 X"（X 是新名字、A B 已存在）→ 用 create_station_between\n' +
+          '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
+          '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
           '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
-          '6. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
-          '7. 一次可以连续调用多个工具，按操作顺序排列。'
+          '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
+          '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
+          '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。'
       },
       {
         role: 'user',
