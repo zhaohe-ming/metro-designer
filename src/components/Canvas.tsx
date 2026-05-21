@@ -3,6 +3,11 @@ import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
 import {
   DownOutlined,
+  SelectOutlined,
+  EnvironmentOutlined,
+  NodeIndexOutlined,
+  LineOutlined,
+  DragOutlined,
   TranslationOutlined
 } from '@ant-design/icons';
 import { api } from '../api';
@@ -239,7 +244,7 @@ const Canvas: React.FC<CanvasProps> = ({
     points: []
   });
   const [drawingStartPoint, setDrawingStartPoint] = useState<{ x: number; y: number } | null>(null);
-  const commitCanvasTool = (tool: CanvasTool) => {
+  const setCanvasTool = (tool: CanvasTool) => {
     setActiveTool(tool);
     setIsDrawingMode(tool === 'line');
     if (tool !== 'line') {
@@ -253,27 +258,6 @@ const Canvas: React.FC<CanvasProps> = ({
     } else {
       setIsSectionMode(true);
     }
-  };
-
-  const applyToolButtonVisual = (tool: CanvasTool) => {
-    const group = toolGroupRef.current;
-    if (!group) return;
-    group.querySelectorAll<HTMLButtonElement>('[data-tool]').forEach(button => {
-      const active = button.dataset.tool === tool;
-      button.classList.toggle('is-active', active);
-      button.setAttribute('aria-pressed', active ? 'true' : 'false');
-    });
-  };
-
-  const setCanvasTool = (tool: CanvasTool) => {
-    applyToolButtonVisual(tool);
-    if (toolCommitTimerRef.current !== null) {
-      window.clearTimeout(toolCommitTimerRef.current);
-    }
-    toolCommitTimerRef.current = window.setTimeout(() => {
-      toolCommitTimerRef.current = null;
-      commitCanvasTool(tool);
-    }, 24);
   };
   
   // 缩放相关状态
@@ -344,7 +328,6 @@ const Canvas: React.FC<CanvasProps> = ({
   
   const containerRef = useRef<HTMLDivElement | null>(null);
   const amapContainerRef = useRef<HTMLDivElement | null>(null);
-  const toolGroupRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<any>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
@@ -357,7 +340,6 @@ const Canvas: React.FC<CanvasProps> = ({
   // rAF 节流 pan 的累计 delta：mousemove 高频累加，rAF tick 才 commit 到 React 状态。
   // 这样 144Hz / 240Hz 鼠标也只触发 ~60 次 setState/秒。
   const panRafIdRef = useRef<number | null>(null);
-  const toolCommitTimerRef = useRef<number | null>(null);
   const pendingPanDeltaRef = useRef({ x: 0, y: 0 });
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
@@ -370,15 +352,6 @@ const Canvas: React.FC<CanvasProps> = ({
   // 拖站点 / 拖途经点中：跟 isMapInteracting 一起作为"高频交互"标志，
   // 屏蔽 O(n²) 的 label layout 和 line name 计算，让拖拽帧率不卡
   const [isDraggingNode, setIsDraggingNode] = useState(false);
-  type DisplayPoint = { x: number; y: number; lng?: number; lat?: number };
-  const [dragStationPoints, setDragStationPoints] = useState<Record<string, DisplayPoint>>({});
-  const dragStationPointsRef = useRef<Record<string, DisplayPoint>>({});
-  const pendingStationDragRef = useRef<{ id: string; point: DisplayPoint; guides: number[][] } | null>(null);
-  const stationDragFrameRef = useRef<number | null>(null);
-  const [dragWaypointPoints, setDragWaypointPoints] = useState<Record<string, DisplayPoint>>({});
-  const dragWaypointPointsRef = useRef<Record<string, DisplayPoint>>({});
-  const pendingWaypointDragRef = useRef<{ key: string; point: DisplayPoint; guides: number[][] } | null>(null);
-  const waypointDragFrameRef = useRef<number | null>(null);
   const isAmapMode = mapSettings.baseMap.mode === 'amap';
   const amapEnv = getAmapConfig();
 
@@ -437,18 +410,6 @@ const Canvas: React.FC<CanvasProps> = ({
       if (canvasInteractionEndTimerRef.current !== null) {
         window.clearTimeout(canvasInteractionEndTimerRef.current);
         canvasInteractionEndTimerRef.current = null;
-      }
-      if (toolCommitTimerRef.current !== null) {
-        window.clearTimeout(toolCommitTimerRef.current);
-        toolCommitTimerRef.current = null;
-      }
-      if (stationDragFrameRef.current !== null) {
-        window.cancelAnimationFrame(stationDragFrameRef.current);
-        stationDragFrameRef.current = null;
-      }
-      if (waypointDragFrameRef.current !== null) {
-        window.cancelAnimationFrame(waypointDragFrameRef.current);
-        waypointDragFrameRef.current = null;
       }
     };
   }, []);
@@ -629,90 +590,9 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 站点像素坐标缓存：AMap 模式下根据经纬度投影，否则用 station.x/y。
   // 依赖 mapRenderTick 是为了在 AMap pan/zoom 后强制重算（amapRef.current 不会触发 React 重渲染）。
-  const stationById = useMemo(() => {
-    const map = new Map<string, Station>();
-    stations.forEach(station => map.set(station.id, station));
-    return map;
-  }, [stations]);
-
-  const lineById = useMemo(() => {
-    const map = new Map<string, LineType>();
-    lines.forEach(line => map.set(line.id, line));
-    return map;
-  }, [lines]);
-
-  const sectionById = useMemo(() => {
-    const map = new Map<string, Section>();
-    sections.forEach(section => map.set(section.id, section));
-    return map;
-  }, [sections]);
-
-  const waypointKeyOf = (sectionId: string, waypointIndex: number) => `${sectionId}:${waypointIndex}`;
-
-  const scheduleStationDragPoint = (id: string, point: DisplayPoint, guides: number[][] = []) => {
-    pendingStationDragRef.current = { id, point, guides };
-    if (stationDragFrameRef.current !== null) return;
-    stationDragFrameRef.current = window.requestAnimationFrame(() => {
-      stationDragFrameRef.current = null;
-      const pending = pendingStationDragRef.current;
-      pendingStationDragRef.current = null;
-      if (!pending) return;
-      setDragStationPoints(prev => {
-        const next = { ...prev, [pending.id]: pending.point };
-        dragStationPointsRef.current = next;
-        return next;
-      });
-      setActiveCalibrationGuides(pending.guides);
-    });
-  };
-
-  const clearStationDragPoint = (id: string) => {
-    setDragStationPoints(prev => {
-      if (!prev[id]) return prev;
-      const next = { ...prev };
-      delete next[id];
-      dragStationPointsRef.current = next;
-      return next;
-    });
-  };
-
-  const scheduleWaypointDragPoint = (sectionId: string, waypointIndex: number, point: DisplayPoint, guides: number[][] = []) => {
-    const key = waypointKeyOf(sectionId, waypointIndex);
-    pendingWaypointDragRef.current = { key, point, guides };
-    if (waypointDragFrameRef.current !== null) return;
-    waypointDragFrameRef.current = window.requestAnimationFrame(() => {
-      waypointDragFrameRef.current = null;
-      const pending = pendingWaypointDragRef.current;
-      pendingWaypointDragRef.current = null;
-      if (!pending) return;
-      setDragWaypointPoints(prev => {
-        const next = { ...prev, [pending.key]: pending.point };
-        dragWaypointPointsRef.current = next;
-        return next;
-      });
-      setActiveCalibrationGuides(pending.guides);
-    });
-  };
-
-  const clearWaypointDragPoint = (sectionId: string, waypointIndex: number) => {
-    const key = waypointKeyOf(sectionId, waypointIndex);
-    setDragWaypointPoints(prev => {
-      if (!prev[key]) return prev;
-      const next = { ...prev };
-      delete next[key];
-      dragWaypointPointsRef.current = next;
-      return next;
-    });
-  };
-
   const stationDisplayPoints = useMemo(() => {
     const map = amapRef.current;
     return stations.reduce<Record<string, { x: number; y: number }>>((result, station) => {
-      const dragPoint = dragStationPoints[station.id];
-      if (dragPoint) {
-        result[station.id] = { x: dragPoint.x, y: dragPoint.y };
-        return result;
-      }
       if (isAmapMode && amapReady && map && typeof station.lng === 'number' && typeof station.lat === 'number') {
         const pixel = map.lngLatToContainer?.([station.lng, station.lat]);
         if (pixel) {
@@ -723,38 +603,18 @@ const Canvas: React.FC<CanvasProps> = ({
       result[station.id] = { x: station.x, y: station.y };
       return result;
     }, {});
-  }, [stations, dragStationPoints, isAmapMode, amapReady, mapRenderTick]);
+  }, [stations, isAmapMode, amapReady, mapRenderTick]);
 
   const getDisplayPoint = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
 
-  const waypointDisplayPoints = useMemo(() => {
+  const getWaypointDisplayPoint = (point: Waypoint) => {
+    void mapRenderTick;
     const map = amapRef.current;
-    const result: Record<string, { x: number; y: number }> = {};
-    sections.forEach(section => {
-      (section.waypoints || []).forEach((point, index) => {
-        const key = waypointKeyOf(section.id, index);
-        const dragPoint = dragWaypointPoints[key];
-        if (dragPoint) {
-          result[key] = { x: dragPoint.x, y: dragPoint.y };
-          return;
-        }
-        if (isAmapMode && amapReady && map && typeof point.lng === 'number' && typeof point.lat === 'number') {
-          const pixel = map.lngLatToContainer?.([point.lng, point.lat]);
-          if (pixel) {
-            result[key] = { x: pixel.x, y: pixel.y };
-            return;
-          }
-        }
-        result[key] = { x: point.x, y: point.y };
-      });
-    });
-    return result;
-  }, [sections, dragWaypointPoints, isAmapMode, amapReady, mapRenderTick]);
-
-  const getWaypointDisplayPoint = (point: Waypoint, sectionId?: string, waypointIndex?: number) => {
-    if (sectionId !== undefined && waypointIndex !== undefined) {
-      const cached = waypointDisplayPoints[waypointKeyOf(sectionId, waypointIndex)];
-      if (cached) return cached;
+    if (isAmapMode && amapReady && map && typeof point.lng === 'number' && typeof point.lat === 'number') {
+      const pixel = map.lngLatToContainer?.([point.lng, point.lat]);
+      if (pixel) {
+        return { x: pixel.x, y: pixel.y };
+      }
     }
     return { x: point.x, y: point.y };
   };
@@ -1122,7 +982,7 @@ const Canvas: React.FC<CanvasProps> = ({
     }
 
     // 获取当前线路
-    const currentLine = lineById.get(currentLineId);
+    const currentLine = lines.find(l => l.id === currentLineId);
     if (!currentLine) {
       message.error('线路不存在');
       cancelDrawing();
@@ -1214,7 +1074,7 @@ const Canvas: React.FC<CanvasProps> = ({
       // 如果是在线段上添加站点，需要更新线路的站点顺序
       if (lineSegmentClick) {
         const { lineId, startStation, endStation } = lineSegmentClick;
-        const currentLine = lineById.get(lineId);
+        const currentLine = lines.find(l => l.id === lineId);
         
         if (currentLine) {
           const startIndex = currentLine.stationIds.indexOf(startStation.id);
@@ -1238,11 +1098,12 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 拖动站点（含自动吸附）
   const handleDragMove = (id: string, pos: { x: number; y: number }) => {
-    const updatedStation = stationById.get(id);
+    const updatedStation = stations.find(s => s.id === id);
     if (updatedStation) {
       if (isAmapMode) {
         const lngLat = getLngLatFromContainerPoint(pos);
-        scheduleStationDragPoint(id, {
+        onUpdateStation({
+          ...updatedStation,
           x: pos.x,
           y: pos.y,
           ...(lngLat || {})
@@ -1253,7 +1114,7 @@ const Canvas: React.FC<CanvasProps> = ({
         .filter(sec => sec.startStationId === id || sec.endStationId === id)
         .map(sec => (sec.startStationId === id ? sec.endStationId : sec.startStationId));
       const connectedStations = connectedStationIds
-        .map(stationId => stationById.get(stationId))
+        .map(stationId => stations.find(s => s.id === stationId))
         .filter(Boolean) as Station[];
 
       let snappedX = pos.x;
@@ -1262,12 +1123,11 @@ const Canvas: React.FC<CanvasProps> = ({
       let bestSnapDiff = Number.POSITIVE_INFINITY;
 
       connectedStations.forEach(st => {
-        const stationPoint = getDisplayPoint(st);
-        const guide = buildAxisGuide(stationPoint.x, stationPoint.y, pos.x, pos.y);
+        const guide = buildAxisGuide(st.x, st.y, pos.x, pos.y);
         if (guide) {
           guides.push(guide);
         }
-        const snap = getDirectionalSnap(stationPoint.x, stationPoint.y, pos.x, pos.y, SNAP_THRESHOLD_DEG);
+        const snap = getDirectionalSnap(st.x, st.y, pos.x, pos.y, SNAP_THRESHOLD_DEG);
         if (snap && snap.diff < bestSnapDiff) {
           bestSnapDiff = snap.diff;
           snappedX = snap.x;
@@ -1275,41 +1135,13 @@ const Canvas: React.FC<CanvasProps> = ({
         }
       });
 
-      scheduleStationDragPoint(id, {
+      setActiveCalibrationGuides(guides);
+      onUpdateStation({
+        ...updatedStation,
         x: snappedX,
         y: snappedY
-      }, guides);
-    }
-  };
-
-  const finishStationDrag = (id: string) => {
-    if (stationDragFrameRef.current !== null) {
-      window.cancelAnimationFrame(stationDragFrameRef.current);
-      stationDragFrameRef.current = null;
-      const pending = pendingStationDragRef.current;
-      pendingStationDragRef.current = null;
-      if (pending) {
-        const next = { ...dragStationPointsRef.current, [pending.id]: pending.point };
-        dragStationPointsRef.current = next;
-        setDragStationPoints(next);
-        setActiveCalibrationGuides(pending.guides);
-      }
-    }
-    const station = stationById.get(id);
-    const point = dragStationPointsRef.current[id];
-    if (station && point) {
-      onUpdateStation({
-        ...station,
-        x: point.x,
-        y: point.y,
-        ...(typeof point.lng === 'number' && typeof point.lat === 'number'
-          ? { lng: point.lng, lat: point.lat }
-          : {})
       });
-      clearStationDragPoint(id);
     }
-    setActiveCalibrationGuides([]);
-    setIsDraggingNode(false);
   };
 
   // 处理站点点击
@@ -1399,10 +1231,10 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const getCurrentLineStationOptions = (excludeStationId?: string) => {
     if (!currentLineId) return [];
-    const currentLine = lineById.get(currentLineId);
+    const currentLine = lines.find(l => l.id === currentLineId);
     if (!currentLine) return [];
     return currentLine.stationIds
-      .map(id => stationById.get(id))
+      .map(id => stations.find(s => s.id === id))
       .filter(Boolean)
       .filter(s => (excludeStationId ? s!.id !== excludeStationId : true))
       .map(s => ({ label: s!.name, value: s!.id }));
@@ -1478,22 +1310,18 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const updateWaypoint = (sectionId: string, waypointIndex: number, x: number, y: number, withGuide = false) => {
-    const section = sectionById.get(sectionId);
+    const section = sections.find(sec => sec.id === sectionId);
     if (!section) return;
-    const startStation = stationById.get(section.startStationId);
-    const endStation = stationById.get(section.endStationId);
+    const startStation = stations.find(s => s.id === section.startStationId);
+    const endStation = stations.find(s => s.id === section.endStationId);
     if (!startStation || !endStation) return;
 
     const current = section.waypoints || [];
     if (!current[waypointIndex]) return;
     const next = [...current];
 
-    const prevPoint = waypointIndex === 0
-      ? getDisplayPoint(startStation)
-      : getWaypointDisplayPoint(next[waypointIndex - 1], sectionId, waypointIndex - 1);
-    const nextPoint = waypointIndex === next.length - 1
-      ? getDisplayPoint(endStation)
-      : getWaypointDisplayPoint(next[waypointIndex + 1], sectionId, waypointIndex + 1);
+    const prevPoint = waypointIndex === 0 ? getDisplayPoint(startStation) : getWaypointDisplayPoint(next[waypointIndex - 1]);
+    const nextPoint = waypointIndex === next.length - 1 ? getDisplayPoint(endStation) : getWaypointDisplayPoint(next[waypointIndex + 1]);
 
     let snappedX = x;
     let snappedY = y;
@@ -1515,45 +1343,17 @@ const Canvas: React.FC<CanvasProps> = ({
       snappedY = bestSnap.y;
     }
 
-    const nextPointValue = {
+    next[waypointIndex] = {
+      ...next[waypointIndex],
       x: snappedX,
       y: snappedY,
       ...(getLngLatFromContainerPoint({ x: snappedX, y: snappedY }) || {})
     };
-    scheduleWaypointDragPoint(sectionId, waypointIndex, nextPointValue, withGuide ? guideLines.map(g => [g[0], g[1], g[2], g[3]]) : []);
-  };
+    writeSectionWaypoints(sectionId, next);
 
-  const finishWaypointDrag = (sectionId: string, waypointIndex: number) => {
-    if (waypointDragFrameRef.current !== null) {
-      window.cancelAnimationFrame(waypointDragFrameRef.current);
-      waypointDragFrameRef.current = null;
-      const pending = pendingWaypointDragRef.current;
-      pendingWaypointDragRef.current = null;
-      if (pending) {
-        const next = { ...dragWaypointPointsRef.current, [pending.key]: pending.point };
-        dragWaypointPointsRef.current = next;
-        setDragWaypointPoints(next);
-        setActiveCalibrationGuides(pending.guides);
-      }
+    if (withGuide) {
+      setActiveCalibrationGuides(guideLines.map(g => [g[0], g[1], g[2], g[3]]));
     }
-    const section = sectionById.get(sectionId);
-    const current = section?.waypoints || [];
-    const point = dragWaypointPointsRef.current[waypointKeyOf(sectionId, waypointIndex)];
-    if (section && current[waypointIndex] && point) {
-      const next = [...current];
-      next[waypointIndex] = {
-        ...next[waypointIndex],
-        x: point.x,
-        y: point.y,
-        ...(typeof point.lng === 'number' && typeof point.lat === 'number'
-          ? { lng: point.lng, lat: point.lat }
-          : {})
-      };
-      writeSectionWaypoints(sectionId, next);
-      clearWaypointDragPoint(sectionId, waypointIndex);
-    }
-    setActiveCalibrationGuides([]);
-    setIsDraggingNode(false);
   };
 
   const hideWaypoint = (sectionId: string, waypointIndex: number) => {
@@ -1817,9 +1617,9 @@ const Canvas: React.FC<CanvasProps> = ({
   const renderLines = () => {
     const segments = sections
       .map(section => {
-        const line = lineById.get(section.lineId);
-        const start = stationById.get(section.startStationId);
-        const end = stationById.get(section.endStationId);
+        const line = lines.find(l => l.id === section.lineId);
+        const start = stations.find(s => s.id === section.startStationId);
+        const end = stations.find(s => s.id === section.endStationId);
         if (!line || !start || !end) return null;
         return {
           section,
@@ -1851,9 +1651,7 @@ const Canvas: React.FC<CanvasProps> = ({
       const startPoint = getDisplayPoint(seg.start);
       const endPoint = getDisplayPoint(seg.end);
 
-      const waypointPoints = seg.waypoints.map((point, index) =>
-        getWaypointDisplayPoint(point, seg.section.id, index)
-      );
+      const waypointPoints = seg.waypoints.map(point => getWaypointDisplayPoint(point));
       const rawPoints = [startPoint.x, startPoint.y, ...waypointPoints.flatMap(p => [p.x, p.y]), endPoint.x, endPoint.y];
       const dx = endPoint.x - startPoint.x;
       const dy = endPoint.y - startPoint.y;
@@ -1926,35 +1724,34 @@ const Canvas: React.FC<CanvasProps> = ({
           lineCap="round"
           lineJoin="round"
           shadowColor={seg.line.color}
-          shadowBlur={skipHeavyLayout ? 0 : stylePreset.lineShadowBlur}
-          shadowOpacity={skipHeavyLayout ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
+          shadowBlur={isMapInteracting && isAmapMode ? 0 : stylePreset.lineShadowBlur}
+          shadowOpacity={isMapInteracting && isAmapMode ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
-          listening={false}
+          onClick={handleSectionLineClick}
+          onContextMenu={handleSectionLineContextMenu}
         />
       );
 
       // 校准虚线：显示接近水平/竖直的段
-      if (!skipHeavyLayout) {
-        for (let i = 0; i < shiftedPoints.length - 2; i += 2) {
-          const guide = buildAxisGuide(
-            shiftedPoints[i],
-            shiftedPoints[i + 1],
-            shiftedPoints[i + 2],
-            shiftedPoints[i + 3]
+      for (let i = 0; i < shiftedPoints.length - 2; i += 2) {
+        const guide = buildAxisGuide(
+          shiftedPoints[i],
+          shiftedPoints[i + 1],
+          shiftedPoints[i + 2],
+          shiftedPoints[i + 3]
+        );
+        if (guide) {
+          result.push(
+            <Line
+              key={`guide_${seg.section.id}_${currentIndex}_${i}`}
+              points={guide}
+              stroke={canvasPalette.lineGuide}
+              strokeWidth={1}
+              dash={[6, 6]}
+              opacity={0.8}
+              listening={false}
+            />
           );
-          if (guide) {
-            result.push(
-              <Line
-                key={`guide_${seg.section.id}_${currentIndex}_${i}`}
-                points={guide}
-                stroke={canvasPalette.lineGuide}
-                strokeWidth={1}
-                dash={[6, 6]}
-                opacity={0.8}
-                listening={false}
-              />
-            );
-          }
         }
       }
     });
@@ -1978,7 +1775,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // 获取站点是否在当前线路中
   const isStationInCurrentLine = (stationId: string) => {
     if (!currentLineId) return false;
-    const currentLine = lineById.get(currentLineId);
+    const currentLine = lines.find(l => l.id === currentLineId);
     return currentLine?.stationIds.includes(stationId) || false;
   };
 
@@ -2012,7 +1809,7 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   // O(1) 查询：currentLine 一次查表；非当前线就取这个站第一条经过线的色；都没有给默认灰
-  const currentLine = currentLineId ? lineById.get(currentLineId) || null : null;
+  const currentLine = currentLineId ? lines.find(line => line.id === currentLineId) : null;
   const getStationColor = (stationId: string) => {
     const passing = stationToLines.get(stationId);
     if (currentLine && passing?.some(l => l.id === currentLine.id)) return currentLine.color;
@@ -2029,19 +1826,21 @@ const Canvas: React.FC<CanvasProps> = ({
     // skipHeavyLayout 翻 false 会立即重新计算并 cache。
     if (skipHeavyLayout) return labelPlacementsCacheRef.current;
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
-    const waypointPointOf = (point: Waypoint, sectionId: string, waypointIndex: number) =>
-      getWaypointDisplayPoint(point, sectionId, waypointIndex);
+    const waypointPointOf = (point: Waypoint) => {
+      const map = amapRef.current;
+      if (isAmapMode && amapReady && map && typeof point.lng === 'number' && typeof point.lat === 'number') {
+        const pixel = map.lngLatToContainer?.([point.lng, point.lat]);
+        if (pixel) return { x: pixel.x, y: pixel.y };
+      }
+      return { x: point.x, y: point.y };
+    };
     const occupied: LabelRect[] = [];
     const lineSegments = sections
       .map(section => {
-        const start = stationById.get(section.startStationId);
-        const end = stationById.get(section.endStationId);
+        const start = stations.find(station => station.id === section.startStationId);
+        const end = stations.find(station => station.id === section.endStationId);
         if (!start || !end) return [];
-        const points = [
-          pointOf(start),
-          ...((section.waypoints || []).map((waypoint, index) => waypointPointOf(waypoint, section.id, index))),
-          pointOf(end)
-        ];
+        const points = [pointOf(start), ...((section.waypoints || []).map(waypointPointOf)), pointOf(end)];
         const segments: Array<[number, number, number, number]> = [];
         for (let i = 0; i < points.length - 1; i += 1) {
           segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
@@ -2139,11 +1938,9 @@ const Canvas: React.FC<CanvasProps> = ({
     stageSize.width,
     stageSize.height,
     stationDisplayPoints,
-    stationById,
     isAmapMode,
     amapReady,
     mapRenderTick,
-    waypointDisplayPoints,
     tier1StationIds,
     labelDensity
   ]);
@@ -2178,7 +1975,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
     lines.forEach(line => {
       const orderedStations = line.stationIds
-        .map(id => stationById.get(id))
+        .map(id => stations.find(station => station.id === id))
         .filter(Boolean) as Station[];
       if (orderedStations.length < 2) return;
 
@@ -2277,8 +2074,7 @@ const Canvas: React.FC<CanvasProps> = ({
     scaledLineLabelPaddingY,
     stageSize.width,
     stageSize.height,
-    stationDisplayPoints,
-    stationById
+    stationDisplayPoints
   ]);
 
   return (
@@ -2331,37 +2127,39 @@ const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
       <div className="metro-canvas-tools">
-        <div ref={toolGroupRef} className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
+        <div className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
           {/* 工具组：5 个按钮 = icon + label。
               激活态在 label 前显式插一个小蓝点，比单靠背景色更直观；
               hint 不再常驻一行长文案，改成每个按钮 hover 时的 Tooltip */}
           {[
-            { key: 'select' as CanvasTool, label: text.tools.select, hint: text.hints.select },
-            { key: 'station' as CanvasTool, label: text.tools.station, hint: text.hints.station },
+            { key: 'select' as CanvasTool, label: text.tools.select, icon: <SelectOutlined />, hint: text.hints.select },
+            { key: 'station' as CanvasTool, label: text.tools.station, icon: <EnvironmentOutlined />, hint: text.hints.station },
             {
               key: 'line' as CanvasTool,
               label: text.tools.line,
+              icon: <NodeIndexOutlined />,
               hint:
                 drawingLine.startStation
                   ? text.hints.lineDrawing(drawingLine.startStation.name)
                   : text.hints.lineIdle
             },
-            { key: 'section' as CanvasTool, label: text.tools.section, hint: text.hints.section },
-            { key: 'pan' as CanvasTool, label: text.tools.pan, hint: text.hints.pan }
+            { key: 'section' as CanvasTool, label: text.tools.section, icon: <LineOutlined />, hint: text.hints.section },
+            { key: 'pan' as CanvasTool, label: text.tools.pan, icon: <DragOutlined />, hint: text.hints.pan }
           ].map((tool) => {
             const active = activeTool === tool.key;
             return (
-              <button
-                key={tool.key}
-                type="button"
-                data-tool={tool.key}
-                className={`metro-tool-button ${active ? 'is-active' : ''}`}
-                onClick={() => setCanvasTool(tool.key)}
-                aria-pressed={active}
-                title={tool.hint}
-              >
-                <span className="metro-tool-button__label">{tool.label}</span>
-              </button>
+              <Tooltip key={tool.key} title={tool.hint} placement="bottom" mouseEnterDelay={0.2}>
+                <button
+                  type="button"
+                  className={`metro-tool-button ${active ? 'is-active' : ''}`}
+                  onClick={() => setCanvasTool(tool.key)}
+                  aria-pressed={active}
+                >
+                  {active ? <span className="metro-tool-button__dot" aria-hidden="true" /> : null}
+                  <span className="metro-tool-button__icon">{tool.icon}</span>
+                  <span className="metro-tool-button__label">{tool.label}</span>
+                </button>
+              </Tooltip>
             );
           })}
         </div>
@@ -2547,8 +2345,8 @@ const Canvas: React.FC<CanvasProps> = ({
                     : scaledLineLabelStrokeWidth
                 }
                 shadowColor={label.line.color}
-                shadowBlur={skipHeavyLayout ? 0 : isAmapMode ? 8 : 4}
-                shadowOpacity={skipHeavyLayout ? 0 : isAmapMode ? 0.22 : 0.16}
+                shadowBlur={isAmapMode ? 8 : 4}
+                shadowOpacity={isAmapMode ? 0.22 : 0.16}
               />
               <Text
                 text={label.line.name}
@@ -2580,7 +2378,7 @@ const Canvas: React.FC<CanvasProps> = ({
               .filter(({ pt }) => !pt.hidden);
             if (!visiblePoints.length) return null;
             return visiblePoints.map(({ pt, idx }) => {
-              const waypointPoint = getWaypointDisplayPoint(pt, section.id, idx);
+              const waypointPoint = getWaypointDisplayPoint(pt);
               return (
                 <Circle
                   key={`wp_${section.id}_${idx}`}
@@ -2591,7 +2389,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   stroke={canvasPalette.waypointStroke}
                   strokeWidth={2}
                   shadowColor={canvasPalette.waypointShadow}
-                  shadowBlur={skipHeavyLayout ? 0 : 5}
+                  shadowBlur={isLightAmapRender ? 0 : 5}
                   draggable
                   onDragStart={() => {
                     onBeginInteraction?.();
@@ -2601,7 +2399,8 @@ const Canvas: React.FC<CanvasProps> = ({
                     updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
                   }}
                   onDragEnd={() => {
-                    finishWaypointDrag(section.id, idx);
+                    setActiveCalibrationGuides([]);
+                    setIsDraggingNode(false);
                   }}
                   onContextMenu={e => {
                     e.evt.preventDefault();
@@ -2657,7 +2456,8 @@ const Canvas: React.FC<CanvasProps> = ({
                   handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
                 }
                 onDragEnd={() => {
-                  finishStationDrag(station.id);
+                  setActiveCalibrationGuides([]);
+                  setIsDraggingNode(false);
                 }}
                 onClick={(e) => handleStationClick(station, e)}
                 onContextMenu={(e) => handleStationRightClick(e, station)}
@@ -2696,7 +2496,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={skipHeavyLayout ? 0 : 6}
+                                shadowBlur={isLightAmapRender ? 0 : 6}
                               />
                               {plan.curvedArrows.map((arrow, i) => (
                                 <Path
@@ -2727,7 +2527,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={skipHeavyLayout ? 0 : 6}
+                                shadowBlur={isLightAmapRender ? 0 : 6}
                               />
                               {plan.sectors.map((s, i) => (
                                 <Arc
@@ -2754,7 +2554,7 @@ const Canvas: React.FC<CanvasProps> = ({
                               stroke={darkOutline}
                               strokeWidth={scaledInterchangeStrokeWidth}
                               shadowColor={canvasPalette.dotShadow}
-                              shadowBlur={skipHeavyLayout ? 0 : 6}
+                              shadowBlur={isLightAmapRender ? 0 : 6}
                             />
                             <Circle
                               radius={scaledInterchangeInnerRadius}
@@ -2775,7 +2575,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={stationColor}
                           strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={skipHeavyLayout ? 0 : 4}
+                          shadowBlur={isLightAmapRender ? 0 : 4}
                         />
                       ) : (
                         <Circle
@@ -2784,7 +2584,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={canvasPalette.stationStroke}
                           strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={skipHeavyLayout ? 0 : 4}
+                          shadowBlur={isLightAmapRender ? 0 : 4}
                         />
                       )
                     )}
@@ -2800,7 +2600,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           align="center"
                           verticalAlign="middle"
                           shadowColor={isAmapMode ? readableLabelShadow : canvasPalette.labelShadow}
-                          shadowBlur={skipHeavyLayout ? 0 : isAmapMode ? 5 : isDarkCanvas ? 5 : 2}
+                          shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 5 : 2}
                           shadowOpacity={1}
                         />
                       </Group>
@@ -2814,7 +2614,7 @@ const Canvas: React.FC<CanvasProps> = ({
                       stroke={canvasPalette.stationStroke}
                       strokeWidth={isInterchangeStation ? scaledClassicInterchangeStrokeWidth : scaledClassicStationStrokeWidth}
                       shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
-                      shadowBlur={skipHeavyLayout ? 0 : isDarkCanvas ? 7 : 4}
+                      shadowBlur={isLightAmapRender ? 0 : isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2 * effectiveScale, y: 2 * effectiveScale }}
                     />
                     {!isLightAmapRender ? (
@@ -2829,7 +2629,7 @@ const Canvas: React.FC<CanvasProps> = ({
                         offsetX={scaledClassicStationTextBox / 2}
                         offsetY={scaledClassicStationTextBox / 2}
                         shadowColor={isAmapMode ? 'rgba(2,6,23,0.95)' : isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
-                        shadowBlur={skipHeavyLayout ? 0 : isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
+                        shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
                         shadowOffset={{ x: effectiveScale, y: effectiveScale }}
                       />
                     ) : null}
