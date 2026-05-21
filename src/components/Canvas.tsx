@@ -264,8 +264,10 @@ const Canvas: React.FC<CanvasProps> = ({
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
-  const [lastPointerPosition, setLastPointerPosition] = useState({ x: 0, y: 0 });
-  
+  // 历史遗留：以前用 useState 存上一次指针位置，每次 mousemove 触发一次额外的
+  // setState；现在只读写 lastPointerPositionRef，省掉这一层重渲染。
+  // 留这一行注释提醒不要再引入"lastPointerPosition state"。
+
   // 线段点击相关状态
   const [lineSegmentClick, setLineSegmentClick] = useState<{
     lineId: string;
@@ -332,6 +334,13 @@ const Canvas: React.FC<CanvasProps> = ({
   const amapRef = useRef<any>(null);
   const amapOverlayFrameRef = useRef<number | null>(null);
   const amapInteractionEndTimerRef = useRef<number | null>(null);
+  // 纯画布交互（拖动 / 滚轮缩放）也走"高频交互"通道，让 skipHeavyLayout 生效。
+  // wheel 事件没有明确的"结束"信号，靠这个 timer 在最后一次 wheel 后 150ms 落回。
+  const canvasInteractionEndTimerRef = useRef<number | null>(null);
+  // rAF 节流 pan 的累计 delta：mousemove 高频累加，rAF tick 才 commit 到 React 状态。
+  // 这样 144Hz / 240Hz 鼠标也只触发 ~60 次 setState/秒。
+  const panRafIdRef = useRef<number | null>(null);
+  const pendingPanDeltaRef = useRef({ x: 0, y: 0 });
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
@@ -390,6 +399,20 @@ const Canvas: React.FC<CanvasProps> = ({
       document.removeEventListener('click', handleGlobalClick);
     };
   }, [isDrawing, isDrawingMode]);
+
+  // 卸载时清理 rAF + canvas interaction timer，避免 React 警告 / 内存泄漏
+  useEffect(() => {
+    return () => {
+      if (panRafIdRef.current !== null) {
+        window.cancelAnimationFrame(panRafIdRef.current);
+        panRafIdRef.current = null;
+      }
+      if (canvasInteractionEndTimerRef.current !== null) {
+        window.clearTimeout(canvasInteractionEndTimerRef.current);
+        canvasInteractionEndTimerRef.current = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -652,6 +675,26 @@ const Canvas: React.FC<CanvasProps> = ({
   }, [isAmapMode, mapSettings.baseMap.mode, onUpdateStations, onUpdateSection, sections, stations]);
 
   // 处理鼠标滚轮缩放
+  // 纯画布交互的统一开关：mousedown / wheel 进入，mouseup / wheel idle 退出。
+  // 翻 isMapInteracting 把 labelPlacements + lineNamePlacements 切到缓存路径，
+  // 是大线网拖动卡顿的根因修复。
+  const startCanvasInteraction = () => {
+    if (canvasInteractionEndTimerRef.current !== null) {
+      window.clearTimeout(canvasInteractionEndTimerRef.current);
+      canvasInteractionEndTimerRef.current = null;
+    }
+    setIsMapInteracting(true);
+  };
+  const scheduleCanvasInteractionEnd = (delayMs: number = 150) => {
+    if (canvasInteractionEndTimerRef.current !== null) {
+      window.clearTimeout(canvasInteractionEndTimerRef.current);
+    }
+    canvasInteractionEndTimerRef.current = window.setTimeout(() => {
+      canvasInteractionEndTimerRef.current = null;
+      setIsMapInteracting(false);
+    }, delayMs);
+  };
+
   const handleWheel = (e: any) => {
     e.evt.preventDefault();
     if (isAmapMode && amapRef.current) {
@@ -660,6 +703,10 @@ const Canvas: React.FC<CanvasProps> = ({
       amapRef.current.setZoom?.(Math.max(3, Math.min(20, nextZoom)));
       return;
     }
+
+    // 纯画布滚轮缩放：进入"交互中"通道，最后一次 wheel 后 150ms 落回静止
+    startCanvasInteraction();
+    scheduleCanvasInteractionEnd(150);
     
     const stage = e.target.getStage();
     const oldScale = stage.scaleX();
@@ -682,6 +729,15 @@ const Canvas: React.FC<CanvasProps> = ({
     });
   };
 
+  // pan 累计的 delta 在 rAF tick 一次性 commit。函数式 setState 避免 stale closure。
+  const flushPendingPan = () => {
+    panRafIdRef.current = null;
+    const delta = pendingPanDeltaRef.current;
+    if (delta.x === 0 && delta.y === 0) return;
+    pendingPanDeltaRef.current = { x: 0, y: 0 };
+    setPosition((prev) => ({ x: prev.x + delta.x, y: prev.y + delta.y }));
+  };
+
   // 处理拖拽开始
   const handleMouseDown = (e: any) => {
     // 关闭右键菜单
@@ -689,12 +745,14 @@ const Canvas: React.FC<CanvasProps> = ({
     setCanvasContextMenu(prev => ({ ...prev, visible: false }));
     if (e.target === e.target.getStage()) {
       const pos = e.target.getPointerPosition();
-      setIsDragging(activeTool === 'pan');
+      const willPan = activeTool === 'pan';
+      setIsDragging(willPan);
       lastPointerPositionRef.current = pos;
-      if (!isAmapMode) {
-        setLastPointerPosition(pos);
-      }
       setMouseDownPosition(pos);
+      // 纯画布 pan：进入"交互中"通道，labelPlacements 切换到缓存路径
+      if (willPan && !isAmapMode) {
+        startCanvasInteraction();
+      }
     }
   };
 
@@ -703,31 +761,34 @@ const Canvas: React.FC<CanvasProps> = ({
     if (isDragging && activeTool === 'pan') {
       const stage = e.target.getStage();
       const pointer = stage.getPointerPosition();
+      const last = lastPointerPositionRef.current;
+      const dx = pointer.x - last.x;
+      const dy = pointer.y - last.y;
+      lastPointerPositionRef.current = pointer;
+
       if (isAmapMode && amapRef.current) {
-        const lastPointer = lastPointerPositionRef.current;
-        amapRef.current.panBy?.(pointer.x - lastPointer.x, pointer.y - lastPointer.y);
-        lastPointerPositionRef.current = pointer;
+        amapRef.current.panBy?.(dx, dy);
         return;
       }
-      
-      setPosition({
-        x: position.x + (pointer.x - lastPointerPosition.x),
-        y: position.y + (pointer.y - lastPointerPosition.y),
-      });
-      
-      setLastPointerPosition(pointer);
+
+      // rAF 节流：累积 delta，下一个 frame 才 setState
+      pendingPanDeltaRef.current.x += dx;
+      pendingPanDeltaRef.current.y += dy;
+      if (panRafIdRef.current === null) {
+        panRafIdRef.current = window.requestAnimationFrame(flushPendingPan);
+      }
     }
-    
+
     // 原有的绘制模式鼠标移动逻辑
     if (isDrawing && drawingLine.startStation && drawingStartPoint) {
       const stage = e.target.getStage();
       const pointer = stage.getPointerPosition();
-      
+
       // 转换为世界坐标
       const worldPos = {
         ...getPointerWorldPosition(stage, pointer)
       };
-      
+
       setDrawingLine(prev => ({
         ...prev,
         points: [
@@ -756,6 +817,16 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     setIsDragging(false);
     setMouseDownPosition(null);
+    // 把还在排队的 pan delta 立即落地，然后短暂延迟再退出"交互中"，
+    // 避免最后一次 mousemove 之后立刻跑重布局造成"松手卡一下"
+    if (panRafIdRef.current !== null) {
+      window.cancelAnimationFrame(panRafIdRef.current);
+      panRafIdRef.current = null;
+      flushPendingPan();
+    }
+    if (!isAmapMode) {
+      scheduleCanvasInteractionEnd(120);
+    }
     // 只有真正单击才弹窗。鼠标事件用 button===0 区分左键；触屏事件 evt.button === undefined，
     // 那就用 evt 类型判断（TouchEvent 没有 button 字段，只要不是右键就放行）。
     const isLeftMouseOrTouch =
