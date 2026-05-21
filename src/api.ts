@@ -63,6 +63,7 @@ export type AIOperation =
   | { type: 'delete_line'; lineId: string }
   | { type: 'attach_station_to_line'; lineId: string; stationId: string; position: 'start' | 'end' }
   | { type: 'create_station_between'; lineId: string; afterStationId: string; beforeStationId: string; name: string }
+  | { type: 'create_station_at_line_end'; lineId: string; position: 'start' | 'end'; name: string }
   | { type: 'rename_station'; stationId: string; name: string }
   | { type: 'delete_station'; stationId: string };
 

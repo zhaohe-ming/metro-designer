@@ -756,8 +756,11 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     setIsDragging(false);
     setMouseDownPosition(null);
-    // 只有真正单击才弹窗
-    if (isClick && e && e.evt && e.evt.button === 0 && !isSectionMode) {
+    // 只有真正单击才弹窗。鼠标事件用 button===0 区分左键；触屏事件 evt.button === undefined，
+    // 那就用 evt 类型判断（TouchEvent 没有 button 字段，只要不是右键就放行）。
+    const isLeftMouseOrTouch =
+      e && e.evt && (e.evt.button === 0 || e.evt.button === undefined);
+    if (isClick && isLeftMouseOrTouch && !isSectionMode) {
       handleStageClick(e);
     }
   };

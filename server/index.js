@@ -1394,6 +1394,22 @@ const AI_EDIT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_station_at_line_end',
+      description: '在线路的端点（start = 起点之前 / end = 终点之后）新建一个全新站点并自动连上区间。前端会根据线路末尾两站推算新站点的坐标。线路必须至少已有 2 个站点。',
+      parameters: {
+        type: 'object',
+        properties: {
+          lineId: { type: 'string' },
+          position: { type: 'string', enum: ['start', 'end'], description: 'start = 接到起点之前，end = 接到终点之后' },
+          name: { type: 'string', description: '新站点的名字' }
+        },
+        required: ['lineId', 'position', 'name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'rename_station',
       description: '重命名站点',
       parameters: {
@@ -1439,6 +1455,8 @@ function validateAIOperation(op, lineIds, stationIds) {
       return inLines(op.lineId) && inStations(op.stationId) && ['start', 'end'].includes(op.position);
     case 'create_station_between':
       return inLines(op.lineId) && inStations(op.afterStationId) && inStations(op.beforeStationId) && checkName(op.name);
+    case 'create_station_at_line_end':
+      return inLines(op.lineId) && ['start', 'end'].includes(op.position) && checkName(op.name);
     case 'rename_station':
       return inStations(op.stationId) && checkName(op.name);
     case 'delete_station':
@@ -1486,8 +1504,12 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
           '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
           '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
           '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
-          '5. 如果用户的请求无法用工具完成（比如要操作不存在的站点 / 要新建站点但没指定相邻站点），直接用中文解释为什么做不了，不要瞎调工具。\n' +
-          '6. 一次可以连续调用多个工具，按操作顺序排列。'
+          '5. 区分"新建站点"和"已存在站点"：\n' +
+          '   - 用户要"在线路终点之外加一个新站点叫 X"（X 是新名字）→ 用 create_station_at_line_end\n' +
+          '   - 用户要"在 A、B 之间加一个新站点叫 X"（X 是新名字、A B 已存在）→ 用 create_station_between\n' +
+          '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
+          '6. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
+          '7. 一次可以连续调用多个工具，按操作顺序排列。'
       },
       {
         role: 'user',

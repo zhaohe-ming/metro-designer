@@ -1284,6 +1284,53 @@ const App: React.FC = () => {
           applied += 1;
           break;
         }
+        case 'create_station_at_line_end': {
+          const line = nextLines.find((l) => l.id === op.lineId);
+          if (!line || line.stationIds.length < 2) break;
+          const isStart = op.position === 'start';
+          // 取该端点的最后 2 个站点：endStation 是最末端，beforeEnd 是倒数第二
+          // 新站点放在 endStation 沿 beforeEnd → endStation 方向再前推一段（保持同样间距）
+          const endStationId = isStart ? line.stationIds[0] : line.stationIds[line.stationIds.length - 1];
+          const beforeEndId = isStart ? line.stationIds[1] : line.stationIds[line.stationIds.length - 2];
+          const endStation = nextStations.find((s) => s.id === endStationId);
+          const beforeEnd = nextStations.find((s) => s.id === beforeEndId);
+          if (!endStation || !beforeEnd) break;
+          const dx = endStation.x - beforeEnd.x;
+          const dy = endStation.y - beforeEnd.y;
+          const newStationId = createId();
+          const newStation: Station = {
+            id: newStationId,
+            name: op.name,
+            x: endStation.x + dx,
+            y: endStation.y + dy,
+            ...(typeof endStation.lng === 'number' && typeof beforeEnd.lng === 'number'
+              ? { lng: endStation.lng + (endStation.lng - beforeEnd.lng) }
+              : {}),
+            ...(typeof endStation.lat === 'number' && typeof beforeEnd.lat === 'number'
+              ? { lat: endStation.lat + (endStation.lat - beforeEnd.lat) }
+              : {})
+          };
+          const sectionId = createId();
+          const newSection: Section = {
+            id: sectionId,
+            lineId: op.lineId,
+            startStationId: isStart ? newStationId : endStationId,
+            endStationId: isStart ? endStationId : newStationId
+          };
+          nextStations = [...nextStations, newStation];
+          nextSections = [...nextSections, newSection];
+          nextLines = nextLines.map((l) =>
+            l.id === op.lineId
+              ? {
+                  ...l,
+                  stationIds: isStart ? [newStationId, ...l.stationIds] : [...l.stationIds, newStationId],
+                  sectionIds: isStart ? [sectionId, ...l.sectionIds] : [...l.sectionIds, sectionId]
+                }
+              : l
+          );
+          applied += 1;
+          break;
+        }
         case 'rename_station':
           nextStations = nextStations.map((s) => (s.id === op.stationId ? { ...s, name: op.name } : s));
           applied += 1;
