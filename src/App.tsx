@@ -1184,6 +1184,95 @@ const App: React.FC = () => {
           applied += 1;
           break;
         }
+        case 'create_line_via_extension': {
+          // 新线路 = 锚点（已存在）+ N 个新站点，沿"远离方向参照点"等距外推
+          const anchor = nextStations.find((s) => s.id === op.anchorStationId);
+          if (!anchor) break;
+          const newNames = (op.newStationNames || []).filter((n) => typeof n === 'string' && n.trim());
+          if (newNames.length === 0) break;
+
+          // 方向参照点：
+          // 1) op.directionAwayFromStationId 显式给了 → 直接用
+          // 2) 否则，在 anchor 所在的其他线路上找它的邻站作为方向参照（远离邻站、朝外延伸）
+          // 3) 都找不到 → 默认 +x 方向 + 固定步长
+          let reference: Station | null = null;
+          if (op.directionAwayFromStationId) {
+            reference = nextStations.find((s) => s.id === op.directionAwayFromStationId) || null;
+          }
+          if (!reference) {
+            // 在所有现有线路里找 anchor 的邻居
+            for (const candidateLine of nextLines) {
+              const idx = candidateLine.stationIds.indexOf(anchor.id);
+              if (idx < 0) continue;
+              const neighborId = candidateLine.stationIds[idx - 1] || candidateLine.stationIds[idx + 1];
+              if (neighborId) {
+                reference = nextStations.find((s) => s.id === neighborId) || null;
+                if (reference) break;
+              }
+            }
+          }
+
+          // 方向向量 + 步长
+          let dx: number;
+          let dy: number;
+          let dLng: number | null = null;
+          let dLat: number | null = null;
+          if (reference) {
+            dx = anchor.x - reference.x;
+            dy = anchor.y - reference.y;
+            if (typeof anchor.lng === 'number' && typeof reference.lng === 'number') {
+              dLng = anchor.lng - reference.lng;
+            }
+            if (typeof anchor.lat === 'number' && typeof reference.lat === 'number') {
+              dLat = anchor.lat - reference.lat;
+            }
+            // 太近的话给个最小步长，避免新站全挤在一起
+            const magnitude = Math.hypot(dx, dy);
+            if (magnitude < 30) {
+              const fallback = 80;
+              dx = magnitude === 0 ? fallback : (dx / magnitude) * fallback;
+              dy = magnitude === 0 ? 0 : (dy / magnitude) * fallback;
+            }
+          } else {
+            // 兜底：默认向 +x，每步 80 像素
+            dx = 80;
+            dy = 0;
+          }
+
+          const newStationsList: Station[] = newNames.map((rawName, i) => {
+            const step = i + 1;
+            return {
+              id: createId(),
+              name: rawName.trim(),
+              x: anchor.x + dx * step,
+              y: anchor.y + dy * step,
+              ...(dLng !== null ? { lng: anchor.lng! + dLng * step } : {}),
+              ...(dLat !== null ? { lat: anchor.lat! + dLat * step } : {})
+            };
+          });
+          const chain = [anchor, ...newStationsList];
+          const newSectionList: Section[] = [];
+          const lineId = createId();
+          for (let i = 0; i < chain.length - 1; i += 1) {
+            newSectionList.push({
+              id: createId(),
+              lineId,
+              startStationId: chain[i].id,
+              endStationId: chain[i + 1].id
+            });
+          }
+          nextStations = [...nextStations, ...newStationsList];
+          nextSections = [...nextSections, ...newSectionList];
+          nextLines.push({
+            id: lineId,
+            name: op.name,
+            color: op.color,
+            stationIds: chain.map((s) => s.id),
+            sectionIds: newSectionList.map((s) => s.id)
+          });
+          applied += 1;
+          break;
+        }
         case 'recolor_line':
           nextLines = nextLines.map((l) => (l.id === op.lineId ? { ...l, color: op.color } : l));
           applied += 1;

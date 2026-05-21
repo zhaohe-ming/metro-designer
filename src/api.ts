@@ -58,6 +58,14 @@ export type CheckPendingResult =
 // 已经过 id / 颜色 / 长度校验，前端直接 apply 即可。
 export type AIOperation =
   | { type: 'create_line'; name: string; color: string; stationIds: string[] }
+  | {
+      type: 'create_line_via_extension';
+      name: string;
+      color: string;
+      anchorStationId: string;
+      newStationNames: string[];
+      directionAwayFromStationId?: string;
+    }
   | { type: 'recolor_line'; lineId: string; color: string }
   | { type: 'rename_line'; lineId: string; name: string }
   | { type: 'delete_line'; lineId: string }

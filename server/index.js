@@ -1322,6 +1322,31 @@ const AI_EDIT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_line_via_extension',
+      description: '新建一条线路，以一个已存在的站点为起点（锚点 / 换乘站），然后追加若干全新站点。锚点之外的站点会沿"远离 directionAwayFromStationId"的方向等距外推；不传则前端会在锚点所在的其他线路上找邻站作为方向参照，否则默认向 +x 方向。适合"新建 X 线，从 Y 站（与 Z 线换乘）出发，途经 A、B、C..."这类场景。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '新线路名' },
+          color: { type: 'string', description: '6 位十六进制颜色' },
+          anchorStationId: { type: 'string', description: '已存在的锚点站 id，会作为新线路的第一站，通常用于换乘' },
+          newStationNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '要新建的站点名列表，按线路顺序、紧接锚点之后排列。最少 1 个，建议不超过 20 个。'
+          },
+          directionAwayFromStationId: {
+            type: 'string',
+            description: '可选：已存在的站点 id。新线路会从锚点向"远离此站"的方向延伸（用作方向参照点）。不传则前端自动找。'
+          }
+        },
+        required: ['name', 'color', 'anchorStationId', 'newStationNames']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'recolor_line',
       description: '修改某条线路的颜色',
       parameters: {
@@ -1453,6 +1478,18 @@ function validateAIOperation(op, lineIds, stationIds) {
       if (!checkName(op.name) || !checkColor(op.color)) return false;
       if (!Array.isArray(op.stationIds) || op.stationIds.length < 2) return false;
       return op.stationIds.every(inStations);
+    case 'create_line_via_extension': {
+      if (!checkName(op.name) || !checkColor(op.color)) return false;
+      if (!inStations(op.anchorStationId)) return false;
+      if (!Array.isArray(op.newStationNames) || op.newStationNames.length < 1 || op.newStationNames.length > 30) return false;
+      if (!op.newStationNames.every(checkName)) return false;
+      // directionAwayFromStationId 是可选；如果给了，必须存在
+      if (op.directionAwayFromStationId !== undefined && op.directionAwayFromStationId !== null) {
+        if (!inStations(op.directionAwayFromStationId)) return false;
+        if (op.directionAwayFromStationId === op.anchorStationId) return false;
+      }
+      return true;
+    }
     case 'recolor_line':
       return inLines(op.lineId) && checkColor(op.color);
     case 'rename_line':
@@ -1522,6 +1559,8 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
           '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
           '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
           '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
+          '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
+          '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
           '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
           '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
           '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。'
