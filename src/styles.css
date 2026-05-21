@@ -527,7 +527,7 @@ body {
   margin-top: 4px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  justify-content: center;
   font-size: 11px;
   color: var(--metro-text-soft);
 }
@@ -543,7 +543,7 @@ body {
   margin-top: 10px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  justify-content: center;
 }
 
 .metro-line-card__station-tag {
@@ -1280,8 +1280,8 @@ body {
   align-items: center;
   gap: 6px;
   height: 30px;
-  min-width: 48px;
-  padding: 0 10px;
+  min-width: 58px;
+  padding: 0 14px;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
@@ -1290,22 +1290,25 @@ body {
   font-size: var(--font-size-body);
   font-weight: 600;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
-}
-
-.metro-tool-button__icon {
-  display: inline-flex;
-  font-size: 14px;
-  line-height: 0;
+  user-select: none;
+  touch-action: manipulation;
+  transition: background-color 80ms linear, color 80ms linear;
+  will-change: background-color, color;
 }
 
 .metro-tool-button__label {
   line-height: 1;
+  pointer-events: none;
 }
 
 .metro-tool-button:hover {
   background: var(--color-primary-50);
   color: var(--color-primary-700);
+}
+
+.metro-tool-button:active {
+  background: var(--color-primary-100);
+  color: var(--color-primary-800);
 }
 
 .metro-tool-button.is-active {
@@ -1314,15 +1317,6 @@ body {
 }
 
 /* 激活态前置的小蓝点：让"我当前选了哪个工具"在 5 个按钮里第一眼就能看到 */
-.metro-tool-button__dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  background: #ffffff;
-  flex-shrink: 0;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
-}
-
 .metro-user-panel {
   gap: 8px;
 }
@@ -2911,7 +2905,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
   /* 顶栏中间的 Toolbar（undo/redo/export）：移动端上把按钮缩成 icon-only */
   .metro-toolbar-panel {
-    display: none !important;
+    display: inline !important;
   }
 
   /* 用户区：保存按钮收成正方形 icon，用户名隐藏只留头像 */
@@ -2919,16 +2913,16 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     gap: 6px !important;
   }
   .metro-header-save-btn {
-    width: 40px;
-    min-width: 40px;
-    padding: 0 !important;
+    width: auto;
+    min-width: 44px;
+    padding: 0 10px !important;
     display: inline-flex !important;
     align-items: center;
     justify-content: center;
   }
   /* 只隐藏文字标签，保留 antd 注入的 icon 作为按钮内容 */
   .metro-header-save-btn__label {
-    display: none !important;
+    display: inline !important;
   }
   .user-chip__name {
     display: none !important;
@@ -3016,15 +3010,13 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-tool-button__label {
     display: none !important;
   }
-  .metro-tool-button__icon {
-    font-size: 16px !important;
-  }
   /* 激活点：移动端不显示（图标本身已经反色，无需 dot 占空间） */
-  .metro-tool-button__dot {
-    display: none !important;
-  }
 
   /* ── 其他细节：弹窗 / 个人中心 / Modal 在窄屏占满 ── */
+  .metro-tool-group .metro-tool-button__label {
+    display: inline !important;
+  }
+
   .ant-modal {
     max-width: calc(100vw - 24px) !important;
     margin: 12px auto !important;
