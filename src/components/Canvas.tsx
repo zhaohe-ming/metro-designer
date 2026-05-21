@@ -1724,8 +1724,9 @@ const Canvas: React.FC<CanvasProps> = ({
           lineCap="round"
           lineJoin="round"
           shadowColor={seg.line.color}
-          shadowBlur={isMapInteracting && isAmapMode ? 0 : stylePreset.lineShadowBlur}
-          shadowOpacity={isMapInteracting && isAmapMode ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
+          // 交互中（含纯画布 pan/zoom）禁用阴影：Gaussian blur 是 Konva 单帧最大的开销
+          shadowBlur={isLightRender ? 0 : stylePreset.lineShadowBlur}
+          shadowOpacity={isLightRender ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
           onClick={handleSectionLineClick}
           onContextMenu={handleSectionLineContextMenu}
@@ -1785,6 +1786,12 @@ const Canvas: React.FC<CanvasProps> = ({
   const dotLabelStyle = mapSettings.dotLabelStyle;
   const amapStyle = mapSettings.baseMap.amap?.style || 'normal';
   const isLightAmapRender = isAmapMode && isMapInteracting;
+  // AMap 模式拖动 / 缩放时，AMap 自己已经在底图层绘制，Konva 这一层走"轻量渲染"
+  // ——把 labels / shadows / 装饰文字全砍掉，是 AMap 模式拖动顺滑的根本原因。
+  // 纯画布模式之前没有这个开关，所以拖动时 Konva 还要绘制 100+ 个 Text + shadow，
+  // 站点越多越卡。把同一个机制扩展到画布交互期间一并应用。
+  const isLightCanvasRender = !isAmapMode && isMapInteracting;
+  const isLightRender = isLightAmapRender || isLightCanvasRender;
   // 拖拽 / AMap 交互期间跳过 O(n²) 的 label / lineName 重排，复用上一次的缓存结果。
   // 视觉上：拖动站点时旁边的标签会暂时"凝固"在旧位置，松开后立即重新布局——
   // 60Hz 拖拽时省下大量算法成本，是大线网卡顿的主要来源
@@ -2331,7 +2338,8 @@ const Canvas: React.FC<CanvasProps> = ({
           />
           {/* 渲染线路连接线 */}
           {renderLines()}
-          {lineNamePlacements.map(label => (
+          {/* 交互中跳过线路名标签：每个标签是 Rect+Text 双节点 + 阴影，N 条线累计开销大 */}
+          {!isLightRender && lineNamePlacements.map(label => (
             <Group key={`line_label_${label.key}`} x={label.x} y={label.y} listening={false}>
               <Rect
                 width={label.width}
@@ -2389,7 +2397,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   stroke={canvasPalette.waypointStroke}
                   strokeWidth={2}
                   shadowColor={canvasPalette.waypointShadow}
-                  shadowBlur={isLightAmapRender ? 0 : 5}
+                  shadowBlur={isLightRender ? 0 : 5}
                   draggable
                   onDragStart={() => {
                     onBeginInteraction?.();
@@ -2496,7 +2504,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={isLightAmapRender ? 0 : 6}
+                                shadowBlur={isLightRender ? 0 : 6}
                               />
                               {plan.curvedArrows.map((arrow, i) => (
                                 <Path
@@ -2527,7 +2535,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={isLightAmapRender ? 0 : 6}
+                                shadowBlur={isLightRender ? 0 : 6}
                               />
                               {plan.sectors.map((s, i) => (
                                 <Arc
@@ -2554,7 +2562,7 @@ const Canvas: React.FC<CanvasProps> = ({
                               stroke={darkOutline}
                               strokeWidth={scaledInterchangeStrokeWidth}
                               shadowColor={canvasPalette.dotShadow}
-                              shadowBlur={isLightAmapRender ? 0 : 6}
+                              shadowBlur={isLightRender ? 0 : 6}
                             />
                             <Circle
                               radius={scaledInterchangeInnerRadius}
@@ -2575,7 +2583,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={stationColor}
                           strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={isLightAmapRender ? 0 : 4}
+                          shadowBlur={isLightRender ? 0 : 4}
                         />
                       ) : (
                         <Circle
@@ -2584,11 +2592,12 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={canvasPalette.stationStroke}
                           strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={isLightAmapRender ? 0 : 4}
+                          shadowBlur={isLightRender ? 0 : 4}
                         />
                       )
                     )}
-                    {labelRect ? (
+                    {/* 交互中跳过站名标签：N 个站 × Text(shadow) 是拖拽期主线程的另一大头 */}
+                    {!isLightRender && labelRect ? (
                       <Group x={labelRect.x - stationPoint.x} y={labelRect.y - stationPoint.y} listening={false}>
                         <Text
                           text={station.name}
@@ -2614,10 +2623,10 @@ const Canvas: React.FC<CanvasProps> = ({
                       stroke={canvasPalette.stationStroke}
                       strokeWidth={isInterchangeStation ? scaledClassicInterchangeStrokeWidth : scaledClassicStationStrokeWidth}
                       shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
-                      shadowBlur={isLightAmapRender ? 0 : isDarkCanvas ? 7 : 4}
+                      shadowBlur={isLightRender ? 0 : isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2 * effectiveScale, y: 2 * effectiveScale }}
                     />
-                    {!isLightAmapRender ? (
+                    {!isLightRender ? (
                       <Text
                         text={station.name}
                         fontSize={scaledClassicStationTextSize}
