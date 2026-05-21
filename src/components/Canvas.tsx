@@ -18,6 +18,36 @@ import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
 
+// 性能诊断开关。用户在 DevTools Console 输入：
+//   localStorage.setItem('metro_perf', '1'); location.reload();
+// 之后所有 perfMark 会打到 console，方便定位 "9 秒点击" 那种延迟到底卡在哪一段。
+// 关掉：localStorage.removeItem('metro_perf'); location.reload();
+const __perfEnabled = (() => {
+  try {
+    return typeof window !== 'undefined' && window.localStorage?.getItem('metro_perf') === '1';
+  } catch {
+    return false;
+  }
+})();
+const perfMark = (label: string, startTime: number) => {
+  if (!__perfEnabled) return;
+  const ms = performance.now() - startTime;
+  if (ms > 0.5) {
+    // 只打 >0.5ms 的避免 console 被 noise 淹没
+    console.log(`[metro-perf] ${label}: ${ms.toFixed(2)}ms`);
+  }
+};
+// 用 useRef 持久化"上次渲染时刻"，每次 render 算出 render 间隔
+const __perfMarkRender = (componentName: string, prevRef: { current: number }) => {
+  if (!__perfEnabled) return;
+  const now = performance.now();
+  const since = now - prevRef.current;
+  prevRef.current = now;
+  if (since > 0 && since < 2000) {
+    console.log(`[metro-perf] ${componentName} render +${since.toFixed(0)}ms since last`);
+  }
+};
+
 const STATION_RADIUS = 18;
 const DEFAULT_CANVAS_BACKGROUND_COLOR = '#fafbfc';
 const GUIDE_THRESHOLD_DEG = 10;
@@ -337,6 +367,11 @@ const Canvas: React.FC<CanvasProps> = ({
   // 纯画布交互（拖动 / 滚轮缩放）也走"高频交互"通道，让 skipHeavyLayout 生效。
   // wheel 事件没有明确的"结束"信号，靠这个 timer 在最后一次 wheel 后 150ms 落回。
   const canvasInteractionEndTimerRef = useRef<number | null>(null);
+  // Perf 诊断：记录每次 Canvas 函数体跑的时间间隔（=渲染频率）
+  const __perfRenderRef = useRef(performance.now());
+  __perfMarkRender('Canvas', __perfRenderRef);
+  // 给点击 → modal 弹出这条链路一个起点 ref，让 useEffect 在 modal 真正 open 时打 totals
+  const __perfClickStartRef = useRef<number | null>(null);
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
@@ -405,6 +440,17 @@ const Canvas: React.FC<CanvasProps> = ({
       }
     };
   }, []);
+
+  // Perf 诊断：从 mousedown 起算，到 "添加站点" modal 真正 mount 为止，整段总耗时。
+  // 这条 effect 在 adding 翻 true 时触发，正好是 React commit 完成、modal 进入 DOM 那一刻。
+  useEffect(() => {
+    if (!__perfEnabled) return;
+    if (adding && __perfClickStartRef.current !== null) {
+      const total = performance.now() - __perfClickStartRef.current;
+      console.log(`[metro-perf] click → add-station modal opened: ${total.toFixed(2)}ms (stations=${stations.length}, sections=${sections.length}, lines=${lines.length})`);
+      __perfClickStartRef.current = null;
+    }
+  }, [adding, stations.length, sections.length, lines.length]);
 
   // Stage transform 的"状态 → 命令"同步：
   // 拖动 / 缩放交互期间我们直接对 stageRef 做 imperative 写（stage.position / stage.scale），
@@ -748,6 +794,8 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 处理拖拽开始
   const handleMouseDown = (e: any) => {
+    const __t0 = performance.now();
+    __perfClickStartRef.current = __t0;
     // 关闭右键菜单
     closeStationContextMenu();
     setCanvasContextMenu(prev => ({ ...prev, visible: false }));
@@ -762,6 +810,7 @@ const Canvas: React.FC<CanvasProps> = ({
         startCanvasInteraction();
       }
     }
+    perfMark('handleMouseDown sync body', __t0);
   };
 
   // 处理拖拽移动
@@ -811,6 +860,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // 处理拖拽结束
   // 处理拖拽结束，判断是否为单击
   const handleMouseUp = (e?: any) => {
+    const __t0 = performance.now();
     let isClick = false;
     if (mouseDownPosition && e && e.target && e.target.getStage) {
       const pointer = e.target.getStage().getPointerPosition();
@@ -848,6 +898,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (isClick && isLeftMouseOrTouch && !isSectionMode) {
       handleStageClick(e);
     }
+    perfMark('handleMouseUp sync body (inc stageClick if any)', __t0);
   };
 
   // 重置视图
@@ -925,6 +976,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 画布点击，弹窗输入站名
   const handleStageClick = (e: any) => {
+    const __t0 = performance.now();
     // 关闭右键菜单
     closeStationContextMenu();
     if (isSectionMode) {
@@ -949,6 +1001,7 @@ const Canvas: React.FC<CanvasProps> = ({
       setAdding(true);
       }
     }
+    perfMark('handleStageClick sync body', __t0);
   };
 
   // 绘制模式下的点击处理
@@ -1842,10 +1895,12 @@ const Canvas: React.FC<CanvasProps> = ({
   // labelPlacementsCacheRef 在拖拽期间被 useMemo 复用，避免每个 mousemove 都重算
   const labelPlacementsCacheRef = useRef<Record<string, LabelRect>>({});
   const labelPlacements = useMemo(() => {
+    const __t0 = performance.now();
     if (isLightAmapRender) return {} as Record<string, LabelRect>;
     // 拖拽 / pan 中：直接复用上一次算好的，跳过 O(n²) 评分。松手时 useMemo 依赖
     // skipHeavyLayout 翻 false 会立即重新计算并 cache。
     if (skipHeavyLayout) return labelPlacementsCacheRef.current;
+    void __t0;
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
     const waypointPointOf = (point: Waypoint) => {
       const map = amapRef.current;
@@ -1943,6 +1998,7 @@ const Canvas: React.FC<CanvasProps> = ({
     }, {});
     // 把结果存进 ref，交互期间的下次 render 直接复用，不再重算 O(n²)
     labelPlacementsCacheRef.current = computed;
+    perfMark(`labelPlacements computed (stations=${stations.length}, sections=${sections.length})`, __t0);
     return computed;
   }, [
     isLightAmapRender,
@@ -1969,8 +2025,10 @@ const Canvas: React.FC<CanvasProps> = ({
   // 线路名标签布局：依赖 labelPlacements + stationDisplayPoints，跟着它们重算就够了
   const lineNamePlacementsCacheRef = useRef<Array<{ key: string; line: LineType; x: number; y: number; width: number; height: number }>>([]);
   const lineNamePlacements = useMemo(() => {
+    const __t0 = performance.now();
     if (isLightAmapRender || !mapSettings.showLineNameLabels || lines.length === 0) return [];
     if (skipHeavyLayout) return lineNamePlacementsCacheRef.current;
+    void __t0;
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
     const occupied: LabelRect[] = [
       ...Object.values(labelPlacements),
@@ -2075,6 +2133,7 @@ const Canvas: React.FC<CanvasProps> = ({
     });
 
     lineNamePlacementsCacheRef.current = placements;
+    perfMark(`lineNamePlacements computed (lines=${lines.length})`, __t0);
     return placements;
   }, [
     isLightAmapRender,
