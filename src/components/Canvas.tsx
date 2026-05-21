@@ -337,10 +337,6 @@ const Canvas: React.FC<CanvasProps> = ({
   // 纯画布交互（拖动 / 滚轮缩放）也走"高频交互"通道，让 skipHeavyLayout 生效。
   // wheel 事件没有明确的"结束"信号，靠这个 timer 在最后一次 wheel 后 150ms 落回。
   const canvasInteractionEndTimerRef = useRef<number | null>(null);
-  // rAF 节流 pan 的累计 delta：mousemove 高频累加，rAF tick 才 commit 到 React 状态。
-  // 这样 144Hz / 240Hz 鼠标也只触发 ~60 次 setState/秒。
-  const panRafIdRef = useRef<number | null>(null);
-  const pendingPanDeltaRef = useRef({ x: 0, y: 0 });
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
@@ -400,19 +396,36 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   }, [isDrawing, isDrawingMode]);
 
-  // 卸载时清理 rAF + canvas interaction timer，避免 React 警告 / 内存泄漏
+  // 卸载时清理 canvas interaction timer，避免 React 警告 / 内存泄漏
   useEffect(() => {
     return () => {
-      if (panRafIdRef.current !== null) {
-        window.cancelAnimationFrame(panRafIdRef.current);
-        panRafIdRef.current = null;
-      }
       if (canvasInteractionEndTimerRef.current !== null) {
         window.clearTimeout(canvasInteractionEndTimerRef.current);
         canvasInteractionEndTimerRef.current = null;
       }
     };
   }, []);
+
+  // Stage transform 的"状态 → 命令"同步：
+  // 拖动 / 缩放交互期间我们直接对 stageRef 做 imperative 写（stage.position / stage.scale），
+  // 绕开整套 React reconcile + react-konva diff。这里这个 layout effect 只负责"非交互期"的
+  // 状态变更（programmatic reset、fit-all 等）落到 stage 上。
+  // 交互中 isMapInteracting 为 true，effect 直接 bail，避免覆盖刚刚 imperative 写入的值。
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    if (isAmapMode) {
+      // AMap 模式：stage 永远 (0,0,1)，底图变换由 AMap 处理
+      stage.scale({ x: 1, y: 1 });
+      stage.position({ x: 0, y: 0 });
+      stage.batchDraw();
+      return;
+    }
+    if (isMapInteracting) return;
+    stage.scale({ x: scale, y: scale });
+    stage.position(position);
+    stage.batchDraw();
+  }, [scale, position, isAmapMode, isMapInteracting]);
 
   useEffect(() => {
     return () => {
@@ -707,35 +720,30 @@ const Canvas: React.FC<CanvasProps> = ({
     // 纯画布滚轮缩放：进入"交互中"通道，最后一次 wheel 后 150ms 落回静止
     startCanvasInteraction();
     scheduleCanvasInteractionEnd(150);
-    
+
     const stage = e.target.getStage();
     const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition();
-    
+
     const mousePointTo = {
       x: (pointer.x - stage.x()) / oldScale,
       y: (pointer.y - stage.y()) / oldScale,
     };
 
     const newScale = e.evt.deltaY > 0 ? oldScale * 0.9 : oldScale * 1.1;
-    
-    // 限制缩放范围
     const clampedScale = Math.max(0.1, Math.min(5, newScale));
-    
-    setScale(clampedScale);
-    setPosition({
+    const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
-      y: pointer.y - mousePointTo.y * clampedScale,
-    });
-  };
+      y: pointer.y - mousePointTo.y * clampedScale
+    };
 
-  // pan 累计的 delta 在 rAF tick 一次性 commit。函数式 setState 避免 stale closure。
-  const flushPendingPan = () => {
-    panRafIdRef.current = null;
-    const delta = pendingPanDeltaRef.current;
-    if (delta.x === 0 && delta.y === 0) return;
-    pendingPanDeltaRef.current = { x: 0, y: 0 };
-    setPosition((prev) => ({ x: prev.x + delta.x, y: prev.y + delta.y }));
+    // 先 imperative 写 stage（视觉立即响应），再异步 setState 保持 effectiveScale / 标签尺寸同步
+    // 滚轮事件本身是 ~30Hz，setState 不是热路径
+    stage.scale({ x: clampedScale, y: clampedScale });
+    stage.position(newPos);
+    stage.batchDraw();
+    setScale(clampedScale);
+    setPosition(newPos);
   };
 
   // 处理拖拽开始
@@ -771,12 +779,11 @@ const Canvas: React.FC<CanvasProps> = ({
         return;
       }
 
-      // rAF 节流：累积 delta，下一个 frame 才 setState
-      pendingPanDeltaRef.current.x += dx;
-      pendingPanDeltaRef.current.y += dy;
-      if (panRafIdRef.current === null) {
-        panRafIdRef.current = window.requestAnimationFrame(flushPendingPan);
-      }
+      // 纯画布：直接写 stage.position()，不走 React state，不触发 reconcile。
+      // Konva 的 batchDraw 内部已经把多次写聚合成单帧一次重绘。
+      const current = stage.position();
+      stage.position({ x: current.x + dx, y: current.y + dy });
+      stage.batchDraw();
     }
 
     // 原有的绘制模式鼠标移动逻辑
@@ -817,14 +824,21 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     setIsDragging(false);
     setMouseDownPosition(null);
-    // 把还在排队的 pan delta 立即落地，然后短暂延迟再退出"交互中"，
-    // 避免最后一次 mousemove 之后立刻跑重布局造成"松手卡一下"
-    if (panRafIdRef.current !== null) {
-      window.cancelAnimationFrame(panRafIdRef.current);
-      panRafIdRef.current = null;
-      flushPendingPan();
-    }
-    if (!isAmapMode) {
+    // 把 stage 的最终位置同步回 React state；之后等 120ms 才退出"交互中"，
+    // 避免松手瞬间立刻跑 label 重布局造成"松手卡一下"。
+    // 注意 setState 必须在 scheduleCanvasInteractionEnd 之前发出 —— 等 isMapInteracting
+    // 翻 false 时 useLayoutEffect 会跑，那时 state 已经是新值，effect 写回 stage 是 no-op。
+    if (!isAmapMode && stageRef.current) {
+      const stage = stageRef.current;
+      const pos = stage.position();
+      const sx = stage.scaleX();
+      // 只在确实变了才 setState，省一次 reconcile
+      if (Math.abs(pos.x - position.x) > 0.5 || Math.abs(pos.y - position.y) > 0.5) {
+        setPosition({ x: pos.x, y: pos.y });
+      }
+      if (Math.abs(sx - scale) > 0.001) {
+        setScale(sx);
+      }
       scheduleCanvasInteractionEnd(120);
     }
     // 只有真正单击才弹窗。鼠标事件用 button===0 区分左键；触屏事件 evt.button === undefined，
@@ -2268,10 +2282,9 @@ const Canvas: React.FC<CanvasProps> = ({
         ref={stageRef}
         width={stageSize.width}
         height={stageSize.height}
-        scaleX={isAmapMode ? 1 : scale}
-        scaleY={isAmapMode ? 1 : scale}
-        x={isAmapMode ? 0 : position.x}
-        y={isAmapMode ? 0 : position.y}
+        /* scaleX / scaleY / x / y 不再走 React props —— 交互期 imperative 写入 stage，
+           非交互期由上面的 useLayoutEffect 把 state 同步过去。这样 200Hz 鼠标也不会
+           触发 200 次 reconcile。 */
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={e => {
@@ -2338,8 +2351,7 @@ const Canvas: React.FC<CanvasProps> = ({
           />
           {/* 渲染线路连接线 */}
           {renderLines()}
-          {/* 交互中跳过线路名标签：每个标签是 Rect+Text 双节点 + 阴影，N 条线累计开销大 */}
-          {!isLightRender && lineNamePlacements.map(label => (
+          {lineNamePlacements.map(label => (
             <Group key={`line_label_${label.key}`} x={label.x} y={label.y} listening={false}>
               <Rect
                 width={label.width}
@@ -2596,8 +2608,7 @@ const Canvas: React.FC<CanvasProps> = ({
                         />
                       )
                     )}
-                    {/* 交互中跳过站名标签：N 个站 × Text(shadow) 是拖拽期主线程的另一大头 */}
-                    {!isLightRender && labelRect ? (
+                    {labelRect ? (
                       <Group x={labelRect.x - stationPoint.x} y={labelRect.y - stationPoint.y} listening={false}>
                         <Text
                           text={station.name}
@@ -2626,7 +2637,7 @@ const Canvas: React.FC<CanvasProps> = ({
                       shadowBlur={isLightRender ? 0 : isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2 * effectiveScale, y: 2 * effectiveScale }}
                     />
-                    {!isLightRender ? (
+                    {!isLightAmapRender ? (
                       <Text
                         text={station.name}
                         fontSize={scaledClassicStationTextSize}
