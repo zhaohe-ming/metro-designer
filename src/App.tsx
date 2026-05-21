@@ -1734,15 +1734,18 @@ const App: React.FC = () => {
             </section>
 
             <section className="metro-user-panel">
-              {/* AI 助手按钮：移动端通过 CSS 收成 icon-only */}
+              {/* AI 助手按钮：圆形 + 边缘 conic-gradient 慢旋 + 微光晕，全平台一致 */}
               <Tooltip title="AI 助手 —— 用自然语言编辑线路图">
-                <Button
+                <button
+                  type="button"
                   className="metro-header-ai-btn"
-                  icon={<ThunderboltOutlined />}
+                  aria-label="打开 AI 助手"
                   onClick={() => setAiModalOpen(true)}
                 >
-                  <span className="metro-header-ai-btn__label">AI 助手</span>
-                </Button>
+                  <span className="metro-header-ai-btn__icon">
+                    <ThunderboltOutlined />
+                  </span>
+                </button>
               </Tooltip>
               <Button
                 type="primary"

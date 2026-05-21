@@ -172,6 +172,113 @@ body {
   font-weight: 600;
 }
 
+/* AI 助手按钮：圆形 + 慢转 conic-gradient 边 + 柔和外光晕。
+   每个平台都一致；nicht 跟 antd Button 的视觉冲突，所以用原生 <button>。 */
+.metro-header-ai-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  background: var(--color-surface, #ffffff);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  isolation: isolate;
+  transition: transform 160ms ease, box-shadow 240ms ease;
+  /* 外光晕：彩色冷暖混合，hover 时加深 */
+  box-shadow:
+    0 0 0 1px rgba(148, 163, 184, 0.18),
+    0 6px 18px -6px rgba(99, 102, 241, 0.35),
+    0 6px 18px -6px rgba(236, 72, 153, 0.18);
+}
+
+/* conic-gradient 描边：用 ::before 当 backdrop，盖一层比 button 大 2px 的渐变盘，
+   再让 button 自身用纯色背景覆盖中央，留出 1.5px 边作为彩色环。 */
+.metro-header-ai-btn::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    #ff3c8e 0%,
+    #ffb347 14%,
+    #ffe66d 28%,
+    #06d6a0 42%,
+    #4cc9f0 58%,
+    #8338ec 74%,
+    #ff3c8e 100%
+  );
+  z-index: -1;
+  animation: metro-ai-btn-rotate 9s linear infinite;
+}
+
+/* 内层圆：把中心遮成 surface 颜色，让外圈 conic-gradient 只露出环带 */
+.metro-header-ai-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--color-surface, #ffffff);
+  z-index: -1;
+}
+
+.metro-header-ai-btn__icon {
+  display: inline-flex;
+  font-size: 16px;
+  color: #4338ca;
+  /* 给 icon 一点彩色：在白底上跟外圈呼应 */
+  background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  line-height: 1;
+}
+
+.metro-header-ai-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 0 0 1px rgba(148, 163, 184, 0.18),
+    0 10px 24px -6px rgba(99, 102, 241, 0.55),
+    0 10px 24px -6px rgba(236, 72, 153, 0.35),
+    0 0 24px -2px rgba(236, 72, 153, 0.45);
+}
+.metro-header-ai-btn:hover::before {
+  animation-duration: 3.5s;
+}
+.metro-header-ai-btn:active {
+  transform: translateY(0) scale(0.96);
+}
+.metro-header-ai-btn:focus-visible {
+  outline: 2px solid rgba(236, 72, 153, 0.7);
+  outline-offset: 3px;
+}
+
+@keyframes metro-ai-btn-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* 深色画布下：内层圆换成深色，icon 自动反相 */
+.metro-app-shell[data-interface-theme="dark"] .metro-header-ai-btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-header-ai-btn::after {
+  background: #0f172a;
+}
+.metro-app-shell[data-interface-theme="dark"] .metro-header-ai-btn__icon {
+  background: linear-gradient(135deg, #818cf8 0%, #f472b6 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+}
+
+/* 用户偏好降低动效时关掉旋转：尊重 prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .metro-header-ai-btn::before {
+    animation: none;
+  }
+}
+
 /* Avatar + 用户名 + 下拉箭头 三件套，作为整个 Dropdown 的 trigger */
 .user-chip,
 .user-chip--trigger {
@@ -2811,8 +2918,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-user-panel {
     gap: 6px !important;
   }
-  .metro-header-save-btn,
-  .metro-header-ai-btn {
+  .metro-header-save-btn {
     width: 40px;
     min-width: 40px;
     padding: 0 !important;
@@ -2821,8 +2927,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     justify-content: center;
   }
   /* 只隐藏文字标签，保留 antd 注入的 icon 作为按钮内容 */
-  .metro-header-save-btn__label,
-  .metro-header-ai-btn__label {
+  .metro-header-save-btn__label {
     display: none !important;
   }
   .user-chip__name {
