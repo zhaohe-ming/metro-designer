@@ -374,7 +374,24 @@ body {
 .metro-sidebar {
   height: 100%;
   padding: 12px;
-  overflow-y: auto;
+  /* 不再让整个侧栏一起滚 —— 改成 flex column，让标题区固定、两个 list 各自滚。
+     站点 / 线路一多，原本"整页上下滚"导致标题区一起滚走，体验很差。 */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 顶部标题区固定不滚 */
+.metro-sidebar > .metro-sidebar__title,
+.metro-sidebar > .metro-sidebar__subtitle {
+  flex: 0 0 auto;
+}
+
+/* antd Divider 默认是 block，flex column 里需要钉住它的尺寸 */
+.metro-sidebar > .ant-divider {
+  flex: 0 0 auto;
+  margin: 12px 0 !important;
 }
 
 .metro-sidebar__badge {
@@ -405,6 +422,11 @@ body {
 
 .metro-sidebar__section {
   margin-top: 16px;
+  /* 两个 section（线路 / 站点）各占剩余空间一份，section-head 钉住，内部 list 滚动 */
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .metro-sidebar__section-head {
@@ -413,6 +435,8 @@ body {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+  /* section-head 不参与 flex 拉伸，钉在 section 顶端 */
+  flex: 0 0 auto;
 }
 
 .metro-sidebar__section-title {
@@ -438,6 +462,28 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  /* 每个 list 占满 section 剩余高度并独立滚动；min-height: 0 是 flex 子项能被压缩 +
+     允许 overflow:auto 生效的关键，否则 list 会被内容撑到完整高度，反而让外层滚动。 */
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  /* 右侧 6px 留白让滚动条不贴边 */
+  padding-right: 4px;
+  /* 自定义滚动条更细一点；Firefox 用 scrollbar-width；WebKit 用 ::-webkit-scrollbar */
+  scrollbar-width: thin;
+}
+.metro-line-list::-webkit-scrollbar,
+.metro-station-list::-webkit-scrollbar {
+  width: 6px;
+}
+.metro-line-list::-webkit-scrollbar-thumb,
+.metro-station-list::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.45);
+  border-radius: 3px;
+}
+.metro-line-list::-webkit-scrollbar-thumb:hover,
+.metro-station-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(148, 163, 184, 0.7);
 }
 
 .metro-line-card {
