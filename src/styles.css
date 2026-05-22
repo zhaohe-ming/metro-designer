@@ -196,7 +196,9 @@ body {
 }
 
 /* conic-gradient 描边：用 ::before 当 backdrop，盖一层比 button 大 2px 的渐变盘，
-   再让 button 自身用纯色背景覆盖中央，留出 1.5px 边作为彩色环。 */
+   再让 button 自身用纯色背景覆盖中央，留出 1.5px 边作为彩色环。
+   注意：conic-gradient + 无限旋转动画会让浏览器每帧重栅化渐变，主线程持续负载，
+   实测会拖累整个页面的响应（包括 Canvas 渲染节奏）。所以默认静止，hover 才转。 */
 .metro-header-ai-btn::before {
   content: '';
   position: absolute;
@@ -213,7 +215,6 @@ body {
     #ff3c8e 100%
   );
   z-index: -1;
-  animation: metro-ai-btn-rotate 9s linear infinite;
 }
 
 /* 内层圆：把中心遮成 surface 颜色，让外圈 conic-gradient 只露出环带 */
@@ -247,7 +248,7 @@ body {
     0 0 24px -2px rgba(236, 72, 153, 0.45);
 }
 .metro-header-ai-btn:hover::before {
-  animation-duration: 3.5s;
+  animation: metro-ai-btn-rotate 3.5s linear infinite;
 }
 .metro-header-ai-btn:active {
   transform: translateY(0) scale(0.96);

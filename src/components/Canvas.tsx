@@ -372,6 +372,8 @@ const Canvas: React.FC<CanvasProps> = ({
   __perfMarkRender('Canvas', __perfRenderRef);
   // 给点击 → modal 弹出这条链路一个起点 ref，让 useEffect 在 modal 真正 open 时打 totals
   const __perfClickStartRef = useRef<number | null>(null);
+  // 上一次 state 指纹，每次 render 跟当前对比，打出"是哪个 state 变了"
+  const __perfStateFpRef = useRef<string>('');
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
@@ -1853,6 +1855,38 @@ const Canvas: React.FC<CanvasProps> = ({
   const dotLabelStyle = mapSettings.dotLabelStyle;
   const amapStyle = mapSettings.baseMap.amap?.style || 'normal';
   const isLightAmapRender = isAmapMode && isMapInteracting;
+  // Perf 诊断：state 指纹。每次 render 跟上次比，**只在变化时**打出来。
+  // 列在这里的字段是 Canvas 里所有"会随交互/动画变化"的高频 state，看哪个无端在变就抓哪个。
+  if (__perfEnabled) {
+    const fp = [
+      `adding=${adding}`,
+      `newStation=${!!newStation}`,
+      `mouseDownPos=${!!mouseDownPosition}`,
+      `isDragging=${isDragging}`,
+      `isDraggingNode=${isDraggingNode}`,
+      `isMapInteracting=${isMapInteracting}`,
+      `mapRenderTick=${mapRenderTick}`,
+      `activeTool=${activeTool}`,
+      `scale=${scale.toFixed(3)}`,
+      `pos=${position.x.toFixed(0)},${position.y.toFixed(0)}`,
+      `stageSize=${stageSize.width}x${stageSize.height}`,
+      `lines=${lines.length}/stations=${stations.length}/sections=${sections.length}`,
+      `showConnect=${showConnectAction}`,
+      `ctxMenu=${stationContextMenu.visible ? 'S' : ''}${canvasContextMenu.visible ? 'C' : ''}${sectionContextMenu.visible ? 'X' : ''}`,
+      `selSection=${!!selectedSection}`,
+      `addingWp=${addingWaypoint}`,
+      `calibGuides=${activeCalibrationGuides.length}`,
+      `amapReady=${amapReady}`
+    ].join('|');
+    if (fp !== __perfStateFpRef.current) {
+      // diff 一下哪些片段变了，输出会更精炼
+      const prevParts = __perfStateFpRef.current.split('|');
+      const curParts = fp.split('|');
+      const changed = curParts.filter((p, i) => p !== prevParts[i]);
+      console.log(`[metro-perf] state changed: ${changed.join(', ') || '(none — pure prop change?)'}`);
+      __perfStateFpRef.current = fp;
+    }
+  }
   // AMap 模式拖动 / 缩放时，AMap 自己已经在底图层绘制，Konva 这一层走"轻量渲染"
   // ——把 labels / shadows / 装饰文字全砍掉，是 AMap 模式拖动顺滑的根本原因。
   // 纯画布模式之前没有这个开关，所以拖动时 Konva 还要绘制 100+ 个 Text + shadow，
