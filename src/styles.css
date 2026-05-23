@@ -87,13 +87,20 @@ body {
 }
 
 .metro-app-shell {
+  /* 桌面端锁死视口高度：整页不上下滚动，由各内部区域（侧栏 list、画布）自己处理超长内容。
+     移动端走下方 @media 媒体查询恢复 min-height + 自然滚动。 */
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   padding: 16px;
   background: var(--metro-bg);
 }
 
 .metro-workbench {
+  /* 锁死高度，不许由内部内容撑大 */
+  height: calc(100vh - 32px);
   min-height: calc(100vh - 32px);
+  overflow: hidden;
   border: 1px solid var(--metro-border);
   border-radius: 12px;
   background: var(--metro-bg);
@@ -388,10 +395,51 @@ body {
   flex: 0 0 auto;
 }
 
-/* antd Divider 默认是 block，flex column 里需要钉住它的尺寸 */
-.metro-sidebar > .ant-divider {
-  flex: 0 0 auto;
-  margin: 12px 0 !important;
+/* 可拖拽分界条：替代原 antd Divider。
+   12px 高 = 4px line + 上下 4px padding 当作命中区（拖小条容易点偏，给足 hit area） */
+.metro-sidebar__splitter {
+  flex: 0 0 14px;
+  margin: 4px 0;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;     /* 移动端禁止浏览器把竖向手势当滚动 */
+  position: relative;
+}
+.metro-sidebar__splitter-grip {
+  width: 100%;
+  height: 1px;
+  background: var(--metro-border);
+  border-radius: 2px;
+  transition: height 100ms ease, background 100ms ease;
+  position: relative;
+}
+/* 中央两根小竖条作 "grip" 视觉提示 */
+.metro-sidebar__splitter-grip::before,
+.metro-sidebar__splitter-grip::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 2px;
+  border-radius: 1px;
+  background: rgba(148, 163, 184, 0.55);
+  transform: translateY(-50%);
+}
+.metro-sidebar__splitter-grip::before { left: calc(50% - 18px); }
+.metro-sidebar__splitter-grip::after  { left: calc(50% + 4px); }
+
+.metro-sidebar__splitter:hover .metro-sidebar__splitter-grip,
+.metro-sidebar__splitter.is-dragging .metro-sidebar__splitter-grip {
+  height: 3px;
+  background: var(--color-primary-600, #2563eb);
+}
+.metro-sidebar__splitter:hover .metro-sidebar__splitter-grip::before,
+.metro-sidebar__splitter:hover .metro-sidebar__splitter-grip::after,
+.metro-sidebar__splitter.is-dragging .metro-sidebar__splitter-grip::before,
+.metro-sidebar__splitter.is-dragging .metro-sidebar__splitter-grip::after {
+  background: var(--color-primary-600, #2563eb);
 }
 
 .metro-sidebar__badge {
@@ -1135,10 +1183,14 @@ body {
 
 @media (max-width: 900px) {
   .metro-app-shell {
+    /* 移动端解除桌面端的"锁死视口"，恢复自然滚动 */
+    height: auto;
+    overflow: visible;
     padding: 10px;
   }
 
   .metro-workbench {
+    height: auto;
     min-height: calc(100vh - 20px);
   }
 

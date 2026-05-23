@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Button, ColorPicker, Divider, Dropdown, Modal, Space, Typography, message } from 'antd';
+import React, { useEffect, useRef, useState } from 'react';
+import { Button, ColorPicker, Dropdown, Modal, Space, Typography, message } from 'antd';
 import Input from 'antd/es/input';
 import { DeleteOutlined, DragOutlined, MoreOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { LINE_COLORS, Line, Station } from '../types';
@@ -145,6 +145,71 @@ const Sidebar: React.FC<SidebarProps> = ({
     color: LINE_COLORS[0],
     showPicker: false
   });
+
+  // 线路 list / 站点 list 之间的可拖拽分界比例。1.0 = 全归线路，0.0 = 全归站点。
+  // 默认 0.5。clamp 到 [0.15, 0.85]，避免某一边塌成 0 高度。持久化到 localStorage。
+  const SIDEBAR_SPLIT_KEY = 'metro_sidebar_split';
+  const [linesFlex, setLinesFlex] = useState<number>(() => {
+    try {
+      const raw = window.localStorage?.getItem(SIDEBAR_SPLIT_KEY);
+      const v = raw == null ? NaN : Number(raw);
+      return Number.isFinite(v) && v >= 0.15 && v <= 0.85 ? v : 0.5;
+    } catch {
+      return 0.5;
+    }
+  });
+  const linesFlexRef = useRef(linesFlex);
+  linesFlexRef.current = linesFlex;
+  const linesSectionRef = useRef<HTMLDivElement>(null);
+  const stationsSectionRef = useRef<HTMLDivElement>(null);
+  // 拖拽时记录起点：起始指针 Y、起始 flex 值、可分配总高度（两个 section 合计的实际像素高度）
+  const splitterDragRef = useRef<{ startY: number; startFlex: number; available: number } | null>(null);
+  const [isSplitterDragging, setIsSplitterDragging] = useState(false);
+
+  useEffect(() => {
+    // 持久化最新比例。setLinesFlex 节奏很高（拖拽时），所以这里 setState → effect 是合理 sink。
+    try { window.localStorage?.setItem(SIDEBAR_SPLIT_KEY, String(linesFlex)); } catch { /* ignore */ }
+  }, [linesFlex]);
+
+  const handleSplitterPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const lines = linesSectionRef.current;
+    const stations = stationsSectionRef.current;
+    if (!lines || !stations) return;
+    const available = lines.getBoundingClientRect().height + stations.getBoundingClientRect().height;
+    if (available <= 0) return;
+    splitterDragRef.current = { startY: e.clientY, startFlex: linesFlexRef.current, available };
+    setIsSplitterDragging(true);
+    // 全局光标 / 防止文本选中
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    window.addEventListener('pointermove', handleSplitterPointerMove);
+    window.addEventListener('pointerup', handleSplitterPointerUp);
+    window.addEventListener('pointercancel', handleSplitterPointerUp);
+  };
+
+  const handleSplitterPointerMove = (e: PointerEvent) => {
+    if (!splitterDragRef.current) return;
+    const { startY, startFlex, available } = splitterDragRef.current;
+    const dy = e.clientY - startY;
+    const next = Math.max(0.15, Math.min(0.85, startFlex + dy / available));
+    setLinesFlex(next);
+  };
+
+  const handleSplitterPointerUp = () => {
+    splitterDragRef.current = null;
+    setIsSplitterDragging(false);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    window.removeEventListener('pointermove', handleSplitterPointerMove);
+    window.removeEventListener('pointerup', handleSplitterPointerUp);
+    window.removeEventListener('pointercancel', handleSplitterPointerUp);
+  };
+
+  // 双击复位到 50/50
+  const handleSplitterDoubleClick = () => {
+    setLinesFlex(0.5);
+  };
 
   const openAddLineModal = () => {
     setAddLineModal({
@@ -323,7 +388,11 @@ const Sidebar: React.FC<SidebarProps> = ({
         {text.subtitle}
       </div>
 
-      <div className="metro-sidebar__section">
+      <div
+        className="metro-sidebar__section"
+        ref={linesSectionRef}
+        style={{ flexGrow: linesFlex }}
+      >
         <div className="metro-sidebar__section-head">
           <div className="metro-sidebar__section-title">{text.lineList}</div>
           <Button
@@ -509,9 +578,23 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      <Divider />
+      {/* 可拖拽分界条：在线路 list 和站点 list 之间。双击复位 50/50。 */}
+      <div
+        className={`metro-sidebar__splitter ${isSplitterDragging ? 'is-dragging' : ''}`}
+        role="separator"
+        aria-orientation="horizontal"
+        aria-label="调整线路列表与站点列表的高度"
+        onPointerDown={handleSplitterPointerDown}
+        onDoubleClick={handleSplitterDoubleClick}
+      >
+        <div className="metro-sidebar__splitter-grip" aria-hidden="true" />
+      </div>
 
-      <div className="metro-sidebar__section">
+      <div
+        className="metro-sidebar__section"
+        ref={stationsSectionRef}
+        style={{ flexGrow: 1 - linesFlex }}
+      >
         <div className="metro-sidebar__section-head">
           <div className="metro-sidebar__section-title">{text.allStations}</div>
           <Text type="secondary">{stations.length}</Text>
