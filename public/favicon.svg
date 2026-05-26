@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Metro Designer logo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#3b82f6"/>
+      <stop offset="100%" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <!-- 圆角方块：代表"画布"。蓝色基调跟 app 的 primary CTA 颜色对齐 -->
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <!-- 两条交叉地铁线：红 + 黄，经典轨道交通配色，构成 X 视觉中心 -->
+  <line x1="8" y1="18" x2="56" y2="46" stroke="#ef4444" stroke-width="8" stroke-linecap="round"/>
+  <line x1="56" y1="18" x2="8" y2="46" stroke="#fbbf24" stroke-width="8" stroke-linecap="round"/>
+  <!-- 中心换乘站：白心 + 深色描边。跟应用里的 lineColorArcs / concentricRing 同款语义 -->
+  <circle cx="32" cy="32" r="10" fill="#ffffff" stroke="#0f172a" stroke-width="2.5"/>
+</svg>
