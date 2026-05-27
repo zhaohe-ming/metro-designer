@@ -1517,13 +1517,46 @@ function validateAIOperation(op, lineIds, stationIds) {
   }
 }
 
+// AI 编辑路由：支持多轮对话。
+// Body 形状：
+//   新格式: { messages: [{role:'user'|'assistant', content:string}, ...], mapState }
+//   兼容老格式: { message: string, mapState }（前端旧版本 / curl 测试）
+//
+// 重要约束：mapState 始终用"当前最新"状态送到 system，对话历史里不重复包它。
+// 这样即便 AI 在 10 轮前看到的线路 1 是蓝色，第 11 轮也能基于最新（已变红）状态推理。
 app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
-  const userMessage = String(req.body?.message || '').trim();
-  if (!userMessage) return res.status(400).json({ message: '请描述你想做的修改' });
-  if (userMessage.length > 500) return res.status(400).json({ message: '描述过长，请精简到 500 字以内' });
+  // 解析 messages：优先用新 messages 数组；不带就退化到 message 单条
+  let history = Array.isArray(req.body?.messages) ? req.body.messages : null;
+  if (!history) {
+    const single = String(req.body?.message || '').trim();
+    if (!single) return res.status(400).json({ message: '请描述你想做的修改' });
+    history = [{ role: 'user', content: single }];
+  }
+
+  // 校验对话格式 + 长度上限（防 LLM 上下文爆 / 防滥用）
+  if (history.length === 0) return res.status(400).json({ message: '消息列表为空' });
+  if (history.length > 40) {
+    return res.status(400).json({ message: '对话过长（>40 条），请点击"新建对话"重新开始' });
+  }
+  for (const m of history) {
+    if (!m || (m.role !== 'user' && m.role !== 'assistant')) {
+      return res.status(400).json({ message: '消息格式无效：role 必须是 user 或 assistant' });
+    }
+    if (typeof m.content !== 'string') {
+      return res.status(400).json({ message: '消息 content 必须是字符串' });
+    }
+    if (m.content.length > 2000) {
+      return res.status(400).json({ message: '单条消息过长（>2000 字）' });
+    }
+  }
+  if (history[history.length - 1].role !== 'user') {
+    return res.status(400).json({ message: '最后一条消息必须是用户消息' });
+  }
+
   if (!ai.hasKey()) {
     return res.status(503).json({ message: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）' });
   }
+
   const mapState = req.body?.mapState || {};
   const linesArr = Array.isArray(mapState.lines) ? mapState.lines : [];
   const stationsArr = Array.isArray(mapState.stations) ? mapState.stations : [];
@@ -1544,34 +1577,48 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
     .map((s) => `- {id: "${s.id}", name: "${s.name}"}`)
     .join('\n');
 
+  // 组装 LLM messages：
+  //   1) system：通用规则（不带 mapState，方便 OpenAI 兼容平台做 prompt caching）
+  //   2) user：当前最新 mapState（每次都最新；多轮里旧 mapState 自动失效）
+  //   3) assistant：占位"已了解地图状态"，让 LLM 把它视作"上下文已注入"
+  //   4) ...history：真实多轮对话（用户 ↔ 助手交替）
+  const llmMessages = [
+    {
+      role: 'system',
+      content:
+        '你是一个地铁线路图设计助手。\n' +
+        '规则：\n' +
+        '1. 用户用中文描述编辑意图，你把它翻译成对当前地图的具体工具调用。\n' +
+        '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
+        '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
+        '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
+        '5. 区分"新建站点"和"已存在站点"：\n' +
+        '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
+        '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
+        '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
+        '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
+        '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
+        '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
+        '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
+        '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。\n' +
+        '9. 多轮对话：用户可以连续追问，比如"刚刚那条线再延伸 3 个站"。结合上下文 + 最新地图状态做判断；不确定就反问。'
+    },
+    {
+      role: 'user',
+      content:
+        `【当前地图状态（始终是最新的，先于任何对话历史）】\n` +
+        `线路:\n${stateLines || '（无）'}\n\n` +
+        `站点:\n${stateStations || '（无）'}`
+    },
+    {
+      role: 'assistant',
+      content: '收到当前地图状态。请告诉我你想做的修改。'
+    },
+    ...history.map((m) => ({ role: m.role, content: m.content }))
+  ];
+
   const result = await ai.chatCompletion({
-    messages: [
-      {
-        role: 'system',
-        content:
-          '你是一个地铁线路图设计助手。\n' +
-          '规则：\n' +
-          '1. 用户用中文描述编辑意图，你把它翻译成对当前地图的具体工具调用。\n' +
-          '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
-          '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
-          '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
-          '5. 区分"新建站点"和"已存在站点"：\n' +
-          '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
-          '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
-          '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
-          '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
-          '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
-          '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
-          '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
-          '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。'
-      },
-      {
-        role: 'user',
-        content:
-          `【当前地图】\n线路:\n${stateLines || '（无）'}\n\n站点:\n${stateStations || '（无）'}\n\n` +
-          `【用户请求】\n${userMessage}`
-      }
-    ],
+    messages: llmMessages,
     tools: AI_EDIT_TOOLS,
     toolChoice: 'auto',
     temperature: 0.1,

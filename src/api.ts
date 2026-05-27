@@ -200,9 +200,10 @@ export const api = {
       body: JSON.stringify({ name: name.trim() })
     }, 'login'),
 
-  // 自然语言编辑：把当前地图状态 + 用户描述送给 LLM，回一组结构化 operations
+  // 自然语言编辑（多轮）：把对话历史 + 当前最新 mapState 送给 LLM，回一组结构化 operations。
+  // history 数组按时间顺序，最后一条必须是 user。最长 40 条 / 单条 ≤2000 字（后端会拒）。
   aiEdit: (payload: {
-    message: string;
+    messages: { role: 'user' | 'assistant'; content: string }[];
     mapState: {
       lines: { id: string; name: string; color: string; stationIds: string[] }[];
       stations: { id: string; name: string }[];

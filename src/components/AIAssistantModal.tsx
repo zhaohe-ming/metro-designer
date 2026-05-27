@@ -1,26 +1,49 @@
-import React, { useState } from 'react';
-import { Alert, Button, Input, Space, Tag, Typography } from 'antd';
-import { CheckOutlined, CloseOutlined, SendOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Button, Input, Space, Spin, Tag, Typography } from 'antd';
+import {
+  CheckOutlined,
+  CloseOutlined,
+  PlusOutlined,
+  SendOutlined,
+  ThunderboltOutlined
+} from '@ant-design/icons';
 import DraggableModal from './DraggableModal';
 import { AIOperation } from '../api';
 
 const { Paragraph, Text } = Typography;
 const { TextArea } = Input;
 
+interface AnalyzeResult {
+  explanation: string;
+  operations: AIOperation[];
+  summaries: string[];
+  skippedCount: number;
+}
+
 interface AIAssistantModalProps {
   open: boolean;
   busy: boolean;
-  // 拆开"分析"和"执行"：onAnalyze 调 LLM 拿到 operations + summaries，
-  // 不立刻改地图；用户在 modal 里点"应用"才走 onApply。
-  onAnalyze: (message: string) => Promise<{
-    explanation: string;
-    operations: AIOperation[];
-    summaries: string[];
-    skippedCount: number;
-  }>;
+  // 多轮：每次提交把"完整对话历史（只含 role+content）"送给 onAnalyze。
+  // 父组件不需要管对话状态，由本组件维护。
+  onAnalyze: (messages: { role: 'user' | 'assistant'; content: string }[]) => Promise<AnalyzeResult>;
   onApply: (operations: AIOperation[]) => number;
   onCancel: () => void;
 }
+
+// 前端用的内部消息格式：比"传给后端的纯 role+content"多一些 UI 维护字段
+type ChatMessage =
+  | { role: 'user'; id: string; content: string }
+  | {
+      role: 'assistant';
+      id: string;
+      content: string;
+      operations: AIOperation[];
+      summaries: string[];
+      skippedCount: number;
+      // applied = 已经被用户点过"应用"（按钮消失），或"丢弃"（操作清空）。
+      applied: boolean;
+      discarded: boolean;
+    };
 
 const PRESET_PROMPTS = [
   '把 1 号线改成红色 #d23030',
@@ -29,108 +52,169 @@ const PRESET_PROMPTS = [
   '删除 3 号线'
 ];
 
-type PendingPlan = {
-  explanation: string;
-  operations: AIOperation[];
-  summaries: string[];
-  skippedCount: number;
-};
-
 const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnalyze, onApply, onCancel }) => {
-  const [message, setMessage] = useState('');
-  // 待用户确认的操作计划。null = 当前无 plan 可看。
-  const [pending, setPending] = useState<PendingPlan | null>(null);
-  // 上一次成功应用的结果（应用完之后保留一会儿给用户回顾）
-  const [appliedResult, setAppliedResult] = useState<{ count: number; summaries: string[] } | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 新消息进来 / busy 状态变化时自动滚到底部，让"正在思考"指示器和 AI 回复始终可见
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, busy]);
 
   const handleSubmit = async () => {
-    if (!message.trim() || busy) return;
+    const text = input.trim();
+    if (!text || busy) return;
     setError('');
-    setAppliedResult(null);
+
+    // 先把 user message 推进 history 让用户看到自己说了什么
+    const userMsg: ChatMessage = {
+      role: 'user',
+      id: `u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      content: text
+    };
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
+    setInput('');
+
     try {
-      const plan = await onAnalyze(message.trim());
-      setPending(plan);
-      // 不清 message，方便用户在 plan 不满意时直接改文案再 submit
+      // 把整段对话历史送给后端（含刚加的这条 user）。后端会拼上当前最新 mapState。
+      const result = await onAnalyze(
+        nextMessages.map((m) => ({ role: m.role, content: m.content }))
+      );
+      const assistantMsg: ChatMessage = {
+        role: 'assistant',
+        id: `a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+        content:
+          result.explanation ||
+          (result.operations.length > 0
+            ? `好的，准备执行 ${result.operations.length} 个操作。`
+            : 'AI 没有给出可执行的操作。'),
+        operations: result.operations,
+        summaries: result.summaries,
+        skippedCount: result.skippedCount,
+        applied: false,
+        discarded: false
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
     } catch (e: any) {
       setError(e?.message || 'AI 调用失败');
-      setPending(null);
+      // 失败时保留用户的提问（这样可以"返回登录 / 重试"，不用重新输入）。
     }
   };
 
-  const handleApply = () => {
-    if (!pending) return;
-    const count = onApply(pending.operations);
-    setAppliedResult({ count, summaries: pending.summaries });
-    setPending(null);
-    setMessage('');
+  const handleApply = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id === msgId && m.role === 'assistant' && !m.applied && !m.discarded) {
+          onApply(m.operations);
+          return { ...m, applied: true };
+        }
+        return m;
+      })
+    );
   };
 
-  const handleDiscard = () => {
-    setPending(null);
+  const handleDiscard = (msgId: string) => {
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id === msgId && m.role === 'assistant' && !m.applied && !m.discarded) {
+          return { ...m, discarded: true };
+        }
+        return m;
+      })
+    );
+  };
+
+  const handleNewConversation = () => {
+    setMessages([]);
+    setInput('');
+    setError('');
+  };
+
+  const usePresetPrompt = (p: string) => {
+    setInput((cur) => (cur ? cur : p));
   };
 
   return (
     <DraggableModal
       title={
-        <span>
-          <ThunderboltOutlined style={{ marginRight: 8, color: '#2563eb' }} />
-          AI 助手
-        </span>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <span>
+            <ThunderboltOutlined style={{ marginRight: 8, color: '#2563eb' }} />
+            AI 助手
+          </span>
+          <Button
+            size="small"
+            icon={<PlusOutlined />}
+            onClick={handleNewConversation}
+            disabled={messages.length === 0 || busy}
+            style={{ marginRight: 28 /* 给 modal 关闭 X 留位 */ }}
+          >
+            新建对话
+          </Button>
+        </div>
       }
       open={open}
       onCancel={onCancel}
       footer={null}
-      width={600}
+      width={640}
     >
-      <Paragraph type="secondary" style={{ marginBottom: 12 }}>
-        用自然语言描述你想做的修改，AI 会先给出一个操作清单 —— 你确认后才真正写到画布。
-        操作完成后可以 Ctrl+Z 撤销。
-      </Paragraph>
-
-      <div style={{ marginBottom: 12 }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>常用示例（点击填入）：</Text>
-        <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {PRESET_PROMPTS.map((p) => (
-            <Tag
-              key={p}
-              style={{ cursor: 'pointer', padding: '4px 8px' }}
-              onClick={() => setMessage(p)}
-            >
-              {p}
-            </Tag>
-          ))}
-        </div>
-      </div>
-
-      <TextArea
-        rows={3}
-        placeholder="例：在五道口和清华东路之间加 3 个站，名字依次叫北航、知春路、海淀黄庄"
-        value={message}
-        maxLength={500}
-        showCount
-        onChange={(e) => setMessage(e.target.value)}
-        onPressEnter={(e) => {
-          if (e.ctrlKey || e.metaKey) {
-            e.preventDefault();
-            handleSubmit();
-          }
+      {/* 对话历史 */}
+      <div
+        ref={scrollRef}
+        style={{
+          minHeight: 260,
+          maxHeight: 460,
+          overflowY: 'auto',
+          padding: '12px 8px',
+          borderRadius: 10,
+          background: 'var(--color-surface-muted, #f6f8fc)',
+          border: '1px solid var(--color-border-subtle, #e2e8f0)'
         }}
-        style={{ marginBottom: 12 }}
-      />
-
-      <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-        <Text type="secondary" style={{ fontSize: 12 }}>Ctrl/Cmd + Enter 提交</Text>
-        <Button
-          type="primary"
-          icon={<SendOutlined />}
-          loading={busy}
-          disabled={!message.trim()}
-          onClick={handleSubmit}
-        >
-          提交给 AI
-        </Button>
-      </Space>
+      >
+        {messages.length === 0 && !busy ? (
+          <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--color-text-soft, #94a3b8)' }}>
+            <ThunderboltOutlined style={{ fontSize: 32, marginBottom: 12, color: '#2563eb' }} />
+            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+              用自然语言描述你想做的修改。可以连续追问，AI 会记住上文。
+            </Paragraph>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center' }}>
+              {PRESET_PROMPTS.map((p) => (
+                <Tag
+                  key={p}
+                  style={{ cursor: 'pointer', padding: '4px 10px', fontSize: 12 }}
+                  onClick={() => usePresetPrompt(p)}
+                >
+                  {p}
+                </Tag>
+              ))}
+            </div>
+          </div>
+        ) : (
+          messages.map((msg) =>
+            msg.role === 'user' ? (
+              <UserBubble key={msg.id} content={msg.content} />
+            ) : (
+              <AssistantBubble
+                key={msg.id}
+                content={msg.content}
+                operations={msg.operations}
+                summaries={msg.summaries}
+                skippedCount={msg.skippedCount}
+                applied={msg.applied}
+                discarded={msg.discarded}
+                onApply={() => handleApply(msg.id)}
+                onDiscard={() => handleDiscard(msg.id)}
+              />
+            )
+          )
+        )}
+        {busy ? <AssistantBubble loading /> : null}
+      </div>
 
       {error ? (
         <Alert
@@ -143,91 +227,188 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
         />
       ) : null}
 
-      {/* 待确认的操作计划：AI 分析完会先停在这一步，等用户点"应用"。 */}
-      {pending ? (
+      {/* 输入区 */}
+      <div style={{ marginTop: 12 }}>
+        <TextArea
+          rows={2}
+          placeholder={messages.length === 0 ? '例：把 1 号线改成红色' : '继续追问，比如：再加 3 个站'}
+          value={input}
+          maxLength={500}
+          showCount
+          onChange={(e) => setInput(e.target.value)}
+          onPressEnter={(e) => {
+            if (e.ctrlKey || e.metaKey) {
+              e.preventDefault();
+              handleSubmit();
+            }
+          }}
+          disabled={busy}
+          style={{ marginBottom: 10 }}
+        />
+        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Ctrl/Cmd + Enter 发送
+          </Text>
+          <Button
+            type="primary"
+            icon={<SendOutlined />}
+            loading={busy}
+            disabled={!input.trim() || busy}
+            onClick={handleSubmit}
+          >
+            发送
+          </Button>
+        </Space>
+      </div>
+    </DraggableModal>
+  );
+};
+
+// ── Bubble 组件们 ────────────────────────────────────────────────────────
+
+const UserBubble: React.FC<{ content: string }> = ({ content }) => (
+  <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+    <div
+      style={{
+        maxWidth: '80%',
+        padding: '8px 12px',
+        background: '#2563eb',
+        color: '#ffffff',
+        borderRadius: '12px 12px 4px 12px',
+        whiteSpace: 'pre-wrap',
+        fontSize: 14,
+        lineHeight: 1.55
+      }}
+    >
+      {content}
+    </div>
+  </div>
+);
+
+interface AssistantBubbleProps {
+  content?: string;
+  operations?: AIOperation[];
+  summaries?: string[];
+  skippedCount?: number;
+  applied?: boolean;
+  discarded?: boolean;
+  loading?: boolean;
+  onApply?: () => void;
+  onDiscard?: () => void;
+}
+
+const AssistantBubble: React.FC<AssistantBubbleProps> = ({
+  content,
+  operations,
+  summaries,
+  skippedCount,
+  applied,
+  discarded,
+  loading,
+  onApply,
+  onDiscard
+}) => {
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
         <div
           style={{
-            marginTop: 16,
-            padding: 14,
-            background: 'var(--color-primary-50, #eef4ff)',
-            borderRadius: 10,
-            border: '1px solid var(--color-primary-100, #d8e5ff)'
+            padding: '10px 14px',
+            background: '#ffffff',
+            border: '1px solid var(--color-border-subtle, #e2e8f0)',
+            borderRadius: '12px 12px 12px 4px',
+            color: 'var(--color-text-soft, #94a3b8)',
+            fontSize: 14
           }}
         >
-          <Text strong style={{ display: 'block', marginBottom: 8 }}>
-            {pending.operations.length > 0
-              ? `AI 建议执行 ${pending.operations.length} 个操作`
-              : 'AI 没有给出可执行的操作'}
-            {pending.skippedCount > 0 ? `（另有 ${pending.skippedCount} 个无效操作已被跳过）` : ''}
-          </Text>
+          <Spin size="small" style={{ marginRight: 8 }} />
+          AI 正在思考…
+        </div>
+      </div>
+    );
+  }
 
-          {pending.operations.length > 0 ? (
-            <ol style={{ margin: '0 0 12px', paddingLeft: 22, fontSize: 13, lineHeight: 1.7 }}>
-              {pending.summaries.map((s, i) => (
-                <li key={i} style={{ color: 'var(--color-text)' }}>{s}</li>
-              ))}
-            </ol>
-          ) : null}
+  const hasOps = (operations?.length || 0) > 0;
+  const showApplyControls = hasOps && !applied && !discarded;
 
-          {pending.explanation ? (
-            <Paragraph
-              type="secondary"
+  return (
+    <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
+      <div style={{ maxWidth: '88%' }}>
+        {content ? (
+          <div
+            style={{
+              padding: '8px 12px',
+              background: '#ffffff',
+              border: '1px solid var(--color-border-subtle, #e2e8f0)',
+              borderRadius: '12px 12px 12px 4px',
+              whiteSpace: 'pre-wrap',
+              fontSize: 14,
+              lineHeight: 1.55,
+              marginBottom: hasOps ? 6 : 0
+            }}
+          >
+            {content}
+          </div>
+        ) : null}
+
+        {hasOps ? (
+          <div
+            style={{
+              padding: '10px 12px',
+              borderRadius: 8,
+              fontSize: 13,
+              background: applied
+                ? 'rgba(34, 197, 94, 0.08)'
+                : discarded
+                  ? 'rgba(148, 163, 184, 0.12)'
+                  : 'var(--color-primary-50, #eef4ff)',
+              border: `1px solid ${
+                applied
+                  ? 'rgba(34, 197, 94, 0.25)'
+                  : discarded
+                    ? 'rgba(148, 163, 184, 0.3)'
+                    : 'var(--color-primary-100, #d8e5ff)'
+              }`
+            }}
+          >
+            <Text
+              strong
               style={{
-                fontSize: 12,
-                marginBottom: 12,
-                whiteSpace: 'pre-wrap',
-                padding: 10,
-                background: 'rgba(255, 255, 255, 0.5)',
-                borderRadius: 6
+                display: 'block',
+                marginBottom: 6,
+                color: applied ? '#16a34a' : discarded ? '#64748b' : undefined
               }}
             >
-              AI 的说明：{pending.explanation}
-            </Paragraph>
-          ) : null}
-
-          <Space>
-            <Button
-              type="primary"
-              icon={<CheckOutlined />}
-              disabled={pending.operations.length === 0}
-              onClick={handleApply}
-            >
-              应用到画布
-            </Button>
-            <Button icon={<CloseOutlined />} onClick={handleDiscard}>
-              丢弃并重新输入
-            </Button>
-          </Space>
-        </div>
-      ) : null}
-
-      {/* 上一次成功应用的结果摘要 */}
-      {appliedResult ? (
-        <div
-          style={{
-            marginTop: 16,
-            padding: 12,
-            background: 'rgba(34, 197, 94, 0.08)',
-            borderRadius: 8,
-            border: '1px solid rgba(34, 197, 94, 0.25)'
-          }}
-        >
-          <Text strong style={{ display: 'block', marginBottom: 6, color: '#16a34a' }}>
-            ✓ 已应用 {appliedResult.count} 个操作
-          </Text>
-          {appliedResult.summaries.length > 0 ? (
-            <ul style={{ margin: 0, paddingLeft: 20, fontSize: 12, lineHeight: 1.6, color: 'var(--color-text-soft)' }}>
-              {appliedResult.summaries.map((s, i) => (
-                <li key={i}>{s}</li>
+              {applied
+                ? `✓ 已应用 ${operations!.length} 个操作`
+                : discarded
+                  ? `已丢弃 ${operations!.length} 个操作`
+                  : `建议执行 ${operations!.length} 个操作`}
+              {!applied && !discarded && (skippedCount || 0) > 0
+                ? `（${skippedCount} 个无效已跳过）`
+                : ''}
+            </Text>
+            <ol style={{ margin: 0, paddingLeft: 20, lineHeight: 1.7 }}>
+              {summaries!.map((s, i) => (
+                <li key={i} style={{ color: discarded ? '#94a3b8' : undefined }}>
+                  {s}
+                </li>
               ))}
-            </ul>
-          ) : null}
-          <Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-            可以 Ctrl + Z 撤销所有操作。
-          </Paragraph>
-        </div>
-      ) : null}
-    </DraggableModal>
+            </ol>
+            {showApplyControls ? (
+              <Space style={{ marginTop: 10 }}>
+                <Button type="primary" size="small" icon={<CheckOutlined />} onClick={onApply}>
+                  应用到画布
+                </Button>
+                <Button size="small" icon={<CloseOutlined />} onClick={onDiscard}>
+                  丢弃
+                </Button>
+              </Space>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 };
 

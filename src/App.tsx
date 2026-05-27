@@ -1518,9 +1518,10 @@ const App: React.FC = () => {
     }
   };
 
-  // 让 AI 分析意图，但**不要**直接 apply。返回操作列表 + 人类可读摘要 + AI 的解释文字，
-  // 由 AIAssistantModal 渲染确认面板；用户点"应用"时才调 applyAIOperations。
-  const handleAiAnalyze = async (userMessage: string) => {
+  // 让 AI 分析意图（支持多轮）：传完整对话历史 + 当前最新地图状态，回操作清单。
+  // 调用方（AIAssistantModal）维护 messages 数组，每次提交都附完整历史。
+  // mapState 每次现算，确保即使在多轮里也是最新状态。
+  const handleAiAnalyze = async (messages: { role: 'user' | 'assistant'; content: string }[]) => {
     setAiBusy(true);
     try {
       const mapState = {
@@ -1532,7 +1533,7 @@ const App: React.FC = () => {
         })),
         stations: stations.map((s) => ({ id: s.id, name: s.name }))
       };
-      const result = await api.aiEdit({ message: userMessage, mapState });
+      const result = await api.aiEdit({ messages, mapState });
       return {
         explanation: result.explanation || '',
         operations: result.operations || [],
