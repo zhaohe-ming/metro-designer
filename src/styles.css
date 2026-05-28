@@ -269,6 +269,17 @@ body {
   to { transform: rotate(360deg); }
 }
 
+/* AI 流式输出时的打字光标 */
+.metro-ai-typing-cursor {
+  display: inline-block;
+  margin-left: 1px;
+  color: var(--color-primary-600, #2563eb);
+  animation: metro-ai-cursor-blink 1s steps(2, start) infinite;
+}
+@keyframes metro-ai-cursor-blink {
+  to { opacity: 0; }
+}
+
 /* 深色画布下：内层圆换成深色，icon 自动反相 */
 .metro-app-shell[data-interface-theme="dark"] .metro-header-ai-btn,
 .metro-app-shell[data-interface-theme="dark"] .metro-header-ai-btn::after {

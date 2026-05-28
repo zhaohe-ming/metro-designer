@@ -1517,55 +1517,58 @@ function validateAIOperation(op, lineIds, stationIds) {
   }
 }
 
-// AI 编辑路由：支持多轮对话。
-// Body 形状：
-//   新格式: { messages: [{role:'user'|'assistant', content:string}, ...], mapState }
-//   兼容老格式: { message: string, mapState }（前端旧版本 / curl 测试）
-//
-// 重要约束：mapState 始终用"当前最新"状态送到 system，对话历史里不重复包它。
-// 这样即便 AI 在 10 轮前看到的线路 1 是蓝色，第 11 轮也能基于最新（已变红）状态推理。
-app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
-  // 解析 messages：优先用新 messages 数组；不带就退化到 message 单条
+const AI_EDIT_SYSTEM_PROMPT =
+  '你是一个地铁线路图设计助手。\n' +
+  '规则：\n' +
+  '1. 用户用中文描述编辑意图，你把它翻译成对当前地图的具体工具调用。\n' +
+  '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
+  '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
+  '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
+  '5. 区分"新建站点"和"已存在站点"：\n' +
+  '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
+  '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
+  '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
+  '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
+  '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
+  '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
+  '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
+  '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。\n' +
+  '9. 多轮对话：用户可以连续追问，比如"刚刚那条线再延伸 3 个站"。结合上下文 + 最新地图状态做判断；不确定就反问。';
+
+// 共享的请求预处理：校验 messages + 组装 LLM payload + 收集 id 集合。
+// 返回 { error, status } 表示校验失败；否则 { llmMessages, lineIds, stationIds }。
+// /api/ai/edit（一次性）和 /api/ai/edit-stream（流式）共用。
+function prepareAiEdit(req) {
   let history = Array.isArray(req.body?.messages) ? req.body.messages : null;
   if (!history) {
     const single = String(req.body?.message || '').trim();
-    if (!single) return res.status(400).json({ message: '请描述你想做的修改' });
+    if (!single) return { error: '请描述你想做的修改', status: 400 };
     history = [{ role: 'user', content: single }];
   }
-
-  // 校验对话格式 + 长度上限（防 LLM 上下文爆 / 防滥用）
-  if (history.length === 0) return res.status(400).json({ message: '消息列表为空' });
+  if (history.length === 0) return { error: '消息列表为空', status: 400 };
   if (history.length > 40) {
-    return res.status(400).json({ message: '对话过长（>40 条），请点击"新建对话"重新开始' });
+    return { error: '对话过长（>40 条），请点击"新建对话"重新开始', status: 400 };
   }
   for (const m of history) {
     if (!m || (m.role !== 'user' && m.role !== 'assistant')) {
-      return res.status(400).json({ message: '消息格式无效：role 必须是 user 或 assistant' });
+      return { error: '消息格式无效：role 必须是 user 或 assistant', status: 400 };
     }
-    if (typeof m.content !== 'string') {
-      return res.status(400).json({ message: '消息 content 必须是字符串' });
-    }
-    if (m.content.length > 2000) {
-      return res.status(400).json({ message: '单条消息过长（>2000 字）' });
-    }
+    if (typeof m.content !== 'string') return { error: '消息 content 必须是字符串', status: 400 };
+    if (m.content.length > 2000) return { error: '单条消息过长（>2000 字）', status: 400 };
   }
   if (history[history.length - 1].role !== 'user') {
-    return res.status(400).json({ message: '最后一条消息必须是用户消息' });
+    return { error: '最后一条消息必须是用户消息', status: 400 };
   }
-
   if (!ai.hasKey()) {
-    return res.status(503).json({ message: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）' });
+    return { error: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）', status: 503 };
   }
 
   const mapState = req.body?.mapState || {};
   const linesArr = Array.isArray(mapState.lines) ? mapState.lines : [];
   const stationsArr = Array.isArray(mapState.stations) ? mapState.stations : [];
-  // 用 Set 做 O(1) 校验
   const lineIds = new Set(linesArr.map((l) => String(l.id)));
   const stationIds = new Set(stationsArr.map((s) => String(s.id)));
 
-  // 压缩地图状态进 prompt：只送 id + name（+ 颜色 / 站点序列），不送坐标。
-  // 坐标 LLM 用不上反而吃 token。
   const stateLines = linesArr
     .slice(0, 50)
     .map(
@@ -1577,32 +1580,8 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
     .map((s) => `- {id: "${s.id}", name: "${s.name}"}`)
     .join('\n');
 
-  // 组装 LLM messages：
-  //   1) system：通用规则（不带 mapState，方便 OpenAI 兼容平台做 prompt caching）
-  //   2) user：当前最新 mapState（每次都最新；多轮里旧 mapState 自动失效）
-  //   3) assistant：占位"已了解地图状态"，让 LLM 把它视作"上下文已注入"
-  //   4) ...history：真实多轮对话（用户 ↔ 助手交替）
   const llmMessages = [
-    {
-      role: 'system',
-      content:
-        '你是一个地铁线路图设计助手。\n' +
-        '规则：\n' +
-        '1. 用户用中文描述编辑意图，你把它翻译成对当前地图的具体工具调用。\n' +
-        '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
-        '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
-        '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
-        '5. 区分"新建站点"和"已存在站点"：\n' +
-        '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
-        '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
-        '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
-        '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
-        '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
-        '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
-        '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
-        '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。\n' +
-        '9. 多轮对话：用户可以连续追问，比如"刚刚那条线再延伸 3 个站"。结合上下文 + 最新地图状态做判断；不确定就反问。'
-    },
+    { role: 'system', content: AI_EDIT_SYSTEM_PROMPT },
     {
       role: 'user',
       content:
@@ -1610,36 +1589,27 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
         `线路:\n${stateLines || '（无）'}\n\n` +
         `站点:\n${stateStations || '（无）'}`
     },
-    {
-      role: 'assistant',
-      content: '收到当前地图状态。请告诉我你想做的修改。'
-    },
+    { role: 'assistant', content: '收到当前地图状态。请告诉我你想做的修改。' },
     ...history.map((m) => ({ role: m.role, content: m.content }))
   ];
 
-  const result = await ai.chatCompletion({
-    messages: llmMessages,
-    tools: AI_EDIT_TOOLS,
-    toolChoice: 'auto',
-    temperature: 0.1,
-    maxTokens: 800
-  });
+  return { llmMessages, lineIds, stationIds };
+}
 
-  if (!result.ok) {
-    return res.status(502).json({ message: `AI 调用失败（${result.reason}），请稍后重试` });
-  }
-  const msg = result.data?.choices?.[0]?.message;
-  const toolCalls = Array.isArray(msg?.tool_calls) ? msg.tool_calls : [];
-  const explanation = (msg?.content || '').trim();
-  // 解析 tool_calls → operations[]，逐个校验，跳过非法的
+// 把 tool calls（可能来自一次性 message.tool_calls，也可能来自流式累加的 {name,arguments}）
+// 解析 + 校验成 operations[]，非法的进 skipped。
+function toolCallsToOperations(toolCalls, lineIds, stationIds) {
   const operations = [];
   const skipped = [];
   for (const tc of toolCalls) {
-    if (tc.type !== 'function') continue;
-    const name = tc.function?.name;
+    // 一次性版本：{ type:'function', function:{name, arguments} }
+    // 流式版本：    { name, arguments }
+    const name = tc.function?.name ?? tc.name;
+    const rawArgs = tc.function?.arguments ?? tc.arguments;
+    if (!name) continue;
     let args;
     try {
-      args = JSON.parse(tc.function?.arguments || '{}');
+      args = JSON.parse(rawArgs || '{}');
     } catch {
       skipped.push({ name, reason: 'invalid_json' });
       continue;
@@ -1651,7 +1621,68 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
     }
     operations.push(op);
   }
+  return { operations, skipped };
+}
+
+// 一次性（非流式）AI 编辑路由。保留给老前端 / curl 测试。
+app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
+  const prepared = prepareAiEdit(req);
+  if (prepared.error) return res.status(prepared.status).json({ message: prepared.error });
+
+  const result = await ai.chatCompletion({
+    messages: prepared.llmMessages,
+    tools: AI_EDIT_TOOLS,
+    toolChoice: 'auto',
+    temperature: 0.1,
+    maxTokens: 800
+  });
+  if (!result.ok) {
+    return res.status(502).json({ message: `AI 调用失败（${result.reason}），请稍后重试` });
+  }
+  const msg = result.data?.choices?.[0]?.message;
+  const toolCalls = Array.isArray(msg?.tool_calls) ? msg.tool_calls : [];
+  const explanation = (msg?.content || '').trim();
+  const { operations, skipped } = toolCallsToOperations(toolCalls, prepared.lineIds, prepared.stationIds);
   res.json({ operations, explanation, skipped });
+}));
+
+// 流式 AI 编辑路由（SSE）。前端默认走这个，文字 token 实时吐，工具调用在流尾汇总成 operations。
+// 事件格式（每条 data: 一个 JSON）：
+//   { type: 'delta', text }                          文本增量
+//   { type: 'done', operations, explanation, skipped } 流结束 + 解析结果
+//   { type: 'error', message }                        出错
+app.post('/api/ai/edit-stream', auth, aiLimiter, asyncHandler(async (req, res) => {
+  const prepared = prepareAiEdit(req);
+  if (prepared.error) return res.status(prepared.status).json({ message: prepared.error });
+
+  // SSE headers。X-Accel-Buffering 关掉反向代理缓冲，保证 token 实时到达
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  const send = (obj) => res.write(`data: ${JSON.stringify(obj)}\n\n`);
+
+  let fullText = '';
+  const result = await ai.chatCompletionStream({
+    messages: prepared.llmMessages,
+    tools: AI_EDIT_TOOLS,
+    toolChoice: 'auto',
+    temperature: 0.1,
+    maxTokens: 800,
+    onDelta: (token) => {
+      fullText += token;
+      send({ type: 'delta', text: token });
+    }
+  });
+
+  if (!result.ok) {
+    send({ type: 'error', message: `AI 调用失败（${result.reason}），请稍后重试` });
+    return res.end();
+  }
+  const { operations, skipped } = toolCallsToOperations(result.toolCalls, prepared.lineIds, prepared.stationIds);
+  send({ type: 'done', operations, explanation: (result.content || fullText).trim(), skipped });
+  res.end();
 }));
 
 app.get('/api/maps', auth, asyncHandler(async (req, res) => {

@@ -200,8 +200,7 @@ export const api = {
       body: JSON.stringify({ name: name.trim() })
     }, 'login'),
 
-  // 自然语言编辑（多轮）：把对话历史 + 当前最新 mapState 送给 LLM，回一组结构化 operations。
-  // history 数组按时间顺序，最后一条必须是 user。最长 40 条 / 单条 ≤2000 字（后端会拒）。
+  // 自然语言编辑（多轮，非流式）：保留给 fallback / 测试。
   aiEdit: (payload: {
     messages: { role: 'user' | 'assistant'; content: string }[];
     mapState: {
@@ -217,6 +216,75 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload)
     }, 'login'),
+
+  // 流式版本：用 fetch + ReadableStream 读 SSE。
+  // onDelta 收到的是**累计文本**（不是单 token），方便前端直接 setState。
+  // resolve 时返回最终 { operations, explanation, skipped }。
+  // 传入 signal 可在弹窗关闭 / 重新提交时 abort。
+  aiEditStream: async (
+    payload: {
+      messages: { role: 'user' | 'assistant'; content: string }[];
+      mapState: {
+        lines: { id: string; name: string; color: string; stationIds: string[] }[];
+        stations: { id: string; name: string }[];
+      };
+    },
+    opts: { onDelta?: (cumulativeText: string) => void; signal?: AbortSignal } = {}
+  ): Promise<{ operations: AIOperation[]; explanation: string; skipped: { name: string; reason: string }[] }> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE_URL}/api/ai/edit-stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+      signal: opts.signal
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((data as any).message || '请求失败');
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let cumulative = '';
+    let final: { operations: AIOperation[]; explanation: string; skipped: { name: string; reason: string }[] } | null = null;
+
+    // 逐块读，按 SSE 的 "\n\n" 切事件
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || ''; // 末段可能不完整
+      for (const evt of events) {
+        const line = evt.trim();
+        if (!line.startsWith('data:')) continue;
+        const json = line.slice(5).trim();
+        if (!json || json === '[DONE]') continue;
+        let parsed: any;
+        try {
+          parsed = JSON.parse(json);
+        } catch {
+          continue;
+        }
+        if (parsed.type === 'delta') {
+          cumulative += parsed.text || '';
+          opts.onDelta?.(cumulative);
+        } else if (parsed.type === 'done') {
+          final = {
+            operations: parsed.operations || [],
+            explanation: parsed.explanation || '',
+            skipped: parsed.skipped || []
+          };
+        } else if (parsed.type === 'error') {
+          throw new Error(parsed.message || 'AI 调用失败');
+        }
+      }
+    }
+    if (!final) throw new Error('AI 响应不完整，请重试');
+    return final;
+  },
 
   me: () => request<{ user: UserDto }>('/api/me', {}, 'login'),
   updateMe: (payload: { username?: string; avatar?: string; password?: string }) =>

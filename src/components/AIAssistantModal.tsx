@@ -23,9 +23,14 @@ interface AnalyzeResult {
 interface AIAssistantModalProps {
   open: boolean;
   busy: boolean;
-  // 多轮：每次提交把"完整对话历史（只含 role+content）"送给 onAnalyze。
+  // 多轮 + 流式：每次提交把"完整对话历史（只含 role+content）"送给 onAnalyzeStream。
+  // onDelta 实时回吐 AI 正在生成的累计文本；signal 用于取消。
   // 父组件不需要管对话状态，由本组件维护。
-  onAnalyze: (messages: { role: 'user' | 'assistant'; content: string }[]) => Promise<AnalyzeResult>;
+  onAnalyzeStream: (
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    onDelta: (text: string) => void,
+    signal?: AbortSignal
+  ) => Promise<AnalyzeResult>;
   onApply: (operations: AIOperation[]) => number;
   onCancel: () => void;
 }
@@ -40,6 +45,8 @@ type ChatMessage =
       operations: AIOperation[];
       summaries: string[];
       skippedCount: number;
+      // streaming = 流式生成中（文字还在往里灌，操作卡片还没出现）
+      streaming: boolean;
       // applied = 已经被用户点过"应用"（按钮消失），或"丢弃"（操作清空）。
       applied: boolean;
       discarded: boolean;
@@ -52,11 +59,13 @@ const PRESET_PROMPTS = [
   '删除 3 号线'
 ];
 
-const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnalyze, onApply, onCancel }) => {
+const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnalyzeStream, onApply, onCancel }) => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  // 当前进行中的流的 AbortController：弹窗关闭 / 新提交 / 新建对话时取消
+  const abortRef = useRef<AbortController | null>(null);
 
   // 新消息进来 / busy 状态变化时自动滚到底部，让"正在思考"指示器和 AI 回复始终可见
   useEffect(() => {
@@ -65,44 +74,86 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
     }
   }, [messages, busy]);
 
+  // 弹窗关闭时取消进行中的流，避免后台继续写一个已经看不到的消息
+  useEffect(() => {
+    if (!open && abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+  }, [open]);
+
   const handleSubmit = async () => {
     const text = input.trim();
     if (!text || busy) return;
     setError('');
 
-    // 先把 user message 推进 history 让用户看到自己说了什么
+    // 先把 user message + 一个 streaming 占位的 assistant message 推进 history
     const userMsg: ChatMessage = {
       role: 'user',
       id: `u_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       content: text
     };
-    const nextMessages = [...messages, userMsg];
-    setMessages(nextMessages);
+    const assistantId = `a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const assistantPlaceholder: ChatMessage = {
+      role: 'assistant',
+      id: assistantId,
+      content: '',
+      operations: [],
+      summaries: [],
+      skippedCount: 0,
+      streaming: true,
+      applied: false,
+      discarded: false
+    };
+    const historyForApi = [...messages, userMsg].map((m) => ({ role: m.role, content: m.content }));
+    setMessages((prev) => [...prev, userMsg, assistantPlaceholder]);
     setInput('');
 
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     try {
-      // 把整段对话历史送给后端（含刚加的这条 user）。后端会拼上当前最新 mapState。
-      const result = await onAnalyze(
-        nextMessages.map((m) => ({ role: m.role, content: m.content }))
+      const result = await onAnalyzeStream(
+        historyForApi,
+        // onDelta：把累计文本实时写进占位 assistant 消息
+        (cumulativeText) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === assistantId && m.role === 'assistant' ? { ...m, content: cumulativeText } : m
+            )
+          );
+        },
+        controller.signal
       );
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        id: `a_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        content:
-          result.explanation ||
-          (result.operations.length > 0
-            ? `好的，准备执行 ${result.operations.length} 个操作。`
-            : 'AI 没有给出可执行的操作。'),
-        operations: result.operations,
-        summaries: result.summaries,
-        skippedCount: result.skippedCount,
-        applied: false,
-        discarded: false
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      // 流结束：补上最终文案 + 操作卡片
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id === assistantId && m.role === 'assistant') {
+            return {
+              ...m,
+              streaming: false,
+              content:
+                result.explanation ||
+                (result.operations.length > 0
+                  ? `好的，准备执行 ${result.operations.length} 个操作。`
+                  : 'AI 没有给出可执行的操作。'),
+              operations: result.operations,
+              summaries: result.summaries,
+              skippedCount: result.skippedCount
+            };
+          }
+          return m;
+        })
+      );
     } catch (e: any) {
-      setError(e?.message || 'AI 调用失败');
-      // 失败时保留用户的提问（这样可以"返回登录 / 重试"，不用重新输入）。
+      // 用户主动取消（关弹窗）不算错误
+      if (e?.name !== 'AbortError') {
+        setError(e?.message || 'AI 调用失败');
+      }
+      // 移除流式占位（失败 / 取消都移除，保留用户那条提问方便重试）
+      setMessages((prev) => prev.filter((m) => m.id !== assistantId));
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
   };
 
@@ -130,6 +181,10 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
   };
 
   const handleNewConversation = () => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
     setMessages([]);
     setInput('');
     setError('');
@@ -205,6 +260,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
                 operations={msg.operations}
                 summaries={msg.summaries}
                 skippedCount={msg.skippedCount}
+                streaming={msg.streaming}
                 applied={msg.applied}
                 discarded={msg.discarded}
                 onApply={() => handleApply(msg.id)}
@@ -213,7 +269,6 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
             )
           )
         )}
-        {busy ? <AssistantBubble loading /> : null}
       </div>
 
       {error ? (
@@ -290,9 +345,9 @@ interface AssistantBubbleProps {
   operations?: AIOperation[];
   summaries?: string[];
   skippedCount?: number;
+  streaming?: boolean;
   applied?: boolean;
   discarded?: boolean;
-  loading?: boolean;
   onApply?: () => void;
   onDiscard?: () => void;
 }
@@ -302,13 +357,14 @@ const AssistantBubble: React.FC<AssistantBubbleProps> = ({
   operations,
   summaries,
   skippedCount,
+  streaming,
   applied,
   discarded,
-  loading,
   onApply,
   onDiscard
 }) => {
-  if (loading) {
+  // 流式中且还没有任何文字 → 显示"正在思考"
+  if (streaming && !content) {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-start', marginBottom: 10 }}>
         <div
@@ -328,7 +384,8 @@ const AssistantBubble: React.FC<AssistantBubbleProps> = ({
     );
   }
 
-  const hasOps = (operations?.length || 0) > 0;
+  // 流式中：只显示正在打字的文本（末尾加一个闪烁光标），操作卡片等流结束才出
+  const hasOps = !streaming && (operations?.length || 0) > 0;
   const showApplyControls = hasOps && !applied && !discarded;
 
   return (
@@ -348,6 +405,7 @@ const AssistantBubble: React.FC<AssistantBubbleProps> = ({
             }}
           >
             {content}
+            {streaming ? <span className="metro-ai-typing-cursor">▋</span> : null}
           </div>
         ) : null}
 

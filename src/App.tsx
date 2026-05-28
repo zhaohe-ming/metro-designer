@@ -1518,10 +1518,15 @@ const App: React.FC = () => {
     }
   };
 
-  // 让 AI 分析意图（支持多轮）：传完整对话历史 + 当前最新地图状态，回操作清单。
-  // 调用方（AIAssistantModal）维护 messages 数组，每次提交都附完整历史。
+  // 让 AI 分析意图（多轮 + 流式）：传完整对话历史 + 当前最新地图状态。
+  // onDelta 把 AI 正在生成的文本（累计）实时回吐给弹窗。
+  // signal 让弹窗在关闭 / 重新提交时取消流。
   // mapState 每次现算，确保即使在多轮里也是最新状态。
-  const handleAiAnalyze = async (messages: { role: 'user' | 'assistant'; content: string }[]) => {
+  const handleAiAnalyzeStream = async (
+    messages: { role: 'user' | 'assistant'; content: string }[],
+    onDelta: (text: string) => void,
+    signal?: AbortSignal
+  ) => {
     setAiBusy(true);
     try {
       const mapState = {
@@ -1533,7 +1538,7 @@ const App: React.FC = () => {
         })),
         stations: stations.map((s) => ({ id: s.id, name: s.name }))
       };
-      const result = await api.aiEdit({ messages, mapState });
+      const result = await api.aiEditStream({ messages, mapState }, { onDelta, signal });
       return {
         explanation: result.explanation || '',
         operations: result.operations || [],
@@ -1879,7 +1884,7 @@ const App: React.FC = () => {
         <AIAssistantModal
           open={aiModalOpen}
           busy={aiBusy}
-          onAnalyze={handleAiAnalyze}
+          onAnalyzeStream={handleAiAnalyzeStream}
           onApply={handleAiApply}
           onCancel={() => setAiModalOpen(false)}
         />
