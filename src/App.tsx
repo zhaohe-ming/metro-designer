@@ -23,6 +23,7 @@ import VideoExportModal, { VideoExportConfig } from './components/VideoExportMod
 import AIAssistantModal from './components/AIAssistantModal';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import { exportVideoFromStage } from './lib/exportVideo';
+import { deleteStationFromGraph } from './lib/graphOps';
 import { compressImageDataUrl } from './utils/imageCompress';
 
 // 头像 dataURL 体积阈值：超过即认为是"需要压缩的大头像"。
@@ -293,6 +294,35 @@ const App: React.FC = () => {
   const [past, setPast] = useState<DocSnapshot[]>([]);
   const [future, setFuture] = useState<DocSnapshot[]>([]);
   const isApplyingHistoryRef = useRef(false);
+  // 「有未保存修改」标记。任何编辑（pushHistory / undo / redo）置 true；
+  // 保存成功、加载 / 新建 / 删除当前方案（resetHistory）置 false。
+  // dirtyRef 给 beforeunload 监听器读最新值用，避免重复挂载监听。
+  const [dirty, setDirty] = useState(false);
+  const dirtyRef = useRef(false);
+  const markDirty = useCallback(() => {
+    if (!dirtyRef.current) {
+      dirtyRef.current = true;
+      setDirty(true);
+    }
+  }, []);
+  const clearDirty = useCallback(() => {
+    if (dirtyRef.current) {
+      dirtyRef.current = false;
+      setDirty(false);
+    }
+  }, []);
+
+  // 有未保存修改时拦截关闭 / 刷新，触发浏览器原生「离开此页面？」确认，避免误丢工作。
+  // 监听只挂一次，读 dirtyRef 取最新值。
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
   const linesRef = useRef(lines);
   const sectionsRef = useRef(sections);
   const stationsRef = useRef(stations);
@@ -315,12 +345,14 @@ const App: React.FC = () => {
       return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
     });
     setFuture([]);
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   const resetHistory = useCallback(() => {
     setPast([]);
     setFuture([]);
-  }, []);
+    clearDirty();
+  }, [clearDirty]);
 
   const handleUndo = useCallback(() => {
     setPast(prevPast => {
@@ -339,9 +371,10 @@ const App: React.FC = () => {
       setMapSettings(previous.mapSettings);
       setFuture(prevFuture => [current, ...prevFuture].slice(0, MAX_HISTORY));
       Promise.resolve().then(() => { isApplyingHistoryRef.current = false; });
+      markDirty();
       return prevPast.slice(0, -1);
     });
-  }, []);
+  }, [markDirty]);
 
   // 渐进型设置交互（Slider 拖、ColorPicker 拖）：只在交互开始时压一次历史，
   // 后续 onChange 不再重复压。onChangeComplete 时复位标志。
@@ -372,9 +405,10 @@ const App: React.FC = () => {
       setMapSettings(upcoming.mapSettings);
       setPast(prevPast => [...prevPast, current].slice(-MAX_HISTORY));
       Promise.resolve().then(() => { isApplyingHistoryRef.current = false; });
+      markDirty();
       return prevFuture.slice(1);
     });
-  }, []);
+  }, [markDirty]);
 
   const stageRef = useRef<any>(null);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
@@ -741,24 +775,11 @@ const App: React.FC = () => {
 
   const handleDeleteStation = (stationId: string) => {
     pushHistory();
-    setLines((prev) =>
-      prev.map((line) => {
-        const nextSectionIds = line.sectionIds.filter((sectionId) => {
-          const currentSection = sections.find((section) => section.id === sectionId);
-          if (!currentSection) return false;
-          return currentSection.startStationId !== stationId && currentSection.endStationId !== stationId;
-        });
-
-        return {
-          ...line,
-          stationIds: line.stationIds.filter((id) => id !== stationId),
-          sectionIds: nextSectionIds,
-          lastAddedStationId: line.lastAddedStationId === stationId ? undefined : line.lastAddedStationId
-        };
-      })
-    );
-    setSections((prev) => prev.filter((section) => section.startStationId !== stationId && section.endStationId !== stationId));
-    setStations((prev) => prev.filter((station) => station.id !== stationId));
+    // 删中间站时会自动用一条新区间缝合前后邻站，避免线路断成两截（见 graphOps）
+    const next = deleteStationFromGraph(stationId, { lines, stations, sections });
+    setLines(next.lines);
+    setStations(next.stations);
+    setSections(next.sections);
     message.success('站点已删除');
   };
 
@@ -971,6 +992,7 @@ const App: React.FC = () => {
         upsertSavedMap({ ...map, ...counts });
         setMapName('');
         try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
+        clearDirty();
         message.success({ content: '地图已覆盖保存', key: 'save-map' });
         return;
       }
@@ -980,6 +1002,7 @@ const App: React.FC = () => {
       upsertSavedMap({ ...map, ...counts });
       setMapName('');
       try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
+      clearDirty();
       message.success({ content: '地图已保存', key: 'save-map' });
     } catch (error: any) {
       if (wasVisible) setSaveMapVisible(true);
@@ -1464,19 +1487,15 @@ const App: React.FC = () => {
           applied += 1;
           break;
         case 'delete_station': {
-          nextStations = nextStations.filter((s) => s.id !== op.stationId);
-          const survivingSections = nextSections.filter(
-            (s) => s.startStationId !== op.stationId && s.endStationId !== op.stationId
-          );
-          const removedSectionIds = new Set(
-            nextSections.filter((s) => !survivingSections.includes(s)).map((s) => s.id)
-          );
-          nextSections = survivingSections;
-          nextLines = nextLines.map((line) => ({
-            ...line,
-            stationIds: line.stationIds.filter((id) => id !== op.stationId),
-            sectionIds: line.sectionIds.filter((sid) => !removedSectionIds.has(sid))
-          }));
+          // 与手动删站共用同一份逻辑：删中间站会自动缝合前后邻站
+          const next = deleteStationFromGraph(op.stationId, {
+            lines: nextLines,
+            stations: nextStations,
+            sections: nextSections
+          });
+          nextLines = next.lines;
+          nextStations = next.stations;
+          nextSections = next.sections;
           applied += 1;
           break;
         }
@@ -1796,6 +1815,20 @@ const App: React.FC = () => {
                 <span className="metro-header-save-btn__label">
                   {currentMap ? text.overwriteSave : text.saveMap}
                 </span>
+                {dirty ? (
+                  <span
+                    title="有未保存的修改"
+                    style={{
+                      display: 'inline-block',
+                      width: 7,
+                      height: 7,
+                      marginLeft: 6,
+                      borderRadius: '50%',
+                      background: '#faad14',
+                      verticalAlign: 'middle'
+                    }}
+                  />
+                ) : null}
               </Button>
 
               <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">

@@ -272,7 +272,7 @@ async function ensurePgSchema() {
     pgReadyPromise = pgPool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
-        phone TEXT NOT NULL UNIQUE,
+        phone TEXT NOT NULL,
         username TEXT NOT NULL,
         password_hash TEXT NOT NULL,
         avatar TEXT NOT NULL DEFAULT '',
@@ -286,6 +286,10 @@ async function ensurePgSchema() {
       -- phone 从必填变可选：新用户走纯邮箱注册，phone 留空字符串。
       ALTER TABLE users ALTER COLUMN phone DROP NOT NULL;
       ALTER TABLE users ALTER COLUMN phone SET DEFAULT '';
+      -- 历史遗留：phone 早期是唯一主标识，老 CREATE TABLE 留下的 users_phone_key
+      -- 唯一约束会让第二个 phone='' 的纯邮箱用户注册时撞唯一键。幂等清掉它，
+      -- phone 的唯一性现在不再要求（邮箱才是主标识，见 users_email_unique_idx）。
+      ALTER TABLE users DROP CONSTRAINT IF EXISTS users_phone_key;
       CREATE UNIQUE INDEX IF NOT EXISTS users_email_unique_idx
         ON users(LOWER(email)) WHERE email <> '';
       CREATE INDEX IF NOT EXISTS users_phone_idx ON users(phone) WHERE phone <> '';
