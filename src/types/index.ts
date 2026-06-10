@@ -68,6 +68,8 @@ export interface MapSettings {
   dotLabelStyle: DotLabelStyle;
   baseMap: BaseMapSettings;
   labelDensity: LabelDensity;
+  // 线路转角圆角半径（世界坐标单位）。0 = 直角（关闭）。只圆途经点拐角，站点端点不圆。
+  cornerRadius: number;
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
@@ -90,7 +92,9 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
   },
   // 默认 paper：保持原有"图纸缩放"行为不破坏老用户预期。
   // App.tsx 在 boot 时会用 localStorage 里的 user-last preference 覆盖这个默认值。
-  labelDensity: 'paper'
+  labelDensity: 'paper',
+  // 默认 0（直角）：不改变老地图的既有观感，用户在设置里主动开启圆角。
+  cornerRadius: 0
 };
 
 const normalizeNumber = (value: unknown, fallback: number, min: number, max: number) => {
@@ -141,7 +145,8 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
       settings?.labelDensity === 'adaptive' ||
       settings?.labelDensity === 'key'
         ? settings.labelDensity
-        : 'paper'
+        : 'paper',
+    cornerRadius: normalizeNumber(settings?.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40)
   };
 };
 

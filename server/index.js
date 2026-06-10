@@ -68,7 +68,8 @@ const DEFAULT_MAP_SETTINGS = {
       zoom: 11,
       style: 'normal'
     }
-  }
+  },
+  cornerRadius: 0
 };
 
 const allowedOrigins = FRONTEND_ORIGIN
@@ -210,7 +211,8 @@ function normalizeMapSettings(settings) {
         zoom: normalizeNumber(amap.zoom, DEFAULT_MAP_SETTINGS.baseMap.amap.zoom, 3, 20),
         style: ['dark', 'grey', 'fresh'].includes(amap.style) ? amap.style : 'normal'
       }
-    }
+    },
+    cornerRadius: normalizeNumber(settings && settings.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40)
   };
 }
 

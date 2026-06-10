@@ -137,6 +137,10 @@ const i18n = {
     showLineNameLabels: '显示线路名称标注',
     lineNameLabelsOn: '显示',
     lineNameLabelsOff: '隐藏',
+    lineCorner: '线路转角',
+    lineCornerSharp: '直角',
+    lineCornerRound: '圆角',
+    lineCornerRadius: '圆角半径',
     dotLabelText: '专业线网站名',
     dotLabelFontSize: '字体大小',
     dotLabelFontWeight: '字体粗细',
@@ -206,6 +210,10 @@ const i18n = {
     showLineNameLabels: 'Line name labels',
     lineNameLabelsOn: 'Show',
     lineNameLabelsOff: 'Hide',
+    lineCorner: 'Line corners',
+    lineCornerSharp: 'Sharp',
+    lineCornerRound: 'Rounded',
+    lineCornerRadius: 'Corner radius',
     dotLabelText: 'Transit label text',
     dotLabelFontSize: 'Font size',
     dotLabelFontWeight: 'Font weight',
@@ -2230,6 +2238,48 @@ const App: React.FC = () => {
                         <Radio.Button value="adaptive">{text.labelDensityAdaptive}</Radio.Button>
                         <Radio.Button value="key">{text.labelDensityKey}</Radio.Button>
                       </Radio.Group>
+                    </section>
+
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.lineCorner}</div>
+                      <Radio.Group
+                        value={mapSettings.cornerRadius > 0 ? 'round' : 'sharp'}
+                        onChange={(event) => {
+                          pushHistory();
+                          const round = event.target.value === 'round';
+                          setMapSettings((prev) =>
+                            normalizeMapSettings({
+                              ...prev,
+                              // 开启时给个默认半径 12；再开沿用上次的值。关闭 = 0。
+                              cornerRadius: round ? (prev.cornerRadius > 0 ? prev.cornerRadius : 12) : 0
+                            })
+                          );
+                        }}
+                        optionType="button"
+                        buttonStyle="solid"
+                      >
+                        <Radio.Button value="sharp">{text.lineCornerSharp}</Radio.Button>
+                        <Radio.Button value="round">{text.lineCornerRound}</Radio.Button>
+                      </Radio.Group>
+                      {mapSettings.cornerRadius > 0 && (
+                        <div className="metro-settings-control" style={{ marginTop: 10 }}>
+                          <div className="metro-settings-control__row">
+                            <span>{text.lineCornerRadius}</span>
+                            <strong>{mapSettings.cornerRadius}px</strong>
+                          </div>
+                          <Slider
+                            min={4}
+                            max={40}
+                            step={1}
+                            value={mapSettings.cornerRadius}
+                            onChange={(value) => {
+                              beginSettingsInteraction();
+                              setMapSettings((prev) => normalizeMapSettings({ ...prev, cornerRadius: value }));
+                            }}
+                            onChangeComplete={endSettingsInteraction}
+                          />
+                        </div>
+                      )}
                     </section>
                   </div>
                 )

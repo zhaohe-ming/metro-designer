@@ -14,6 +14,7 @@ import { api } from '../api';
 import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
+import { roundLineFlat } from '../lib/roundedPath';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
@@ -1568,6 +1569,8 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const stylePreset = getCityStylePreset(mapSettings);
+  // 线路圆角半径（世界坐标）：0 = 直角。只圆途经点拐角（section 内部点），站点端点保持尖角。
+  const lineCornerRadius = Math.max(0, mapSettings.cornerRadius || 0);
   // 一次遍历建 station -> Line[] 的索引；后面 stationLineCounts / tier1 / getStationColor 全部走 O(1) 查表，
   // 不再每个站重复扫一遍 lines.filter / lines.find。大线网下 O(stations × lines) 是大头之一
   const stationToLines = useMemo(() => {
@@ -1732,6 +1735,10 @@ const Canvas: React.FC<CanvasProps> = ({
       for (let i = 0; i < rawPoints.length; i += 2) {
         shiftedPoints.push(rawPoints[i] + normal.x * offset, rawPoints[i + 1] + normal.y * offset);
       }
+      // 可见线走圆角后的点；命中区(hit)仍用直线 shiftedPoints，保证点击/加途经点的判定不变。
+      // 校准虚线 guide 也继续用 shiftedPoints（基于真实拐点判断近水平/竖直）。
+      const renderPoints =
+        lineCornerRadius > 0 ? roundLineFlat(shiftedPoints, lineCornerRadius) : shiftedPoints;
 
       const handleSectionLineClick = (e: any) => {
         if (lastIsRightClickRef.current) {
@@ -1787,7 +1794,7 @@ const Canvas: React.FC<CanvasProps> = ({
         />,
         <Line
           key={`${seg.section.id}_${currentIndex}`}
-          points={shiftedPoints}
+          points={renderPoints}
           stroke={seg.line.color}
           strokeWidth={scaledLineWidth}
           lineCap="round"
