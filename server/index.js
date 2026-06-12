@@ -52,7 +52,9 @@ console.log(`[email] provider=${hasResendKey() ? 'resend' : 'console-fallback'} 
 console.log(`[ai] provider=${ai.hasKey() ? `deepseek (${ai.DEEPSEEK_MODEL})` : 'disabled'}`);
 
 const DEFAULT_MAP_SETTINGS = {
-  mapStyle: 'classic-badge',
+  // 与前端 src/types/index.ts 保持一致：新项目默认 dot-label（专业线网）；
+  // normalizeMapSettings 的 fallback 仍是 classic-badge，老数据不受影响。
+  mapStyle: 'dot-label',
   canvasTheme: 'light',
   cityStyle: 'standard',
   showLineNameLabels: true,

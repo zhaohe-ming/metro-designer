@@ -101,6 +101,24 @@ body {
   letter-spacing: 0.01em;
 }
 
+/* 弹窗暖纸面抛光。Modal 走 portal 渲染在 .metro-app-shell 之外，
+   暗色 token 覆盖不到它（项目现状：弹窗在暗色模式下也保持浅色，见已有的
+   body[data-interface-theme="dark"] .metro-modal-root 规则），所以这里可以放心用 :root token。 */
+.ant-modal .ant-modal-content {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(50, 42, 24, 0.18);
+}
+
+.ant-modal .ant-modal-header {
+  margin-bottom: 16px;
+}
+
+.ant-modal .ant-modal-title {
+  font-size: var(--font-size-h2);
+  line-height: 1.3;
+}
+
 .metro-app-shell {
   /* 桌面端锁死视口高度：整页不上下滚动，由各内部区域（侧栏 list、画布）自己处理超长内容。
      移动端走下方 @media 媒体查询恢复 min-height + 自然滚动。 */
@@ -1713,17 +1731,17 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   min-height: 100vh;
   padding: 18px;
   background:
-    radial-gradient(circle at 78% 14%, rgba(37, 99, 235, 0.14), transparent 28%),
-    linear-gradient(180deg, #f7fbff 0%, #eaf3ff 100%);
+    radial-gradient(circle at 78% 14%, rgba(54, 69, 92, 0.10), transparent 28%),
+    linear-gradient(180deg, #faf7f0 0%, #f1ead9 100%);
 }
 
 .auth-card {
   width: min(1500px, 100%);
   min-height: min(920px, calc(100vh - 36px));
   border-radius: var(--radius-lg) !important;
-  border: 1px solid rgba(111, 150, 207, 0.36) !important;
-  background: rgba(255, 255, 255, 0.72) !important;
-  box-shadow: 0 18px 42px rgba(20, 47, 92, 0.16) !important;
+  border: 1px solid rgba(168, 152, 116, 0.38) !important;
+  background: rgba(255, 255, 255, 0.78) !important;
+  box-shadow: 0 18px 42px rgba(64, 54, 32, 0.14) !important;
 }
 
 .auth-card__inner {
@@ -1738,9 +1756,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   gap: 22px;
   overflow: hidden;
   background:
-    linear-gradient(90deg, rgba(0, 46, 138, 0.96) 0%, rgba(0, 83, 201, 0.76) 48%, rgba(8, 145, 231, 0.34) 100%),
+    linear-gradient(90deg, rgba(26, 34, 46, 0.95) 0%, rgba(54, 69, 92, 0.78) 48%, rgba(74, 90, 115, 0.36) 100%),
       url('./assets/auth-metro-hero.png') center / cover no-repeat,
-    #075bd8;
+    var(--color-primary-600);
 }
 
 .auth-card__info::before,
@@ -1755,8 +1773,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-card__info::before {
   inset: 0;
   background:
-    linear-gradient(180deg, rgba(0, 20, 78, 0.08) 0%, rgba(0, 19, 78, 0.36) 100%),
-    radial-gradient(circle at 62% 12%, rgba(92, 213, 255, 0.24), transparent 32%);
+    linear-gradient(180deg, rgba(10, 14, 20, 0.08) 0%, rgba(10, 14, 20, 0.38) 100%),
+    radial-gradient(circle at 62% 12%, rgba(244, 222, 180, 0.18), transparent 32%);
 }
 
 .auth-card__info::after {
@@ -1764,11 +1782,11 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   height: 560px;
   right: -180px;
   top: -120px;
-  border: 1px solid rgba(163, 213, 255, 0.24);
+  border: 1px solid rgba(238, 228, 205, 0.26);
   border-radius: 50%;
   box-shadow:
-    0 0 0 42px rgba(163, 213, 255, 0.04),
-    0 0 0 92px rgba(163, 213, 255, 0.035);
+    0 0 0 42px rgba(238, 228, 205, 0.05),
+    0 0 0 92px rgba(238, 228, 205, 0.04);
 }
 
 .auth-hero__content {
@@ -1781,8 +1799,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   height: 42px;
   padding: 0 16px;
   border-radius: 8px;
-  border: 1px solid rgba(214, 233, 255, 0.34);
-  background: rgba(4, 36, 111, 0.28);
+  border: 1px solid rgba(238, 230, 212, 0.34);
+  background: rgba(20, 26, 36, 0.30);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
   backdrop-filter: blur(10px);
 }
@@ -1803,10 +1821,11 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-title {
   max-width: 690px;
   margin: 46px 0 0 !important;
+  font-family: var(--font-display);
   font-size: clamp(42px, 4.3vw, 64px) !important;
-  line-height: 1.14 !important;
-  letter-spacing: 0 !important;
-  text-shadow: 0 8px 22px rgba(0, 21, 87, 0.34);
+  line-height: 1.18 !important;
+  letter-spacing: 0.01em !important;
+  text-shadow: 0 8px 22px rgba(10, 12, 16, 0.35);
 }
 
 .auth-subtitle {
@@ -1814,8 +1833,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   margin-top: 26px;
   font-size: clamp(16px, 1.25vw, 20px);
   line-height: 1.75;
-  color: rgba(240, 248, 255, 0.94) !important;
-  text-shadow: 0 4px 14px rgba(0, 24, 94, 0.3);
+  color: rgba(248, 245, 238, 0.94) !important;
+  text-shadow: 0 4px 14px rgba(10, 12, 16, 0.3);
 }
 
 .auth-highlights {
@@ -1828,15 +1847,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   font-size: clamp(15px, 1.1vw, 18px);
   line-height: 1.45;
   color: #ffffff;
-  text-shadow: 0 4px 12px rgba(0, 22, 83, 0.36);
+  text-shadow: 0 4px 12px rgba(10, 12, 16, 0.36);
 }
 
 .auth-highlight .dot {
   width: 9px;
   height: 9px;
   flex: 0 0 9px;
-  background: #9be7ff;
-  box-shadow: 0 0 0 4px rgba(155, 231, 255, 0.18), 0 0 14px rgba(155, 231, 255, 0.96);
+  background: #f3cd8a;
+  box-shadow: 0 0 0 4px rgba(243, 205, 138, 0.18), 0 0 14px rgba(243, 205, 138, 0.85);
 }
 
 .auth-grid {
@@ -1853,9 +1872,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   min-height: 132px;
   padding: 22px;
   border-radius: 8px;
-  border: 1px solid rgba(219, 238, 255, 0.34);
+  border: 1px solid rgba(244, 238, 224, 0.34);
   background: linear-gradient(135deg, rgba(255, 255, 255, 0.25), rgba(255, 255, 255, 0.11));
-  box-shadow: 0 18px 34px rgba(0, 41, 126, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  box-shadow: 0 18px 34px rgba(16, 14, 8, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.18);
   backdrop-filter: blur(14px);
 }
 
@@ -1891,9 +1910,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   overflow: hidden;
   padding: clamp(38px, 5.3vw, 86px);
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(245, 250, 255, 0.76)),
-    radial-gradient(circle at 80% 10%, rgba(48, 117, 255, 0.12), transparent 32%),
-    #f8fbff;
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(250, 247, 240, 0.78)),
+    radial-gradient(circle at 80% 10%, rgba(201, 176, 128, 0.10), transparent 32%),
+    var(--color-surface-muted);
 }
 
 .auth-card__form::before {
@@ -1902,8 +1921,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(circle at 86% 22%, rgba(182, 217, 255, 0.3), transparent 20%),
-    radial-gradient(circle at 20% 88%, rgba(120, 176, 255, 0.14), transparent 24%);
+    radial-gradient(circle at 86% 22%, rgba(222, 206, 170, 0.28), transparent 20%),
+    radial-gradient(circle at 20% 88%, rgba(196, 174, 132, 0.12), transparent 24%);
   pointer-events: none;
 }
 
@@ -1914,9 +1933,11 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-form-title {
+  font-family: var(--font-display);
   font-size: clamp(31px, 2.5vw, 42px) !important;
-  line-height: 1.15 !important;
-  color: #07152f !important;
+  line-height: 1.18 !important;
+  letter-spacing: 0.01em;
+  color: var(--color-text) !important;
 }
 
 .auth-form-subtitle {
@@ -1924,17 +1945,17 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   margin-top: 12px;
   font-size: 16px;
   line-height: 1.65;
-  color: #5d6d86 !important;
+  color: var(--color-text-soft) !important;
 }
 
 .auth-switcher {
   margin-top: 32px;
   gap: 0;
   padding: 4px;
-  border: 1px solid #cddcf2;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 24px rgba(18, 61, 127, 0.08);
+  box-shadow: 0 10px 24px rgba(64, 54, 32, 0.08);
 }
 
 .auth-switcher__btn {
@@ -1942,15 +1963,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #07152f;
+  color: var(--color-text);
   font-size: 16px;
   font-weight: 700;
 }
 
 .auth-switcher__btn.is-active {
-  background: linear-gradient(135deg, #2a78ff, #064bdc);
+  background: linear-gradient(135deg, #4a5a73, #283549);
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(28, 99, 235, 0.3);
+  box-shadow: 0 10px 22px rgba(40, 53, 73, 0.30);
 }
 
 .auth-form {
@@ -1966,7 +1987,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-form :where(.ant-form-item-label > label) {
-  color: #596980;
+  color: var(--color-text-soft);
   font-size: 15px;
   font-weight: 600;
 }
@@ -1975,51 +1996,51 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-form :where(.ant-input) {
   min-height: 64px;
   border-radius: 8px;
-  border-color: #c9daf2;
+  border-color: var(--color-border);
   background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 14px 26px rgba(45, 92, 155, 0.1);
+  box-shadow: 0 14px 26px rgba(95, 82, 54, 0.08);
 }
 
 .auth-form :where(.ant-input-affix-wrapper:hover),
 .auth-form :where(.ant-input:hover) {
-  border-color: #8bbcff;
+  border-color: var(--color-border-strong);
 }
 
 .auth-form :where(.ant-input-affix-wrapper-focused),
 .auth-form :where(.ant-input-affix-wrapper:focus-within),
 .auth-form :where(.ant-input:focus) {
-  border-color: #367cff !important;
-  box-shadow: 0 0 0 3px rgba(54, 124, 255, 0.12), 0 16px 28px rgba(45, 92, 155, 0.13);
+  border-color: var(--color-primary-600) !important;
+  box-shadow: 0 0 0 3px rgba(54, 69, 92, 0.13), 0 16px 28px rgba(95, 82, 54, 0.11);
 }
 
 .auth-form :where(.ant-input-prefix) {
   margin-inline-end: 16px;
-  color: #5b76b5;
+  color: var(--color-primary-500);
   font-size: 22px;
 }
 
 .auth-form :where(.ant-input) {
   font-size: 18px;
-  color: #07152f;
+  color: var(--color-text);
 }
 
 .auth-form :where(.ant-input::placeholder) {
-  color: #8a99ad;
+  color: #a39e92;
 }
 
 .auth-submit-btn.ant-btn {
   height: 62px;
   margin-top: 12px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #2d7cff, #064bdc);
-  box-shadow: 0 16px 28px rgba(6, 75, 220, 0.28);
+  background: linear-gradient(135deg, #44546e, #283549);
+  box-shadow: 0 16px 28px rgba(40, 53, 73, 0.26);
   font-size: 18px;
   font-weight: 800;
 }
 
 .auth-submit-btn.ant-btn:hover {
-  filter: brightness(1.03);
-  box-shadow: 0 18px 32px rgba(6, 75, 220, 0.34);
+  filter: brightness(1.06);
+  box-shadow: 0 18px 32px rgba(40, 53, 73, 0.32);
 }
 
 .auth-submit-btn :where(.anticon) {
@@ -2029,8 +2050,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-form-footer {
   margin-top: 32px;
   padding-top: 24px;
-  border-top: 1px solid #c9daf2;
-  color: #66758a;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-soft);
   font-size: 14px;
   line-height: 1.65;
 }

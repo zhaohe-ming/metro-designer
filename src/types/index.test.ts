@@ -53,9 +53,18 @@ describe('normalizeSections', () => {
 });
 
 describe('normalizeMapSettings', () => {
-  it('空输入返回完整默认值', () => {
-    expect(normalizeMapSettings(undefined)).toEqual(DEFAULT_MAP_SETTINGS);
-    expect(normalizeMapSettings(null)).toEqual(DEFAULT_MAP_SETTINGS);
+  it('空输入返回默认值，但 mapStyle 回退到 classic-badge（保护老存档观感）', () => {
+    // 故意的分叉：DEFAULT_MAP_SETTINGS.mapStyle = 'dot-label' 只给"新建项目"用；
+    // normalize 对缺字段的老数据回退 classic-badge，不改变老地图的既有观感。
+    const expected = { ...DEFAULT_MAP_SETTINGS, mapStyle: 'classic-badge' };
+    expect(normalizeMapSettings(undefined)).toEqual(expected);
+    expect(normalizeMapSettings(null)).toEqual(expected);
+  });
+
+  it('新建项目的默认 mapStyle 是 dot-label（专业线网）', () => {
+    expect(DEFAULT_MAP_SETTINGS.mapStyle).toBe('dot-label');
+    // 显式保存过 dot-label 的存档经 normalize 后保持不变
+    expect(normalizeMapSettings({ mapStyle: 'dot-label' }).mapStyle).toBe('dot-label');
   });
 
   it('把超范围的字号收紧到允许区间', () => {

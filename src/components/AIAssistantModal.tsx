@@ -199,7 +199,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
       title={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <span>
-            <ThunderboltOutlined style={{ marginRight: 8, color: '#2563eb' }} />
+            <ThunderboltOutlined style={{ marginRight: 8, color: 'var(--color-primary-600, #2563eb)' }} />
             AI 助手
           </span>
           <Button
@@ -233,7 +233,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({ open, busy, onAnaly
       >
         {messages.length === 0 && !busy ? (
           <div style={{ textAlign: 'center', padding: '40px 16px', color: 'var(--color-text-soft, #94a3b8)' }}>
-            <ThunderboltOutlined style={{ fontSize: 32, marginBottom: 12, color: '#2563eb' }} />
+            <ThunderboltOutlined style={{ fontSize: 32, marginBottom: 12, color: 'var(--color-primary-600, #2563eb)' }} />
             <Paragraph type="secondary" style={{ marginBottom: 16 }}>
               用自然语言描述你想做的修改。可以连续追问，AI 会记住上文。
             </Paragraph>
@@ -327,7 +327,7 @@ const UserBubble: React.FC<{ content: string }> = ({ content }) => (
       style={{
         maxWidth: '80%',
         padding: '8px 12px',
-        background: '#2563eb',
+        background: 'var(--color-primary-600, #2563eb)',
         color: '#ffffff',
         borderRadius: '12px 12px 4px 12px',
         whiteSpace: 'pre-wrap',
