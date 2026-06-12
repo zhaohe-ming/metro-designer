@@ -1,23 +1,25 @@
 :root {
   /* ---- 颜色 ---- */
-  /* 主色：统一收敛到 Tailwind blue-600 一族，原本 muted slate (#4b6b95) 与亮蓝混用的情况清除 */
-  --color-primary-50:  #eff6ff;
-  --color-primary-100: #dbeafe;
-  --color-primary-500: #3b82f6;   /* hover / 中性 */
-  --color-primary-600: #2563eb;   /* primary / CTA */
-  --color-primary-700: #1d4ed8;   /* active */
+  /* 暖纸面主题（Phase 0 spike）：奶油底 + 沙色边框 + 墨蓝 primary。
+     只换亮色 token；暗色在 .metro-app-shell[data-interface-theme="dark"] 整套重定义，不受影响。
+     画布绘图表面走独立的 --metro-canvas-bg（Canvas.tsx 内联注入），与这里完全解耦。 */
+  --color-primary-50:  #eef0f4;
+  --color-primary-100: #dde2ea;
+  --color-primary-500: #4a5a73;   /* hover / 中性 */
+  --color-primary-600: #36455c;   /* primary / CTA（墨蓝） */
+  --color-primary-700: #283549;   /* active */
 
-  /* 文本三档 */
-  --color-text:       #0f172a;
-  --color-text-soft:  #475569;
-  --color-text-muted: #94a3b8;
+  /* 文本三档（偏暖的墨灰） */
+  --color-text:       #1f2733;
+  --color-text-soft:  #57606e;
+  --color-text-muted: #9a958a;
 
   /* 表面 + 背景 */
-  --color-bg:             #eef6ff;
+  --color-bg:             #f6f2e9;
   --color-surface:        #ffffff;
-  --color-surface-muted:  #f8fbff;
-  --color-border:         #cfe0f3;
-  --color-border-strong:  #93b7dc;
+  --color-surface-muted:  #faf7f0;
+  --color-border:         #e7e0d1;
+  --color-border-strong:  #c9bda4;
 
   --color-danger:  #ef4444;
   --color-success: #10b981;
@@ -36,6 +38,12 @@
   --space-4: 16px;
   --space-5: 24px;
   --space-6: 32px;
+
+  /* ---- 字体 ---- */
+  /* 显示字体：仅用于品牌名 / 大标题（衬线，呼应"纸面"质感）。
+     正文与控件保持无衬线（密集工具 UI 用全衬线伤可读性）。
+     纯系统字体栈零外部依赖；以后想上 webfont（如 Noto Serif SC）只改这一个变量。 */
+  --font-display: Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Songti SC", SimSun, serif;
 
   /* ---- 字号 scale ---- */
   --font-size-meta:    11px;  /* 时间戳 / 徽标 */
@@ -84,6 +92,13 @@ body {
 
 .ant-layout {
   background: transparent;
+}
+
+/* 显示字体：品牌名 + 模态标题。范围刻意收窄（Phase 0），正文/控件不动。 */
+.metro-brand-title,
+.ant-modal-title {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
 }
 
 .metro-app-shell {
@@ -1269,7 +1284,7 @@ body {
 
 .metro-workbench {
   min-height: calc(100vh - 16px);
-  border-color: #bdd5ef;
+  border-color: var(--color-border);
   border-radius: var(--radius-lg);
   background: var(--color-surface-muted);
 }
@@ -1308,7 +1323,7 @@ body {
 
 .metro-canvas-stage {
   min-height: calc(100vh - 84px);
-  border-color: #bdd5ef;
+  border-color: var(--color-border);
   background: #ffffff;
   box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.03);
   /* 触屏环境下告诉浏览器：这块区域的手势我自己处理，不要尝试滚动 / 缩放页面。
@@ -1321,7 +1336,7 @@ body {
 }
 
 .metro-sider {
-  border-color: #d6e6f7;
+  border-color: var(--color-border);
   background: #ffffff;
 }
 
@@ -1342,7 +1357,7 @@ body {
 .metro-line-card,
 .metro-empty-card,
 .metro-station-item {
-  border-color: #d7e6f6;
+  border-color: var(--color-border);
 }
 
 /* （旧的"激活线路卡片背景 = #eff6ff、border = #60a5fa"被新的 accent + line color border 取代，
@@ -1351,15 +1366,15 @@ body {
 .metro-toolbar__primary.ant-btn,
 .auth-submit-btn.ant-btn,
 .auth-switcher__btn.is-active {
-  border-color: #2563eb;
-  background: #2563eb;
+  border-color: var(--color-primary-600);
+  background: var(--color-primary-600);
 }
 
 .metro-toolbar__secondary.ant-btn,
 .metro-logout-btn.ant-btn,
 .metro-sidebar__ghost-btn.ant-btn {
   background: #ffffff !important;
-  border-color: #cfe0f3 !important;
+  border-color: var(--color-border) !important;
 }
 
 .metro-canvas-tools {
@@ -1378,7 +1393,7 @@ body {
   display: inline-flex;
   gap: 2px;
   padding: 4px;
-  border: 1px solid #cfe0f3;
+  border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
@@ -1683,13 +1698,14 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-card__info {
+  /* 暖纸面主题：hero 面板从亮蓝渐变改为墨蓝渐变，与 primary 一族对齐 */
   background:
-    linear-gradient(135deg, rgba(37, 99, 235, 0.92), rgba(14, 165, 233, 0.84)),
-    #2563eb;
+    linear-gradient(135deg, rgba(54, 69, 92, 0.96), rgba(74, 90, 115, 0.88)),
+    var(--color-primary-600);
 }
 
 .auth-card__form {
-  background: #f8fbff;
+  background: var(--color-surface-muted);
 }
 
 /* Auth visual refresh */

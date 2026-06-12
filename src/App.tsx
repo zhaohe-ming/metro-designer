@@ -1732,10 +1732,22 @@ const App: React.FC = () => {
   const antdThemeConfig = useMemo(
     () => ({
       algorithm: resolvedInterfaceTheme === 'dark' ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
-      token: {
-        colorPrimary: '#2563eb',
-        borderRadius: 8
-      }
+      // 亮色 = 暖纸面主题（与 styles.css :root 的 token 对齐）；暗色保持原蓝色主题不动。
+      token:
+        resolvedInterfaceTheme === 'dark'
+          ? {
+              colorPrimary: '#2563eb',
+              borderRadius: 8
+            }
+          : {
+              colorPrimary: '#36455c',
+              borderRadius: 8,
+              colorText: '#1f2733',
+              colorTextSecondary: '#57606e',
+              colorBorder: '#d9d0bc',
+              colorBorderSecondary: '#e7e0d1',
+              colorBgLayout: '#f6f2e9'
+            }
     }),
     [resolvedInterfaceTheme]
   );
