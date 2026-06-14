@@ -56,6 +56,13 @@ const SNAP_THRESHOLD_DEG = 2;
 const SNAP_ANGLES = [0, 45, 90, 135];
 const MAX_WAYPOINTS_PER_SECTION = 6;
 const SECTION_HIT_STROKE_WIDTH = 22;
+// 纯画布缩放：定档梯子（CAD 式"一格一档"）。scale = ZOOM_MIN * ZOOM_STEP_FACTOR^n。
+const ZOOM_MIN = 0.1;
+const ZOOM_MAX = 5;
+const ZOOM_STEP_FACTOR = 1.15;        // 每档 ±15%
+// 同一次物理滚动常触发一串 wheel 事件（高分辨率/平滑滚轮尤甚）。
+// 用这个时间锁把事件洪流合并成"每 45ms 最多走一档"，既挡洪流又不拖慢正常滚动。
+const WHEEL_STEP_LOCK_MS = 45;
 const CANVAS_THEME_PALETTES = {
   light: {
     background: '#fbfdff',
@@ -368,6 +375,8 @@ const Canvas: React.FC<CanvasProps> = ({
   // 纯画布交互（拖动 / 滚轮缩放）也走"高频交互"通道，让 skipHeavyLayout 生效。
   // wheel 事件没有明确的"结束"信号，靠这个 timer 在最后一次 wheel 后 150ms 落回。
   const canvasInteractionEndTimerRef = useRef<number | null>(null);
+  // 滚轮缩放的时间锁：上一档发生的时刻（performance.now）
+  const wheelStepLockRef = useRef(0);
   // Perf 诊断：记录每次 Canvas 函数体跑的时间间隔（=渲染频率）
   const __perfRenderRef = useRef(performance.now());
   __perfMarkRender('Canvas', __perfRenderRef);
@@ -753,6 +762,19 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     canvasInteractionEndTimerRef.current = window.setTimeout(() => {
       canvasInteractionEndTimerRef.current = null;
+      // 落停：把手势期间 imperative 写入 stage 的最终 scale/position 同步回 React state。
+      // 必须 *先* setState、*再* 翻 isMapInteracting=false —— 否则 useLayoutEffect 在
+      // isMapInteracting 翻假时会用旧 state 把 stage 变换写回去，导致缩放/平移被弹回
+      // （和 handleMouseUp 880-883 注释同一个坑）。React18 在 timeout 里自动批处理这几个 setState。
+      const stage = stageRef.current;
+      if (stage && !isAmapMode) {
+        const pos = stage.position();
+        const sx = stage.scaleX();
+        setScale(prev => (Math.abs(sx - prev) > 0.0001 ? sx : prev));
+        setPosition(prev =>
+          Math.abs(pos.x - prev.x) > 0.5 || Math.abs(pos.y - prev.y) > 0.5 ? { x: pos.x, y: pos.y } : prev
+        );
+      }
       setIsMapInteracting(false);
     }, delayMs);
   };
@@ -770,6 +792,11 @@ const Canvas: React.FC<CanvasProps> = ({
     startCanvasInteraction();
     scheduleCanvasInteractionEnd(150);
 
+    // 时间锁：把一次物理滚动的事件洪流合并成"每 WHEEL_STEP_LOCK_MS 最多一档"
+    const now = performance.now();
+    if (now - wheelStepLockRef.current < WHEEL_STEP_LOCK_MS) return;
+    wheelStepLockRef.current = now;
+
     const stage = e.target.getStage();
     const oldScale = stage.scaleX();
     const pointer = stage.getPointerPosition();
@@ -779,20 +806,24 @@ const Canvas: React.FC<CanvasProps> = ({
       y: (pointer.y - stage.y()) / oldScale,
     };
 
-    const newScale = e.evt.deltaY > 0 ? oldScale * 0.9 : oldScale * 1.1;
-    const clampedScale = Math.max(0.1, Math.min(5, newScale));
+    // 定档缩放：把当前缩放吸附到梯子（scale = ZOOM_MIN * ZOOM_STEP_FACTOR^n），再走一档。
+    // deltaY>0（向下滚）= 缩小 = -1 档。
+    const direction = e.evt.deltaY > 0 ? -1 : 1;
+    const currentStep = Math.round(Math.log(oldScale / ZOOM_MIN) / Math.log(ZOOM_STEP_FACTOR));
+    const steppedScale = ZOOM_MIN * Math.pow(ZOOM_STEP_FACTOR, currentStep + direction);
+    const clampedScale = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, steppedScale));
+    if (clampedScale === oldScale) return; // 已到顶/底，无变化
     const newPos = {
       x: pointer.x - mousePointTo.x * clampedScale,
       y: pointer.y - mousePointTo.y * clampedScale
     };
 
-    // 先 imperative 写 stage（视觉立即响应），再异步 setState 保持 effectiveScale / 标签尺寸同步
-    // 滚轮事件本身是 ~30Hz，setState 不是热路径
+    // 纯 imperative 写 stage（视觉立即响应），手势期间不 setState —— 避免每格滚轮触发
+    // 整个 Canvas 全树重渲染（这是缩放比拖动更卡的根因）。最终 scale/position 由
+    // scheduleCanvasInteractionEnd 的落停回调统一提交一次，与 pan 路径行为一致。
     stage.scale({ x: clampedScale, y: clampedScale });
     stage.position(newPos);
     stage.batchDraw();
-    setScale(clampedScale);
-    setPosition(newPos);
   };
 
   // 处理拖拽开始
