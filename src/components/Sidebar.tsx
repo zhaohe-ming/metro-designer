@@ -566,7 +566,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           inset: 0,
                           // 跟 .metro-line-card 的 --radius-md (8px) 对齐
                           borderRadius: 8,
-                          background: dragOverLineId === line.id ? 'rgba(207, 122, 53, 0.12)' : 'transparent'
+                          background: dragOverLineId === line.id ? 'rgba(74, 107, 140, 0.12)' : 'transparent'
                         }}
                       />
                     ) : null}

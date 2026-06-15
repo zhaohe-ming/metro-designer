@@ -1893,7 +1893,7 @@ const App: React.FC = () => {
               borderRadius: 8
             }
           : {
-              colorPrimary: '#cf7a35',
+              colorPrimary: '#4a6b8c',
               borderRadius: 8,
               colorText: '#2a2520',
               colorTextSecondary: '#6b6157',
@@ -2221,8 +2221,8 @@ const App: React.FC = () => {
                               fontSize: 11,
                               padding: '0 8px',
                               borderRadius: 10,
-                              background: 'rgba(207,122,53,0.14)',
-                              color: 'var(--color-primary-600, #cf7a35)',
+                              background: 'rgba(74,107,140,0.14)',
+                              color: 'var(--color-primary-600, #4a6b8c)',
                               fontWeight: 600
                             }}
                           >
