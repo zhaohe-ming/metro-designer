@@ -15,6 +15,7 @@ import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS 
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
 import { roundLineFlat } from '../lib/roundedPath';
+import { AppAction } from '../lib/commandParser';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
@@ -139,6 +140,9 @@ interface CanvasProps {
   onMapSettingsChange?: (settings: MapSettings) => void;
   onStageReady?: (stage: any) => void;
   onBeginInteraction?: () => void;
+  // 命令行视图通道：App 执行器把视图类命令（zoom/fit/reset/center）通过这个 prop 下发，
+  // Canvas 在 effect 里执行（Canvas 才持有 scale/position/amapRef）。seq 保证重复命令也能再触发。
+  viewCommand?: { seq: number; action: AppAction } | null;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -159,7 +163,8 @@ const Canvas: React.FC<CanvasProps> = ({
   onUpdateSection,
   onMapSettingsChange,
   onStageReady,
-  onBeginInteraction
+  onBeginInteraction,
+  viewCommand
 }) => {
   const text = language === 'en-US'
     ? {
@@ -1007,6 +1012,38 @@ const Canvas: React.FC<CanvasProps> = ({
       y: (stageHeight - contentHeight * newScale) / 2 - minY * newScale
     });
   };
+
+  // 居中到某站（命令 center）。纯画布按当前缩放把站点移到视口中心；高德走 setCenter。
+  const centerOnStation = (stationId: string) => {
+    const st = stations.find(s => s.id === stationId);
+    if (!st) return;
+    if (isAmapMode && amapRef.current) {
+      if (typeof st.lng === 'number' && typeof st.lat === 'number') {
+        amapRef.current.setCenter?.([st.lng, st.lat]);
+      }
+      return;
+    }
+    const p = getDisplayPoint(st);
+    setPosition({ x: stageSize.width / 2 - p.x * scale, y: stageSize.height / 2 - p.y * scale });
+  };
+
+  // 命令行视图通道（latest-ref 模式）：分发器每次渲染重建、闭包捕获当前的视图函数，
+  // 这样 effect 只需依赖 viewCommand，无需把一堆函数塞进 deps（也避免 exhaustive-deps 噪音）。
+  const viewDispatchRef = useRef<(a: AppAction) => void>(() => {});
+  viewDispatchRef.current = (a: AppAction) => {
+    switch (a.type) {
+      case 'zoom': setZoomPercent(a.value * 100); break;
+      case 'zoom_in': zoomIn(); break;
+      case 'zoom_out': zoomOut(); break;
+      case 'fit': fitView(); break;
+      case 'reset': resetView(); break;
+      case 'center': centerOnStation(a.stationId); break;
+      default: break;
+    }
+  };
+  useEffect(() => {
+    if (viewCommand) viewDispatchRef.current(viewCommand.action);
+  }, [viewCommand]);
 
   // 画布点击，弹窗输入站名
   const handleStageClick = (e: any) => {

@@ -119,6 +119,89 @@ body {
   line-height: 1.3;
 }
 
+/* ── 命令行命令栏（AutoCAD 式底部常驻） ───────────────────────────────── */
+.metro-command-bar {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 14px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none; /* 容器不挡画布；子元素各自 re-enable */
+}
+.metro-command-bar__row {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 8px 24px rgba(50, 42, 24, 0.12);
+  backdrop-filter: blur(8px);
+}
+.metro-command-bar__prompt {
+  color: var(--color-primary-600);
+  font-weight: 700;
+  font-size: 16px;
+  line-height: 1;
+}
+.metro-command-bar__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+}
+.metro-command-bar__input::placeholder { color: var(--color-text-muted); }
+.metro-command-bar__feedback {
+  pointer-events: auto;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid var(--color-border);
+  box-shadow: 0 6px 18px rgba(50, 42, 24, 0.1);
+}
+.metro-command-bar__feedback.is-ok { color: var(--color-text-soft); }
+.metro-command-bar__feedback.is-error { color: #b42318; border-color: #f0c0b8; background: #fff4f2; }
+.metro-command-bar__suggest {
+  pointer-events: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.metro-command-bar__chip {
+  cursor: pointer;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--color-text-soft);
+  font-size: 12px;
+  font-family: "SFMono-Regular", Consolas, monospace;
+}
+.metro-command-bar__chip:hover { border-color: var(--color-primary-600); color: var(--color-primary-600); }
+
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__row,
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__feedback,
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__chip {
+  background: rgba(17, 24, 39, 0.94);
+  border-color: #29364d;
+  color: #dbeafe;
+}
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__input { color: #f8fafc; }
+
 .metro-app-shell {
   /* 桌面端锁死视口高度：整页不上下滚动，由各内部区域（侧栏 list、画布）自己处理超长内容。
      移动端走下方 @media 媒体查询恢复 min-height + 自然滚动。 */

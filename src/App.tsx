@@ -24,6 +24,8 @@ import AIAssistantModal from './components/AIAssistantModal';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import { exportVideoFromStage } from './lib/exportVideo';
 import { deleteStationFromGraph } from './lib/graphOps';
+import { interpretCommand, ResolvedCommand, AppAction } from './lib/commandParser';
+import CommandBar from './components/CommandBar';
 import { compressImageDataUrl } from './utils/imageCompress';
 
 // 头像 dataURL 体积阈值：超过即认为是"需要压缩的大头像"。
@@ -339,6 +341,11 @@ const App: React.FC = () => {
   useEffect(() => { sectionsRef.current = sections; }, [sections]);
   useEffect(() => { stationsRef.current = stations; }, [stations]);
   useEffect(() => { mapSettingsRef.current = mapSettings; }, [mapSettings]);
+  // 命令行：当前线路 ref（给命令上下文取最新值）；命令栏输入 ref（/ 聚焦）；视图命令通道
+  const currentLineIdRef = useRef<string | null>(null);
+  useEffect(() => { currentLineIdRef.current = currentLineId; }, [currentLineId]);
+  const commandInputRef = useRef<HTMLInputElement | null>(null);
+  const [viewCmd, setViewCmd] = useState<{ seq: number; action: AppAction } | null>(null);
 
   const pushHistory = useCallback(() => {
     if (isApplyingHistoryRef.current) return;
@@ -552,6 +559,12 @@ const App: React.FC = () => {
       if (target) {
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      // "/" 聚焦命令栏（不在输入框时）
+      if (event.key === '/' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        commandInputRef.current?.focus();
+        return;
       }
       const accel = event.ctrlKey || event.metaKey;
       if (!accel) return;
@@ -1581,6 +1594,134 @@ const App: React.FC = () => {
     return applyAIOperations(operations);
   };
 
+  // ── 命令行（v1）：新 handler（AIOperation 之外的命令独有变更）+ 执行器 ──────────
+  // 建空线路（自动设为当前线路）
+  const createEmptyLine = (name: string, color: string) => {
+    pushHistory();
+    const id = createId();
+    setLines(prev => [...prev, { id, name, color, stationIds: [], sectionIds: [] }]);
+    setCurrentLineId(id);
+  };
+
+  // 按顺序连接已有站点：空线路=初始化路径；非空=从端点延伸（首站为端点已在 resolver 校验）
+  const connectStationsOnLine = (lineId: string, ids: string[]) => {
+    const line = linesRef.current.find(l => l.id === lineId);
+    if (!line) return;
+    pushHistory();
+    const newSections: Section[] = [];
+    for (let i = 0; i < ids.length - 1; i += 1) {
+      newSections.push({ id: createId(), lineId, startStationId: ids[i], endStationId: ids[i + 1] });
+    }
+    const newIds = newSections.map(s => s.id);
+    let nextStationIds: string[];
+    let nextSectionIds: string[];
+    if (line.stationIds.length === 0) {
+      nextStationIds = [...ids];
+      nextSectionIds = newIds;
+    } else if (ids[0] === line.stationIds[line.stationIds.length - 1]) {
+      // 首站=末端点 → 往后追加
+      nextStationIds = [...line.stationIds, ...ids.slice(1)];
+      nextSectionIds = [...line.sectionIds, ...newIds];
+    } else {
+      // 首站=起点端点 → 反向前插（保持简单路径）
+      nextStationIds = [...ids.slice(1).reverse(), ...line.stationIds];
+      nextSectionIds = [...newIds.slice().reverse(), ...line.sectionIds];
+    }
+    setLines(prev => prev.map(l => (l.id === lineId ? { ...l, stationIds: nextStationIds, sectionIds: nextSectionIds } : l)));
+    setSections(prev => [...prev, ...newSections]);
+  };
+
+  // 建独立站点（不挂任何线路）
+  const addStationByCommand = (name: string, x: number, y: number) => {
+    pushHistory();
+    setStations(prev => [...prev, { id: createId(), name, x, y }]);
+  };
+
+  // 设置/清空某区间的途经点；找不到匹配区间返回 false（由执行器报错）
+  const setSectionWaypointsByCommand = (lineId: string, aId: string, bId: string, points: { x: number; y: number }[]): boolean => {
+    const target = sectionsRef.current.find(
+      s => s.lineId === lineId &&
+        ((s.startStationId === aId && s.endStationId === bId) || (s.startStationId === bId && s.endStationId === aId))
+    );
+    if (!target) return false;
+    pushHistory();
+    const oriented = target.startStationId === aId ? points : [...points].reverse();
+    const capped = oriented.slice(0, 6).map(p => ({ x: p.x, y: p.y }));
+    setSections(prev => prev.map(s => (s.id === target.id ? { ...s, waypoints: capped.length ? capped : undefined } : s)));
+    return true;
+  };
+
+  const executeCommand = (resolved: ResolvedCommand): { ok: boolean; message: string } => {
+    switch (resolved.kind) {
+      case 'error':
+        return { ok: false, message: resolved.message };
+      case 'guide':
+        if (resolved.topic === 'colors') {
+          return { ok: true, message: '配色：blue red green yellow purple cyan pink orange ，或 #rrggbb ，或序号 1-8' };
+        }
+        return { ok: true, message: '命令总览：create line / line connect / station / extend / insert / attach / recolor / rename / delete / select / waypoint / zoom / fit / reset / center / style / theme / corner / undo / redo / save / new' };
+      case 'ops':
+        applyAIOperations(resolved.ops);
+        return { ok: true, message: resolved.summary };
+      case 'effect': {
+        const e = resolved.effect;
+        if (mapSettings.baseMap.mode === 'amap' && (e.type === 'add_station' || e.type === 'set_waypoints')) {
+          return { ok: false, message: '高德模式暂不支持坐标放置，请切到纯画布，或直接在画布上操作' };
+        }
+        switch (e.type) {
+          case 'create_empty_line': createEmptyLine(e.name, e.color); break;
+          case 'connect': connectStationsOnLine(e.lineId, e.stationIds); break;
+          case 'add_station': addStationByCommand(e.name, e.x, e.y); break;
+          case 'set_waypoints':
+            if (!setSectionWaypointsByCommand(e.lineId, e.startStationId, e.endStationId, e.points)) {
+              return { ok: false, message: '找不到这两个站之间的区间' };
+            }
+            break;
+          case 'clear_waypoints':
+            if (!setSectionWaypointsByCommand(e.lineId, e.startStationId, e.endStationId, [])) {
+              return { ok: false, message: '找不到这两个站之间的区间' };
+            }
+            break;
+        }
+        return { ok: true, message: resolved.summary };
+      }
+      case 'action': {
+        if (resolved.undoable) pushHistory();
+        const a = resolved.action;
+        switch (a.type) {
+          case 'zoom':
+          case 'zoom_in':
+          case 'zoom_out':
+          case 'fit':
+          case 'reset':
+          case 'center':
+            // 视图类下发到 Canvas（它才持有 scale/position/amapRef）
+            setViewCmd({ seq: Date.now() + Math.random(), action: a });
+            break;
+          case 'set_style': setMapSettings(prev => normalizeMapSettings({ ...prev, mapStyle: a.mapStyle })); break;
+          case 'set_theme': setMapSettings(prev => normalizeMapSettings({ ...prev, canvasTheme: a.canvasTheme })); break;
+          case 'set_corner': setMapSettings(prev => normalizeMapSettings({ ...prev, cornerRadius: a.cornerRadius })); break;
+          case 'select_line': setCurrentLineId(a.lineId); break;
+          case 'undo': handleUndo(); break;
+          case 'redo': handleRedo(); break;
+          case 'save': handleSaveMap(); break;
+          case 'new': handleNewMap(); break;
+        }
+        return { ok: true, message: resolved.summary };
+      }
+    }
+  };
+
+  // 命令栏入口：用 ref 取最新地图状态做上下文，解释 + 执行，返回结果给命令栏展示
+  const runCommand = (input: string): { ok: boolean; message: string } => {
+    const ctx = {
+      lines: linesRef.current.map(l => ({ id: l.id, name: l.name, color: l.color, stationIds: l.stationIds })),
+      stations: stationsRef.current.map(s => ({ id: s.id, name: s.name, x: s.x, y: s.y })),
+      currentLineId: currentLineIdRef.current
+    };
+    return executeCommand(interpretCommand(input, ctx));
+  };
+
   const handleExportImage = () => {
     if (!stageRef.current) {
       message.error('无法获取画布');
@@ -1920,7 +2061,9 @@ const App: React.FC = () => {
                 onStageReady={(stage) => {
                   stageRef.current = stage;
                 }}
+                viewCommand={viewCmd}
               />
+              <CommandBar onSubmit={runCommand} inputRef={commandInputRef} />
             </div>
           </Content>
         </Layout>
