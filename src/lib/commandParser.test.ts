@@ -128,6 +128,23 @@ describe('interpretCommand — 站点', () => {
     }
   });
 
+  it('station 相对：单方向也能执行（复现排查）', () => {
+    const r = interpretCommand('station "新" right 120 from "甲"', ctx);
+    expect(r.kind).toBe('effect');
+    if (r.kind === 'effect' && r.effect.type === 'add_station') {
+      expect(r.effect).toMatchObject({ name: '新', x: 120, y: 0 });
+    }
+  });
+
+  it('station 相对：从另一个站单方向链式', () => {
+    const ctx2: CommandContext = { ...ctx, stations: [...ctx.stations, { id: 'NB', name: '乙站', x: 120, y: 0 }] };
+    const r = interpretCommand('station "丙站" right 120 from "乙站"', ctx2);
+    expect(r.kind).toBe('effect');
+    if (r.kind === 'effect' && r.effect.type === 'add_station') {
+      expect(r.effect).toMatchObject({ name: '丙站', x: 240, y: 0 });
+    }
+  });
+
   it('相对放置缺 from / 缺方向报错', () => {
     expect(interpretCommand('station "新" right 300 "甲"', ctx).kind).toBe('error');
     expect(interpretCommand('station "新" from "甲"', ctx).kind).toBe('error');

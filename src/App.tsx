@@ -1599,7 +1599,11 @@ const App: React.FC = () => {
   const createEmptyLine = (name: string, color: string) => {
     pushHistory();
     const id = createId();
-    setLines(prev => [...prev, { id, name, color, stationIds: [], sectionIds: [] }]);
+    // 同步更新 ref（不等 useEffect），让紧接着的命令（如省略线名的 connect）立刻见到这条新线
+    const next = [...linesRef.current, { id, name, color, stationIds: [], sectionIds: [] }];
+    linesRef.current = next;
+    setLines(next);
+    currentLineIdRef.current = id;
     setCurrentLineId(id);
   };
 
@@ -1627,14 +1631,20 @@ const App: React.FC = () => {
       nextStationIds = [...ids.slice(1).reverse(), ...line.stationIds];
       nextSectionIds = [...newIds.slice().reverse(), ...line.sectionIds];
     }
-    setLines(prev => prev.map(l => (l.id === lineId ? { ...l, stationIds: nextStationIds, sectionIds: nextSectionIds } : l)));
-    setSections(prev => [...prev, ...newSections]);
+    const nextLines = linesRef.current.map(l => (l.id === lineId ? { ...l, stationIds: nextStationIds, sectionIds: nextSectionIds } : l));
+    const nextSections = [...sectionsRef.current, ...newSections];
+    linesRef.current = nextLines;
+    sectionsRef.current = nextSections;
+    setLines(nextLines);
+    setSections(nextSections);
   };
 
   // 建独立站点（不挂任何线路）
   const addStationByCommand = (name: string, x: number, y: number) => {
     pushHistory();
-    setStations(prev => [...prev, { id: createId(), name, x, y }]);
+    const next = [...stationsRef.current, { id: createId(), name, x, y }];
+    stationsRef.current = next;
+    setStations(next);
   };
 
   // 设置/清空某区间的途经点；找不到匹配区间返回 false（由执行器报错）
@@ -1647,7 +1657,9 @@ const App: React.FC = () => {
     pushHistory();
     const oriented = target.startStationId === aId ? points : [...points].reverse();
     const capped = oriented.slice(0, 6).map(p => ({ x: p.x, y: p.y }));
-    setSections(prev => prev.map(s => (s.id === target.id ? { ...s, waypoints: capped.length ? capped : undefined } : s)));
+    const next = sectionsRef.current.map(s => (s.id === target.id ? { ...s, waypoints: capped.length ? capped : undefined } : s));
+    sectionsRef.current = next;
+    setSections(next);
     return true;
   };
 
@@ -1665,7 +1677,7 @@ const App: React.FC = () => {
         return { ok: true, message: resolved.summary };
       case 'effect': {
         const e = resolved.effect;
-        if (mapSettings.baseMap.mode === 'amap' && (e.type === 'add_station' || e.type === 'set_waypoints')) {
+        if (mapSettingsRef.current.baseMap.mode === 'amap' && (e.type === 'add_station' || e.type === 'set_waypoints')) {
           return { ok: false, message: '高德模式暂不支持坐标放置，请切到纯画布，或直接在画布上操作' };
         }
         switch (e.type) {
