@@ -497,7 +497,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                     <div className="metro-line-card__top">
                       <div className="metro-line-card__meta">
                         {isReorderingLines ? (
-                          <DragOutlined style={{ color: '#6f7f98', marginTop: 4, fontSize: 16 }} />
+                          <DragOutlined style={{ color: 'var(--color-text-muted, #a39b8c)', marginTop: 4, fontSize: 16 }} />
                         ) : (
                           <span className="metro-line-card__swatch" style={{ backgroundColor: line.color }} />
                         )}
@@ -566,7 +566,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           inset: 0,
                           // 跟 .metro-line-card 的 --radius-md (8px) 对齐
                           borderRadius: 8,
-                          background: dragOverLineId === line.id ? 'rgba(37, 99, 235, 0.08)' : 'transparent'
+                          background: dragOverLineId === line.id ? 'rgba(207, 122, 53, 0.12)' : 'transparent'
                         }}
                       />
                     ) : null}

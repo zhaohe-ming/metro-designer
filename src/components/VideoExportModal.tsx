@@ -148,11 +148,11 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       {/* 片头自定义：主+副+时长。折一个浅色盒子里跟下面的区间表区隔。 */}
       <div
         style={{
-          border: '1px solid #d9e2f2',
+          border: '1px solid var(--color-border, #e7e0d1)',
           borderRadius: 12,
           padding: 12,
           marginBottom: 12,
-          background: '#f9fbff'
+          background: 'var(--color-surface-muted, #faf7f0)'
         }}
       >
         <Text strong style={{ display: 'block', marginBottom: 8 }}>片头</Text>
@@ -195,14 +195,14 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
           <div
             key={segment.id}
             style={{
-              border: '1px solid #d9e2f2',
+              border: '1px solid var(--color-border, #e7e0d1)',
               borderRadius: 12,
               padding: 12,
               display: 'grid',
               gridTemplateColumns: '88px 1fr auto',
               gap: 12,
               alignItems: 'start',
-              background: '#f9fbff'
+              background: 'var(--color-surface-muted, #faf7f0)'
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', minHeight: 32 }}>

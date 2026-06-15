@@ -1893,10 +1893,10 @@ const App: React.FC = () => {
               borderRadius: 8
             }
           : {
-              colorPrimary: '#36455c',
+              colorPrimary: '#cf7a35',
               borderRadius: 8,
-              colorText: '#1f2733',
-              colorTextSecondary: '#57606e',
+              colorText: '#2a2520',
+              colorTextSecondary: '#6b6157',
               colorBorder: '#d9d0bc',
               colorBorderSecondary: '#e7e0d1',
               colorBgLayout: '#f6f2e9'
@@ -2221,8 +2221,8 @@ const App: React.FC = () => {
                               fontSize: 11,
                               padding: '0 8px',
                               borderRadius: 10,
-                              background: 'rgba(37,99,235,0.12)',
-                              color: '#2563eb',
+                              background: 'rgba(207,122,53,0.14)',
+                              color: 'var(--color-primary-600, #cf7a35)',
                               fontWeight: 600
                             }}
                           >
@@ -2237,9 +2237,9 @@ const App: React.FC = () => {
                         {counts.length ? (
                           <Space size={10} wrap>
                             {counts.map((c) => (
-                              <span key={c.label} style={{ color: '#64748b' }}>
+                              <span key={c.label} style={{ color: 'var(--color-text-soft, #6b6157)' }}>
                                 {c.label}{' '}
-                                <strong style={{ color: '#0f172a', fontWeight: 600 }}>{c.value}</strong>
+                                <strong style={{ color: 'var(--color-text, #2a2520)', fontWeight: 600 }}>{c.value}</strong>
                               </span>
                             ))}
                           </Space>

@@ -3,16 +3,16 @@
   /* 暖纸面主题（Phase 0 spike）：奶油底 + 沙色边框 + 墨蓝 primary。
      只换亮色 token；暗色在 .metro-app-shell[data-interface-theme="dark"] 整套重定义，不受影响。
      画布绘图表面走独立的 --metro-canvas-bg（Canvas.tsx 内联注入），与这里完全解耦。 */
-  --color-primary-50:  #eef0f4;
-  --color-primary-100: #dde2ea;
-  --color-primary-500: #4a5a73;   /* hover / 中性 */
-  --color-primary-600: #36455c;   /* primary / CTA（墨蓝） */
-  --color-primary-700: #283549;   /* active */
+  --color-primary-50:  #fbf1e7;
+  --color-primary-100: #f5e0cc;
+  --color-primary-500: #d98a4e;   /* hover / 中性 */
+  --color-primary-600: #cf7a35;   /* primary / CTA（暖橙） */
+  --color-primary-700: #b0631f;   /* active */
 
   /* 文本三档（偏暖的墨灰） */
-  --color-text:       #1f2733;
-  --color-text-soft:  #57606e;
-  --color-text-muted: #9a958a;
+  --color-text:       #2a2520;
+  --color-text-soft:  #6b6157;
+  --color-text-muted: #a39b8c;
 
   /* 表面 + 背景 */
   --color-bg:             #f6f2e9;
@@ -20,6 +20,7 @@
   --color-surface-muted:  #faf7f0;
   --color-border:         #e7e0d1;
   --color-border-strong:  #c9bda4;
+  --color-border-subtle:  #efe9dc;   /* 比 border 更淡，组件细分割线用（修 AI 弹窗冷色回退） */
 
   --color-danger:  #ef4444;
   --color-success: #10b981;
@@ -954,7 +955,7 @@ body {
   border-radius: var(--metro-radius-lg);
   border: 1px solid var(--metro-border);
   background: var(--metro-surface);
-  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 12px 24px rgba(60, 50, 30, 0.08);
 }
 
 .metro-modal-root :where(.ant-modal-header) {
@@ -1497,7 +1498,7 @@ body {
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 20px rgba(60, 50, 30, 0.08);
   pointer-events: auto;
 }
 
@@ -1839,9 +1840,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   gap: 22px;
   overflow: hidden;
   background:
-    linear-gradient(90deg, rgba(26, 34, 46, 0.95) 0%, rgba(54, 69, 92, 0.78) 48%, rgba(74, 90, 115, 0.36) 100%),
+    linear-gradient(90deg, rgba(38, 32, 24, 0.95) 0%, rgba(74, 58, 40, 0.78) 48%, rgba(110, 86, 58, 0.36) 100%),
       url('./assets/auth-metro-hero.png') center / cover no-repeat,
-    var(--color-primary-600);
+    #3a342b;
 }
 
 .auth-card__info::before,
@@ -2052,9 +2053,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-switcher__btn.is-active {
-  background: linear-gradient(135deg, #4a5a73, #283549);
+  background: linear-gradient(135deg, #d98a4e, #b0631f);
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(40, 53, 73, 0.30);
+  box-shadow: 0 10px 22px rgba(176, 99, 31, 0.28);
 }
 
 .auth-form {
@@ -2115,15 +2116,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   height: 62px;
   margin-top: 12px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #44546e, #283549);
-  box-shadow: 0 16px 28px rgba(40, 53, 73, 0.26);
+  background: linear-gradient(135deg, #d98a4e, #b0631f);
+  box-shadow: 0 16px 28px rgba(176, 99, 31, 0.26);
   font-size: 18px;
   font-weight: 800;
 }
 
 .auth-submit-btn.ant-btn:hover {
-  filter: brightness(1.06);
-  box-shadow: 0 18px 32px rgba(40, 53, 73, 0.32);
+  filter: brightness(1.04);
+  box-shadow: 0 18px 32px rgba(176, 99, 31, 0.32);
 }
 
 .auth-submit-btn :where(.anticon) {
@@ -2704,7 +2705,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   border: 1px solid var(--color-border);
   border-radius: var(--radius-pill);
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 8px 20px rgba(60, 50, 30, 0.08);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   color: var(--color-text);
