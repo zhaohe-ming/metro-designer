@@ -3,24 +3,24 @@
   /* 暖纸面主题（Phase 0 spike）：奶油底 + 沙色边框 + 墨蓝 primary。
      只换亮色 token；暗色在 .metro-app-shell[data-interface-theme="dark"] 整套重定义，不受影响。
      画布绘图表面走独立的 --metro-canvas-bg（Canvas.tsx 内联注入），与这里完全解耦。 */
-  --color-primary-50:  #eef2f7;
-  --color-primary-100: #d9e3ee;
-  --color-primary-500: #6c8caa;   /* hover / 中性 */
-  --color-primary-600: #4a6b8c;   /* primary / CTA（淡雅灰蓝） */
-  --color-primary-700: #3a5878;   /* active */
+  --color-primary-50:  #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
 
   /* 文本三档（偏暖的墨灰） */
-  --color-text:       #2a2520;
-  --color-text-soft:  #6b6157;
-  --color-text-muted: #a39b8c;
+  --color-text:       #0f172a;
+  --color-text-soft:  #475569;
+  --color-text-muted: #64748b;
 
   /* 表面 + 背景（压淡黄，接近暖白） */
-  --color-bg:             #f7f5ef;
+  --color-bg:             #eef6ff;
   --color-surface:        #ffffff;
-  --color-surface-muted:  #faf8f3;
-  --color-border:         #e8e3d8;
-  --color-border-strong:  #ccc2b1;
-  --color-border-subtle:  #f0ece2;   /* 比 border 更淡，组件细分割线用（修 AI 弹窗冷色回退） */
+  --color-surface-muted:  #f8fbff;
+  --color-border:         #cfe0f5;
+  --color-border-strong:  #9dbce7;
+  --color-border-subtle:  #e8f1ff;
 
   --color-danger:  #ef4444;
   --color-success: #10b981;
@@ -1828,9 +1828,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   width: min(1500px, 100%);
   min-height: min(920px, calc(100vh - 36px));
   border-radius: var(--radius-lg) !important;
-  border: 1px solid rgba(168, 152, 116, 0.38) !important;
+  border: 1px solid rgba(96, 165, 250, 0.38) !important;
   background: rgba(255, 255, 255, 0.78) !important;
-  box-shadow: 0 18px 42px rgba(64, 54, 32, 0.14) !important;
+  box-shadow: 0 18px 42px rgba(30, 64, 175, 0.14) !important;
 }
 
 .auth-card__inner {
@@ -2044,7 +2044,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 10px 24px rgba(64, 54, 32, 0.08);
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08);
 }
 
 .auth-switcher__btn {
@@ -2058,9 +2058,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-switcher__btn.is-active {
-  background: linear-gradient(135deg, #6c8caa, #3a5878);
+  background: linear-gradient(135deg, #2f7df6, #1557d6);
   color: #ffffff;
-  box-shadow: 0 10px 22px rgba(58, 88, 120, 0.28);
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.24);
 }
 
 .auth-form {
@@ -2087,7 +2087,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   border-radius: 8px;
   border-color: var(--color-border);
   background: rgba(255, 255, 255, 0.74);
-  box-shadow: 0 14px 26px rgba(95, 82, 54, 0.08);
+  box-shadow: 0 14px 26px rgba(37, 99, 235, 0.08);
 }
 
 .auth-form :where(.ant-input-affix-wrapper:hover),
@@ -2099,7 +2099,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-form :where(.ant-input-affix-wrapper:focus-within),
 .auth-form :where(.ant-input:focus) {
   border-color: var(--color-primary-600) !important;
-  box-shadow: 0 0 0 3px rgba(54, 69, 92, 0.13), 0 16px 28px rgba(95, 82, 54, 0.11);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14), 0 16px 28px rgba(37, 99, 235, 0.1);
 }
 
 .auth-form :where(.ant-input-prefix) {
@@ -2114,22 +2114,22 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-form :where(.ant-input::placeholder) {
-  color: #a39e92;
+  color: #94a3b8;
 }
 
 .auth-submit-btn.ant-btn {
   height: 62px;
   margin-top: 12px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6c8caa, #3a5878);
-  box-shadow: 0 16px 28px rgba(58, 88, 120, 0.26);
+  background: linear-gradient(135deg, #2f7df6, #1557d6);
+  box-shadow: 0 16px 28px rgba(37, 99, 235, 0.24);
   font-size: 18px;
   font-weight: 800;
 }
 
 .auth-submit-btn.ant-btn:hover {
   filter: brightness(1.04);
-  box-shadow: 0 18px 32px rgba(58, 88, 120, 0.32);
+  box-shadow: 0 18px 32px rgba(37, 99, 235, 0.3);
 }
 
 .auth-submit-btn :where(.anticon) {
@@ -3353,4 +3353,95 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+}
+
+/* Blue-white sweep for controls that still had warm/dusty theme remnants. */
+.metro-app-shell:not([data-interface-theme="dark"]) :where(.ant-btn-primary),
+.auth-layout:not([data-interface-theme="dark"]) :where(.ant-btn-primary),
+.metro-toolbar__primary.ant-btn,
+.auth-submit-btn.ant-btn,
+.auth-switcher__btn.is-active {
+  border-color: #2563eb !important;
+  background: linear-gradient(135deg, #2f7df6 0%, #1557d6 100%) !important;
+  color: #ffffff !important;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.22) !important;
+}
+
+.metro-app-shell:not([data-interface-theme="dark"]) :where(.ant-btn-primary:hover),
+.auth-layout:not([data-interface-theme="dark"]) :where(.ant-btn-primary:hover),
+.auth-submit-btn.ant-btn:hover,
+.auth-switcher__btn.is-active:hover {
+  border-color: #1d4ed8 !important;
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.28) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) {
+  background:
+    radial-gradient(circle at 18% 12%, rgba(59, 130, 246, 0.18), transparent 34%),
+    linear-gradient(135deg, #f8fbff 0%, #eef6ff 100%) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-card {
+  border-color: rgba(96, 165, 250, 0.38) !important;
+  background: #ffffff !important;
+  box-shadow: 0 22px 60px rgba(30, 64, 175, 0.14) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-card__form {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.92)) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form-title {
+  color: #0f172a !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form-subtitle,
+.auth-layout:not([data-interface-theme="dark"]) .auth-form-footer,
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-form-item-label > label) {
+  color: #475569 !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-switcher {
+  border-color: #cfe0f5 !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.08) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-switcher__btn:not(.is-active) {
+  color: #0f172a !important;
+  background: transparent !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input-affix-wrapper),
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input) {
+  border-color: #cfe0f5 !important;
+  background: rgba(255, 255, 255, 0.9) !important;
+  box-shadow: 0 14px 26px rgba(37, 99, 235, 0.08) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input-affix-wrapper:hover),
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input:hover) {
+  border-color: #9dbce7 !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input-affix-wrapper-focused),
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input-affix-wrapper:focus-within),
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input:focus) {
+  border-color: #2563eb !important;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14), 0 16px 28px rgba(37, 99, 235, 0.1) !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input-prefix) {
+  color: #3b82f6 !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input::placeholder),
+.auth-layout:not([data-interface-theme="dark"]) .auth-form :where(.ant-input-affix-wrapper input::placeholder) {
+  color: #94a3b8 !important;
+}
+
+.auth-layout:not([data-interface-theme="dark"]) .auth-form-footer {
+  border-top-color: #cfe0f5 !important;
 }

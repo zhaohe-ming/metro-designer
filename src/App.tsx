@@ -1893,13 +1893,13 @@ const App: React.FC = () => {
               borderRadius: 8
             }
           : {
-              colorPrimary: '#4a6b8c',
+              colorPrimary: '#2563eb',
               borderRadius: 8,
-              colorText: '#2a2520',
-              colorTextSecondary: '#6b6157',
-              colorBorder: '#d9d0bc',
-              colorBorderSecondary: '#e7e0d1',
-              colorBgLayout: '#f6f2e9'
+              colorText: '#0f172a',
+              colorTextSecondary: '#475569',
+              colorBorder: '#cfe0f5',
+              colorBorderSecondary: '#e8f1ff',
+              colorBgLayout: '#eef6ff'
             }
     }),
     [resolvedInterfaceTheme]
@@ -2222,7 +2222,7 @@ const App: React.FC = () => {
                               padding: '0 8px',
                               borderRadius: 10,
                               background: 'rgba(74,107,140,0.14)',
-                              color: 'var(--color-primary-600, #4a6b8c)',
+                              color: 'var(--color-primary-600, #2563eb)',
                               fontWeight: 600
                             }}
                           >
