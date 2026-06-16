@@ -3282,3 +3282,75 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     max-width: none !important;
   }
 }
+
+/* Restore the blue-white product palette after the warm theme overrides. */
+:root {
+  --color-primary-50:  #eff6ff;
+  --color-primary-100: #dbeafe;
+  --color-primary-500: #3b82f6;
+  --color-primary-600: #2563eb;
+  --color-primary-700: #1d4ed8;
+  --color-text:        #0f172a;
+  --color-text-soft:   #475569;
+  --color-text-muted:  #64748b;
+  --color-bg:          #eef6ff;
+  --color-surface:     #ffffff;
+  --color-surface-muted: #f8fbff;
+  --color-border:      #cfe0f5;
+  --color-border-strong: #9dbce7;
+  --color-border-subtle: #e8f1ff;
+}
+
+/* Desktop layout polish: keep these overrides after the responsive blocks so
+   the workbench frame, bottom HUD, and header alignment stay stable. */
+@media (min-width: 769px) {
+  .metro-header {
+    transform: translateY(-3px);
+  }
+
+  .app-header {
+    transform: translateY(-7px);
+  }
+
+  .metro-sider,
+  .metro-sider.ant-layout-sider {
+    border: 1.5px solid rgba(96, 165, 250, 0.58) !important;
+    border-radius: 12px !important;
+    background: rgba(255, 255, 255, 0.94) !important;
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.92) inset,
+      0 10px 26px rgba(15, 23, 42, 0.07);
+    overflow: hidden;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sider,
+  .metro-app-shell[data-interface-theme="dark"] .metro-sider.ant-layout-sider {
+    background: rgba(17, 24, 39, 0.92) !important;
+    border-color: rgba(96, 165, 250, 0.46) !important;
+    box-shadow:
+      0 0 0 1px rgba(15, 23, 42, 0.82) inset,
+      0 10px 28px rgba(0, 0, 0, 0.22);
+  }
+
+  .metro-command-bar {
+    right: 304px;
+    bottom: 18px;
+  }
+
+  .metro-canvas-hud {
+    width: 268px;
+    min-width: 268px;
+    bottom: 18px;
+    right: 18px;
+    box-sizing: border-box;
+    justify-content: space-between;
+  }
+
+  .metro-canvas-hud__value {
+    width: 104px;
+    min-width: 104px;
+    flex: 0 0 104px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+}

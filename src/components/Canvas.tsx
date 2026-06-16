@@ -2431,7 +2431,7 @@ const Canvas: React.FC<CanvasProps> = ({
           </Dropdown>
         ) : (
           <span className="metro-canvas-hud__value metro-canvas-hud__value--static">
-            {text.zoom} {Math.round((amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11) * 10) / 10}
+            {text.zoom} {(amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11).toFixed(1)}
           </span>
         )}
         <Tooltip title={text.zoomIn}>
