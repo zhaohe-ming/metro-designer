@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Button, ColorPicker, Dropdown, Modal, Space, Typography, message } from 'antd';
+import { Button, ColorPicker, Dropdown, Modal, Space, Tooltip, Typography, message } from 'antd';
 import Input from 'antd/es/input';
 import { DeleteOutlined, DragOutlined, MoreOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { LINE_COLORS, Line, Station } from '../types';
@@ -394,7 +394,21 @@ const Sidebar: React.FC<SidebarProps> = ({
         style={{ flexGrow: linesFlex }}
       >
         <div className="metro-sidebar__section-head">
-          <div className="metro-sidebar__section-title">{text.lineList}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <div className="metro-sidebar__section-title">{text.lineList}</div>
+            {lines.length > 1 ? (
+              <Tooltip title={isReorderingLines ? text.finishReorder : text.reorder}>
+                <Button
+                  className="metro-sidebar__reorder-btn"
+                  size="small"
+                  type={isReorderingLines ? 'primary' : 'text'}
+                  icon={<SwapOutlined />}
+                  onClick={isReorderingLines ? handleCancelLineReorder : handleStartLineReorder}
+                  aria-label={isReorderingLines ? text.finishReorder : text.reorder}
+                />
+              </Tooltip>
+            ) : null}
+          </div>
           <Button
             className="metro-sidebar__add-btn"
             type="primary"
@@ -406,33 +420,10 @@ const Sidebar: React.FC<SidebarProps> = ({
           </Button>
         </div>
 
-        {lines.length > 1 ? (
-          <div style={{ marginBottom: 12 }}>
-            {!isReorderingLines ? (
-              <Button
-                className="metro-sidebar__ghost-btn"
-                size="small"
-                icon={<SwapOutlined />}
-                onClick={handleStartLineReorder}
-              >
-                {text.reorder}
-              </Button>
-            ) : (
-              <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                <Button
-                  className="metro-sidebar__ghost-btn"
-                  size="small"
-                  icon={<SwapOutlined />}
-                  onClick={handleCancelLineReorder}
-                >
-                  {text.finishReorder}
-                </Button>
-                <Text type="secondary" style={{ fontSize: 12 }}>
-                  {text.reorderHint}
-                </Text>
-              </Space>
-            )}
-          </div>
+        {lines.length > 1 && isReorderingLines ? (
+          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 10 }}>
+            {text.reorderHint}
+          </Text>
         ) : null}
 
         <div className="metro-line-list" onClick={handleLinesAreaClick}>
