@@ -209,7 +209,8 @@ body {
   height: 100vh;
   min-height: 100vh;
   overflow: hidden;
-  padding: 16px;
+  /* 上下 8px：工具栏整体上移、且与 recovery 段 workbench 的 calc(100vh-16px) 对齐 */
+  padding: 8px 16px;
   background: var(--metro-bg);
 }
 
@@ -218,8 +219,9 @@ body {
   height: calc(100vh - 32px);
   min-height: calc(100vh - 32px);
   overflow: hidden;
-  border: 1px solid var(--metro-border);
-  border-radius: 12px;
+  /* 去掉最外层框：无边框、无圆角，扁平贴合 */
+  border: none;
+  border-radius: 0;
   background: var(--metro-bg);
   overflow: hidden;
 }
@@ -482,8 +484,9 @@ body {
 
 .metro-sider,
 .metro-canvas-stage {
-  border: 1px solid var(--metro-border);
-  border-radius: var(--metro-radius-lg);
+  /* 去掉内框：侧栏 / 画布不再描边、不再圆角 */
+  border: none;
+  border-radius: 0;
   background: var(--metro-surface);
 }
 
@@ -1386,8 +1389,8 @@ body {
 
 .metro-workbench {
   min-height: calc(100vh - 16px);
-  border-color: var(--color-border);
-  border-radius: var(--radius-lg);
+  border: none;
+  border-radius: 0;
   background: var(--color-surface-muted);
 }
 
@@ -1412,7 +1415,8 @@ body {
 
 .metro-body {
   gap: var(--space-2);
-  padding: var(--space-2);
+  /* 顶部多留白：让工具栏按钮和画布上边界拉开距离 */
+  padding: var(--space-4) var(--space-2) var(--space-2);
   background: var(--color-surface-muted);
 }
 
@@ -1425,9 +1429,9 @@ body {
 
 .metro-canvas-stage {
   min-height: calc(100vh - 84px);
-  border-color: var(--color-border);
   background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.03);
+  /* 去掉画布那层 inset 描边 */
+  box-shadow: none;
   /* 触屏环境下告诉浏览器：这块区域的手势我自己处理，不要尝试滚动 / 缩放页面。
      没这条的话移动浏览器会先把 touchstart 当作页面滚动消费掉，Konva 永远收不到 pointer down。 */
   touch-action: none;
