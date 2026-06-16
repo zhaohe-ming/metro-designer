@@ -124,7 +124,8 @@ body {
 .metro-command-bar {
   position: absolute;
   left: 14px;
-  right: 14px;
+  /* 右边界左移，给右下角的缩放 HUD 让位，避免重叠 */
+  right: 240px;
   bottom: 14px;
   z-index: 30;
   display: flex;
@@ -2698,8 +2699,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 /* ===== 画布 HUD：底部右侧一条胶囊 ===== */
 .metro-canvas-hud {
   position: absolute;
-  /* 抬到命令栏（底部全宽，约 52px 高）之上，避免重叠 */
-  bottom: 64px;
+  /* 回到右下角，与命令栏同底排列（命令栏右边界已左移让位，见 .metro-command-bar） */
+  bottom: 16px;
   right: 16px;
   z-index: 1000;
   display: inline-flex;
