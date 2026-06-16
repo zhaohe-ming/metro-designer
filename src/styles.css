@@ -124,8 +124,8 @@ body {
 .metro-command-bar {
   position: absolute;
   left: 14px;
-  /* 右边界左移，给右下角的缩放 HUD 让位，避免重叠 */
-  right: 240px;
+  /* 右边界左移，给右下角的缩放 HUD 让位，避免重叠（240 仍贴住，加到 290 留明显间隙） */
+  right: 290px;
   bottom: 14px;
   z-index: 30;
   display: flex;
