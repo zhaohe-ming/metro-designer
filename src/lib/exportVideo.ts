@@ -1,17 +1,13 @@
 // 视频导出模块：把"按开通时间逐段亮起线路"的动画在离屏 canvas 上渲染、
 // 通过 MediaRecorder + canvas.captureStream 录成 WebM 并返回 Blob。
-//
-// 设计要点：
-// - 纯函数 + 注入依赖（fetchAmapStaticMap）。模块不依赖 React / AntD。
-// - 帧调度从原先的 setInterval(1000/fps) 改成 rAF + performance.now() 累计帧号：
-//   * 避免 setInterval 在长任务或后台标签时严重漂移；
-//   * 渲染落后时按真实时间一次补多帧，保证视频总时长稳定；
-//   * 至少保证每个 rAF tick 推进 1 帧，慢机器也不会卡住。
+// 路径与时间轴由 videoModel 管理；录制、暂停与资源释放由 recordVideo 管理。
 
-import { Line, MapSettings, Section, Station, DEFAULT_MAP_SETTINGS } from '../types';
+import { Line, MapSettings, Section, Station, Waypoint, DEFAULT_MAP_SETTINGS } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, degToRad, fillCurvedArrowCanvas2d } from './interchange';
-import type { VideoSegmentInput } from '../components/VideoExportModal';
+import { activeVideoStationLines, buildVideoRouteGeometry, easeVideoProgress, getVideoSectionPoints,
+  mercatorProject, resolveVideoRoute, staticMapViewport, videoArrivalProgress, VideoSegmentInput } from './videoModel';
+import { checkVideoRecordingSupport, recordVideoCanvas, throwIfVideoAborted, VideoExportProgress } from './recordVideo';
 
 export interface ExportVideoOptions {
   stage: any; // Konva Stage instance (only width/height are read)
@@ -24,12 +20,15 @@ export interface ExportVideoOptions {
   title?: string;
   subtitle?: string;
   titleDurationSec?: number;
+  signal?: AbortSignal;
+  onProgress?: (progress: VideoExportProgress) => void;
   fetchAmapStaticMap: (params: {
     center: [number, number];
     zoom: number;
     width: number;
     height: number;
     style?: string;
+    signal?: AbortSignal;
   }) => Promise<Blob>;
   onWarn?: (message: string) => void;
 }
@@ -48,7 +47,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     subtitle: rawSubtitle,
     titleDurationSec: rawTitleDurationSec,
     fetchAmapStaticMap,
-    onWarn
+    onWarn, signal, onProgress
   } = opts;
   const titleText = (rawTitle || '').trim() || '城市轨道线网历程';
   const subtitleText = (rawSubtitle || '').trim();
@@ -56,9 +55,11 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
   if (!segments.length) throw new Error('请至少填写一个开通区间');
   if (!allStations.length) throw new Error('请先创建站点后再导出视频');
+  checkVideoRecordingSupport();
+  throwIfVideoAborted(signal);
+  onProgress?.({ phase: 'preparing', percent: 0, elapsedSec: 0, totalSec: 0 });
 
   const fps = 30;
-  const frameDurationMs = 1000 / fps;
   const roundEven = (value: number) => Math.max(2, Math.round(value / 2) * 2);
   const stageWidth = Math.max(1, Number(stage?.width?.() || 1280));
   const stageHeight = Math.max(1, Number(stage?.height?.() || 720));
@@ -73,14 +74,18 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ? roundEven(Math.max(minVideoEdge, maxVideoEdge / aspectRatio))
     : roundEven(maxVideoEdge);
   const titleFrames = Math.round(fps * titleDurationSec);
-  const outroFrames = fps;
+  const outroFrames = fps * 3;
   const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
   const preset = getCityStylePreset(settings);
   const isDarkCanvas = settings.canvasTheme === 'dark';
-  const isAmapVideo = settings.baseMap.mode === 'amap';
+  const hasGeoPoint = (point: Station | Waypoint) => Number.isFinite(point.lng) && Number.isFinite(point.lat);
+  const wantsAmapVideo = settings.baseMap.mode === 'amap';
+  const isAmapVideo = wantsAmapVideo && allStations.every(hasGeoPoint) &&
+    allSections.every(section => (section.waypoints || []).every(hasGeoPoint));
+  if (wantsAmapVideo && !isAmapVideo) onWarn?.('部分站点或折点缺少经纬度，视频将使用完整示意图，避免线路和高德底图错位');
   const amapStyle = settings.baseMap.amap?.style || 'normal';
-  const isMutedAmapStyle = isAmapVideo && (amapStyle === 'dark' || amapStyle === 'grey');
-  const usesDarkVideoSurface = isDarkCanvas || isMutedAmapStyle;
+  // 静态地图 API 使用标准样式，不能照搬 JS API 的深色样式参数。
+  const usesDarkVideoSurface = !isAmapVideo && isDarkCanvas;
   const mutedLineColor = usesDarkVideoSurface ? 'rgba(148, 163, 184, 0.46)' : 'rgba(100, 116, 139, 0.28)';
   const mutedStationFill = usesDarkVideoSurface ? '#0f172a' : '#ffffff';
   const mutedStationStroke = usesDarkVideoSurface ? '#94a3b8' : '#cbd5e1';
@@ -102,79 +107,20 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     return result;
   }, {});
 
-  const resolveSegmentPath = (segment: VideoSegmentInput) => {
-    const line = allLines.find(item => item.id === segment.lineId);
-    const startStation = stationById.get(segment.startStationId);
-    const endStation = stationById.get(segment.endStationId);
-    if (!line || !startStation || !endStation || startStation.id === endStation.id) {
-      throw new Error(`视频区间配置无效：${segment.openDate || '未填写日期'}`);
-    }
-
-    const startIndex = line.stationIds.indexOf(startStation.id);
-    const endIndex = line.stationIds.indexOf(endStation.id);
-    if (startIndex >= 0 && endIndex >= 0 && startIndex !== endIndex) {
-      const orderedIds =
-        startIndex < endIndex
-          ? line.stationIds.slice(startIndex, endIndex + 1)
-          : line.stationIds.slice(endIndex, startIndex + 1).reverse();
-      if (orderedIds.every(id => stationById.has(id))) {
-        return { segment, line, stationIds: orderedIds };
-      }
-    }
-
-    const adjacency = new Map<string, string[]>();
-    allSections
-      .filter(section => section.lineId === line.id)
-      .forEach(section => {
-        adjacency.set(section.startStationId, [...(adjacency.get(section.startStationId) || []), section.endStationId]);
-        adjacency.set(section.endStationId, [...(adjacency.get(section.endStationId) || []), section.startStationId]);
-      });
-
-    const queue: string[][] = [[startStation.id]];
-    const visited = new Set([startStation.id]);
-    while (queue.length) {
-      const path = queue.shift()!;
-      const tail = path[path.length - 1];
-      if (tail === endStation.id) return { segment, line, stationIds: path };
-      (adjacency.get(tail) || []).forEach(next => {
-        if (!visited.has(next)) {
-          visited.add(next);
-          queue.push([...path, next]);
-        }
-      });
-    }
-
-    throw new Error(`找不到视频路径：${line.name} ${startStation.name} - ${endStation.name}`);
-  };
-
-  const animationSegments = sortedSegments.map(resolveSegmentPath);
-  const lngLatStations = allStations.filter(station => typeof station.lng === 'number' && typeof station.lat === 'number');
-  if (isAmapVideo && lngLatStations.length !== allStations.length) {
-    onWarn?.('部分站点缺少经纬度，视频中会使用画布坐标兜底，可能无法完全贴合高德底图');
-  }
-  const minX = Math.min(...allStations.map(station => station.x));
-  const minY = Math.min(...allStations.map(station => station.y));
-  const maxX = Math.max(...allStations.map(station => station.x));
-  const maxY = Math.max(...allStations.map(station => station.y));
+  const animationSegments = sortedSegments.map(segment => resolveVideoRoute(segment, allLines, allStations, allSections));
+  const allGeometryPoints = [...allStations, ...allSections.flatMap(section => section.waypoints || [])];
+  const minX = Math.min(...allGeometryPoints.map(point => point.x));
+  const minY = Math.min(...allGeometryPoints.map(point => point.y));
+  const maxX = Math.max(...allGeometryPoints.map(point => point.x));
+  const maxY = Math.max(...allGeometryPoints.map(point => point.y));
   const padding = 96;
   const mapWidth = Math.max(1, maxX - minX);
   const mapHeight = Math.max(1, maxY - minY);
   const plainMapScale = Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight, 2.2);
   const mapScale = isAmapVideo ? Math.max(0.72, Math.min(1.35, Math.min(width, height) / 720)) : plainMapScale;
-  const mapOffset = {
-    x: (width - mapWidth * plainMapScale) / 2 - minX * plainMapScale,
-    y: (height - mapHeight * plainMapScale) / 2 - minY * plainMapScale - 10
-  };
   const amapOptions = settings.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!;
-  const mercatorProject = (lng: number, lat: number, zoom: number) => {
-    const sin = Math.sin((Math.max(-85.05112878, Math.min(85.05112878, lat)) * Math.PI) / 180);
-    const worldSize = 256 * Math.pow(2, zoom);
-    return {
-      x: ((lng + 180) / 360) * worldSize,
-      y: (0.5 - Math.log((1 + sin) / (1 - sin)) / (4 * Math.PI)) * worldSize
-    };
-  };
-  const amapCenterPoint = mercatorProject(amapOptions.center[0], amapOptions.center[1], amapOptions.zoom);
+  const amapViewport = staticMapViewport(width, height, amapOptions.zoom);
+  const amapCenterPoint = mercatorProject(amapOptions.center[0], amapOptions.center[1], amapViewport.zoom);
 
   // ── Phase 2 相机模型 ───────────────────────────────────────────────────
   // 把"画布坐标"拆成两步：
@@ -185,16 +131,16 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   // 相机默认就是"全图居中" —— 跟 Phase 1 之前的视觉一致。
   // 单段绘制时相机会以 0.12 的系数 ease 到"当前动画头位置 + 1.6× 缩放"，
   // 完成段落跟随的平移效果。
-  const stationWorld = (station: Station) => {
+  const stationWorld = (station: Station | Waypoint) => {
     if (isAmapVideo && typeof station.lng === 'number' && typeof station.lat === 'number') {
-      const p = mercatorProject(station.lng, station.lat, amapOptions.zoom);
+      const p = mercatorProject(station.lng, station.lat, amapViewport.zoom);
       return { x: p.x - amapCenterPoint.x, y: p.y - amapCenterPoint.y };
     }
     return { x: station.x, y: station.y };
   };
 
   const defaultCamera = isAmapVideo
-    ? { x: 0, y: 0, scale: 1 }
+    ? { x: 0, y: 0, scale: amapViewport.scale }
     : { x: (minX + maxX) / 2, y: (minY + maxY) / 2, scale: plainMapScale };
 
   // 当前相机：可变；初始化为 default。AMap 模式下保持静态（不参与相机动画）。
@@ -215,12 +161,12 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const toFitAllCanvasPoint = (station: Station) => worldToCanvasFitAll(stationWorld(station));
 
   // 段落路径用世界坐标存，每帧再投影 —— 这样相机平移 / 缩放都能正确反映在线条位置上
-  const pathToWorldPoints = (stationIds: string[]) =>
-    stationIds.map(id => stationById.get(id)).filter(Boolean).map(station => stationWorld(station!));
+  const sectionPoints = new Map(allSections.map(section => [section.id,
+    getVideoSectionPoints(section, stationById, stationWorld, settings.cornerRadius)]));
 
   const canvasThemeGradient = (ctx: CanvasRenderingContext2D) => {
     const gradient = ctx.createLinearGradient(0, 0, width, height);
-    if (isDarkCanvas) {
+    if (usesDarkVideoSurface) {
       gradient.addColorStop(0, '#07111f');
       gradient.addColorStop(1, '#0f172a');
     } else {
@@ -262,16 +208,29 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
   const loadImageFromBlob = (blob: Blob) =>
     new Promise<HTMLImageElement>((resolve, reject) => {
+      throwIfVideoAborted(signal);
       const url = URL.createObjectURL(blob);
       const image = new Image();
-      image.onload = () => {
+      const cleanup = () => {
         URL.revokeObjectURL(url);
+        signal?.removeEventListener('abort', abort);
+        image.onload = null;
+        image.onerror = null;
+      };
+      const abort = () => {
+        cleanup();
+        image.src = '';
+        reject(new DOMException('已取消视频导出', 'AbortError'));
+      };
+      image.onload = () => {
+        cleanup();
         resolve(image);
       };
       image.onerror = () => {
-        URL.revokeObjectURL(url);
+        cleanup();
         reject(new Error('高德静态地图图片加载失败'));
       };
+      signal?.addEventListener('abort', abort, { once: true });
       image.src = url;
     });
 
@@ -282,19 +241,26 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     try {
       const blob = await fetchAmapStaticMap({
         center: amapOptions.center,
-        zoom: amapOptions.zoom,
-        width,
-        height,
-        style: amapOptions.style
+        zoom: amapViewport.zoom,
+        width: amapViewport.width,
+        height: amapViewport.height,
+        style: 'normal', signal
       });
       amapBackgroundImage = await loadImageFromBlob(blob);
+      if (amapBackgroundImage.naturalWidth !== amapViewport.width ||
+        amapBackgroundImage.naturalHeight !== amapViewport.height) {
+        throw new Error('底图返回尺寸与请求不一致');
+      }
+      if (amapStyle !== 'normal') onWarn?.('视频中的高德静态底图使用标准样式');
     } catch (error: any) {
+      throwIfVideoAborted(signal);
       onWarn?.(
         `无法加载高德静态地图作为视频底图${error?.message ? `（${error.message}）` : ''}，将使用纯色背景导出。如需带地图背景，请在服务端配置 AMAP_WEB_SERVICE_KEY。`
       );
       amapBackgroundImage = null;
     }
   }
+  throwIfVideoAborted(signal);
 
   type VideoPoint = { x: number; y: number };
   type RectBox = { x: number; y: number; width: number; height: number };
@@ -323,11 +289,6 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       }
     }
     return metrics.points[metrics.points.length - 1];
-  };
-
-  const easeInOut = (value: number) => {
-    const clamped = Math.max(0, Math.min(1, value));
-    return clamped < 0.5 ? 4 * clamped * clamped * clamped : 1 - Math.pow(-2 * clamped + 2, 3) / 2;
   };
 
   const rectsOverlap = (a: RectBox, b: RectBox) =>
@@ -424,9 +385,10 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.fill();
   };
 
-  const drawStation = (station: Station, activeColor?: string, pulse = 0) => {
+  const drawStation = (station: Station, colors: string[] = [], pulse = 0) => {
     const point = toCanvasPoint(station);
-    const isInterchange = (stationLineCounts[station.id] || 0) > 1;
+    const activeColor = colors[0];
+    const isInterchange = colors.length > 1;
     const fallbackColor = activeColor || mutedStationStroke;
     const isActive = !!activeColor;
     // 站点尺寸跟随相机缩放：相机拉近时站点更大、外圈描边更显眼
@@ -458,7 +420,6 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
         return;
       }
 
-      const colors = stationLineColors.get(station.id) || [];
       const plan = planInterchange(preset.interchangeShape, preset.interchangeOuterStroke, colors);
       const r = preset.interchangeRadius * stationScale;
       const ringW = preset.interchangeStrokeWidth * stationScale;
@@ -530,7 +491,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.restore();
   };
 
-  const drawLineLabels = (alpha = 0.82) => {
+  const drawLineLabels = (activeLines: Map<string, Set<string>>, alpha = 0.82) => {
     if (!settings.showLineNameLabels) return;
     const occupied: RectBox[] = allStations.map(station => {
       const point = toCanvasPoint(station);
@@ -538,7 +499,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       return { x: point.x - radius, y: point.y - radius, width: radius * 2, height: radius * 2 };
     });
     allLines.forEach(line => {
-      const ordered = line.stationIds.map(id => stationById.get(id)).filter(Boolean) as Station[];
+      const ordered = line.stationIds.filter(id => activeLines.get(id)?.has(line.id))
+        .map(id => stationById.get(id)).filter(Boolean) as Station[];
       if (ordered.length < 2) return;
       const label = line.name;
       ctx.font = `${preset.lineLabelFontWeight} ${preset.lineLabelFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
@@ -628,6 +590,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
     ctx.font = `${settings.dotLabelStyle.fontWeight} ${settings.dotLabelStyle.fontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
     uniqueStations.forEach(station => {
+      if (station.labelPosition === 'hidden') return;
       const point = toFitAllCanvasPoint(station);
       const textWidth = Math.max(24, ctx.measureText(station.name).width);
       const labelWidth = textWidth + 18;
@@ -645,7 +608,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
         { x: point.x - distance * 0.72 - labelWidth, y: point.y + distance * 0.72 },
         { x: point.x - distance * 0.72 - labelWidth, y: point.y - distance * 0.72 - labelHeight }
       ];
-      const best = candidates
+      const forcedPosition = ['top', 'right', 'bottom', 'left'].indexOf(station.labelPosition || 'auto');
+      const best = candidates.filter((_, index) => forcedPosition < 0 || index === forcedPosition)
         .map((candidate, index) => {
           const rect = { ...candidate, width: labelWidth, height: labelHeight };
           let score = index;
@@ -659,6 +623,8 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
         })
         .sort((a, b) => a.score - b.score)[0];
       if (!best) return;
+      if (settings.labelDensity === 'adaptive' && forcedPosition < 0 && best.score >= 80 &&
+        !keyStationIds.has(station.id)) return;
       // 存的 textX/Y 这里仍然是"全图相机下的绝对画布像素"。绘制时换算成 delta（见 drawStationLabel）。
       const placement = {
         x: best.x,
@@ -675,9 +641,12 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     return placements;
   };
 
+  const keyStationIds = new Set(animationSegments.flatMap(item => [item.stationIds[0], item.stationIds[item.stationIds.length - 1]]));
+  allStations.forEach(station => { if (stationLineCounts[station.id] > 1) keyStationIds.add(station.id); });
+  const labelPlacements = createStationLabelPlacements(allStations.map(station => station.id));
   const segmentPlans = animationSegments.map(item => {
     // 路径用世界坐标存；metrics.totalLength 也是世界单位
-    const worldPoints = pathToWorldPoints(item.stationIds);
+    const { points: worldPoints, stationDistances } = buildVideoRouteGeometry(item, stationById, stationWorld, settings.cornerRadius);
     const metrics = getPathMetrics(worldPoints);
     // 把世界长度换算成"全图相机下的画布像素"，跟 Phase 1 之前的视觉长度对齐，
     // 这样旧的 duration 经验值依然有意义。Phase 2 把上限放宽到 12s（之前 8s）。
@@ -686,11 +655,12 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     return {
       ...item,
       points: worldPoints,
+      stationDistances,
       metrics,
       durationFrames: Math.round(durationSeconds * fps),
       revealFrames: Math.round(fps * 0.55),
       holdFrames: Math.round(fps * 0.55),
-      labelPlacements: createStationLabelPlacements(item.stationIds)
+      labelPlacements
     };
   });
 
@@ -717,7 +687,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.shadowBlur = 4;
     ctx.strokeText(text, textX, textY);
     ctx.shadowBlur = 0;
-    ctx.fillStyle = isMutedAmapStyle ? '#ffffff' : settings.dotLabelStyle.color || primaryText;
+    ctx.fillStyle = usesDarkVideoSurface ? primaryText : settings.dotLabelStyle.color || primaryText;
     ctx.fillText(text, textX, textY);
     ctx.restore();
   };
@@ -727,6 +697,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   // 有当前段落时 → 把相机 ease 到"当前动画头位置 + 1.6× 放大"。
   // AMap 模式相机保持静态。
   let cameraInitialized = false;
+  let cameraFrameDelta = 1;
   const updateCameraForFrame = (currentPlan?: SegmentPlan, currentDistance = 0) => {
     if (isAmapVideo) {
       camera.x = defaultCamera.x;
@@ -752,7 +723,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       return;
     }
     // ease 系数 0.12：30fps 下 half-life ≈ 5.4 帧（180ms），既跟得上动画头又不抖
-    const t = 0.12;
+    const t = 1 - Math.pow(0.88, cameraFrameDelta);
     camera.x += (targetX - camera.x) * t;
     camera.y += (targetY - camera.y) * t;
     camera.scale += (targetScale - camera.scale) * t;
@@ -775,11 +746,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     }
 
     allSections.forEach(section => {
-      const start = stationById.get(section.startStationId);
-      const end = stationById.get(section.endStationId);
-      if (!start || !end) return;
-      // drawLinePath 现在吃世界坐标 → 直接传 stationWorld，让它内部走相机投影
-      drawLinePath([stationWorld(start), stationWorld(end)], mutedLineColor, 1, 0.8, preset.lineWidth);
+      drawLinePath(sectionPoints.get(section.id) || [], mutedLineColor, 1, 0.8, preset.lineWidth);
     });
 
     segmentPlans.slice(0, openedCount).forEach(item => {
@@ -790,30 +757,28 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       drawLinePath(currentPlan.points, currentPlan.line.color, currentDistance / currentPlan.metrics.totalLength, 1, preset.lineWidth + 1);
     }
 
-    const activeStationColors = new Map<string, string>();
-    segmentPlans.slice(0, openedCount).forEach(item => {
-      item.stationIds.forEach(id => activeStationColors.set(id, item.line.color));
-    });
-    if (currentPlan) {
-      currentPlan.stationIds.forEach((id, index) => {
-        if ((currentPlan.metrics.cumulative[index] || 0) <= currentDistance + 1) {
-          activeStationColors.set(id, currentPlan.line.color);
-        }
-      });
-    }
-
-    allStations.forEach(station => drawStation(station, activeStationColors.get(station.id)));
+    const activeLines = activeVideoStationLines(segmentPlans.slice(0, openedCount), currentPlan, currentDistance);
+    allStations.forEach(station => drawStation(station,
+      allLines.filter(line => activeLines.get(station.id)?.has(line.id)).map(line => line.color)));
     if (currentPlan) {
       const head = getPointAtDistance(currentPlan.metrics, currentDistance);
       drawMovingHead(head, currentPlan.line.color, segmentFrame / fps);
     }
-    drawLineLabels(currentPlan ? 0.5 : 0.82);
+    drawLineLabels(activeLines, currentPlan ? 0.5 : 0.82);
 
+    const drawnLabels = new Set<string>();
+    const canShowLabel = (id: string) => settings.labelDensity !== 'key' ||
+      (activeLines.get(id)?.size || 0) > 1 || animationSegments.some(plan =>
+        plan.stationIds[0] === id || plan.stationIds[plan.stationIds.length - 1] === id);
     segmentPlans.slice(0, openedCount).forEach(item => {
       item.stationIds.forEach(id => {
+        if (drawnLabels.has(id) || !canShowLabel(id)) return;
         const station = stationById.get(id);
         const placement = item.labelPlacements.get(id);
-        if (station && placement) drawStationLabel(station, placement, 1, 0.52);
+        if (station && placement) {
+          drawStationLabel(station, placement, 1, 0.7);
+          drawnLabels.add(id);
+        }
       });
     });
 
@@ -821,9 +786,10 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       currentPlan.stationIds.forEach((id, index) => {
         const station = stationById.get(id);
         const placement = currentPlan.labelPlacements.get(id);
-        if (!station || !placement) return;
-        const arrivalDistance = currentPlan.metrics.cumulative[index] || 0;
-        const arrivalProgressFrame = Math.round((arrivalDistance / currentPlan.metrics.totalLength) * currentPlan.durationFrames);
+        if (!station || !placement || drawnLabels.has(id) || !canShowLabel(id)) return;
+        const arrivalDistance = currentPlan.stationDistances[index];
+        if (currentDistance < arrivalDistance) return;
+        const arrivalProgressFrame = videoArrivalProgress(arrivalDistance / currentPlan.metrics.totalLength) * currentPlan.durationFrames;
         const reveal = index === 0 ? 1 : Math.max(0, Math.min(1, (segmentFrame - arrivalProgressFrame) / currentPlan.revealFrames));
         drawStationLabel(station, placement, reveal, 1);
       });
@@ -833,33 +799,36 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const drawInfoPanel = (item: SegmentPlan, progress: number) => {
     const startStation = stationById.get(item.stationIds[0]);
     const endStation = stationById.get(item.stationIds[item.stationIds.length - 1]);
-    const panelWidth = 390;
+    const panelWidth = Math.min(width - 68, 520);
     const panelHeight = 104;
     const x = 34;
     const y = height - panelHeight - 28;
     ctx.save();
     roundRect(ctx, x, y, panelWidth, panelHeight, 14);
-    ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.86)' : 'rgba(255, 255, 255, 0.9)';
-    ctx.strokeStyle = isDarkCanvas ? 'rgba(148, 163, 184, 0.32)' : 'rgba(148, 163, 184, 0.34)';
+    ctx.fillStyle = usesDarkVideoSurface ? 'rgba(2, 6, 23, 0.86)' : 'rgba(255, 255, 255, 0.9)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.34)';
     ctx.lineWidth = 1;
     ctx.fill();
     ctx.stroke();
+    ctx.font = '700 13px "Microsoft YaHei", "PingFang SC", Arial';
+    const chipWidth = Math.min(180, Math.max(62, ctx.measureText(item.line.name).width + 24));
+    const textLeft = x + chipWidth + 32;
     ctx.fillStyle = item.line.color;
-    roundRect(ctx, x + 18, y + 20, 62, 28, 14);
+    roundRect(ctx, x + 18, y + 20, chipWidth, 28, 14);
     ctx.fill();
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 13px "Microsoft YaHei", "PingFang SC", Arial';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(item.line.name, x + 49, y + 34);
+    ctx.fillText(item.line.name, x + 18 + chipWidth / 2, y + 34, chipWidth - 16);
     ctx.fillStyle = primaryText;
     ctx.font = '800 22px "Microsoft YaHei", "PingFang SC", Arial';
     ctx.textAlign = 'left';
-    ctx.fillText(item.segment.openDate, x + 96, y + 32);
+    ctx.fillText(item.segment.openDate, textLeft, y + 32);
     ctx.fillStyle = secondaryText;
     ctx.font = '500 16px "Microsoft YaHei", "PingFang SC", Arial';
-    ctx.fillText(`${startStation?.name || '-'}  →  ${endStation?.name || '-'}`, x + 96, y + 64);
-    ctx.fillStyle = isDarkCanvas ? '#1e293b' : '#e2e8f0';
+    ctx.fillText(`${startStation?.name || '-'}  →  ${endStation?.name || '-'}`, x + 20, y + 64, panelWidth - 40);
+    ctx.fillStyle = usesDarkVideoSurface ? '#1e293b' : '#e2e8f0';
     roundRect(ctx, x + 20, y + 78, panelWidth - 40, 7, 4);
     ctx.fill();
     ctx.fillStyle = item.line.color;
@@ -883,7 +852,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     ctx.save();
     // 半透明遮罩：让底图变暗 / 变浅，突出标题
     ctx.globalAlpha = alpha * 0.72;
-    ctx.fillStyle = isDarkCanvas ? 'rgba(2, 6, 23, 0.85)' : 'rgba(255, 255, 255, 0.85)';
+    ctx.fillStyle = usesDarkVideoSurface ? 'rgba(2, 6, 23, 0.85)' : 'rgba(255, 255, 255, 0.85)';
     ctx.fillRect(0, 0, width, height);
     ctx.globalAlpha = alpha;
     ctx.fillStyle = primaryText;
@@ -892,22 +861,29 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
 
     // 字号按视频宽度比例缩放，1920px 宽时取 76px。
     const scale = width / 1920;
-    const mainFontSize = Math.round(76 * scale);
-    const subFontSize = Math.round(30 * scale);
+    let mainFontSize = Math.max(30, Math.round(76 * scale));
+    let subFontSize = Math.max(18, Math.round(30 * scale));
     const gap = subtitleText ? Math.round(46 * scale) : 0;
 
+    ctx.font = `900 ${mainFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+    mainFontSize = Math.min(mainFontSize, mainFontSize * (width - 120) / Math.max(1, ctx.measureText(titleText).width));
     ctx.font = `900 ${mainFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
     ctx.fillText(titleText, width / 2, height / 2 - gap / 2);
 
     if (subtitleText) {
       ctx.fillStyle = secondaryText;
       ctx.font = `500 ${subFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
+      subFontSize = Math.min(subFontSize, subFontSize * (width - 120) / Math.max(1, ctx.measureText(subtitleText).width));
+      ctx.font = `500 ${subFontSize}px "Microsoft YaHei", "PingFang SC", Arial`;
       ctx.fillText(subtitleText, width / 2, height / 2 + gap);
     }
     ctx.restore();
   };
 
+  let previousFrame = -1;
   const drawFrame = (frame: number) => {
+    cameraFrameDelta = Math.max(1, frame - previousFrame);
+    previousFrame = frame;
     if (frame < titleFrames) {
       drawTitle(frame);
       return;
@@ -921,70 +897,33 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       return false;
     });
     if (segmentIndex < 0) {
+      // 片尾直接回到完整线网，留足三秒查看结果。
+      Object.assign(camera, defaultCamera);
       drawBaseMap(segmentPlans.length);
+      const openedLines = new Set(segmentPlans.map(plan => plan.line.id)).size;
+      const openedStations = new Set(segmentPlans.flatMap(plan => plan.stationIds)).size;
+      ctx.save();
+      ctx.fillStyle = usesDarkVideoSurface ? 'rgba(2, 6, 23, 0.9)' : 'rgba(255, 255, 255, 0.94)';
+      roundRect(ctx, 34, height - 84, Math.min(width - 68, 520), 56, 14);
+      ctx.fill();
+      ctx.fillStyle = primaryText;
+      ctx.font = '600 20px "Microsoft YaHei", "PingFang SC", Arial';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`已展示 ${openedLines} 条线路 · ${openedStations} 座车站`, 54, height - 56);
+      ctx.restore();
       return;
     }
     const item = segmentPlans[segmentIndex];
     const segmentFrame = animatedFrame - cursor;
     const progress = Math.min(1, segmentFrame / item.durationFrames);
-    const easedProgress = easeInOut(progress);
+    const easedProgress = easeVideoProgress(progress);
     const currentDistance = item.metrics.totalLength * easedProgress;
     drawBaseMap(segmentIndex, item, currentDistance, segmentFrame);
     drawInfoPanel(item, easedProgress);
   };
 
-  const stream = canvas.captureStream(fps);
-  const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
-    ? 'video/webm;codecs=vp9'
-    : MediaRecorder.isTypeSupported('video/webm;codecs=vp8')
-      ? 'video/webm;codecs=vp8'
-      : 'video/webm';
-  // 1080p 默认 8 Mbps，让画面边缘 / 文字保持清晰；浏览器若不支持该参数会自动忽略。
-  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
-  const chunks: BlobPart[] = [];
-  const videoTrack = stream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack & { requestFrame?: () => void };
-  recorder.ondataavailable = (event) => {
-    if (event.data.size > 0) {
-      chunks.push(event.data);
-    }
-  };
-
   const totalFrames = titleFrames + segmentPlans.reduce((sum, item) => sum + item.durationFrames + item.holdFrames, 0) + outroFrames;
-  const stopPromise: Promise<Blob> = new Promise((resolve) => {
-    recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' }));
+  return recordVideoCanvas({
+    canvas, fps, totalFrames, drawFrame, signal, onProgress
   });
-
-  recorder.start(100);
-
-  // 用 rAF 驱动帧推进，按真实经过时间计算应当渲染到第几帧。
-  // 优点：后台标签页/慢机器不会让总时长漂走；落后时一次补多帧赶上时间轴；
-  //       哪怕浏览器没有调度 rAF（标签后台），每次 tick 也至少推进 1 帧。
-  await new Promise<void>((resolve) => {
-    let frameIndex = 0;
-    const startTime = performance.now();
-    let rafId = 0;
-    const tick = () => {
-      const elapsed = performance.now() - startTime;
-      const targetFrame = Math.min(totalFrames - 1, Math.floor(elapsed / frameDurationMs));
-      do {
-        drawFrame(frameIndex);
-        videoTrack?.requestFrame?.();
-        frameIndex += 1;
-      } while (frameIndex <= targetFrame && frameIndex < totalFrames);
-      if (frameIndex >= totalFrames) {
-        cancelAnimationFrame(rafId);
-        recorder.stop();
-        resolve();
-        return;
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-  });
-
-  const blob = await stopPromise;
-  if (blob.size === 0) {
-    throw new Error('视频生成失败：浏览器没有录制到有效画面');
-  }
-  return blob;
 }

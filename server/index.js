@@ -10,6 +10,7 @@ const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { sendVerificationEmail, sendPasswordResetEmail, hasResendKey, APP_BASE_URL } = require('./lib/email');
 const ai = require('./lib/ai');
+const { DEFAULT_MAP_SETTINGS, normalizeMapSettings } = require('./lib/mapSettings');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -50,29 +51,6 @@ const UPGRADE_TOKEN_TTL = '15m';
 
 console.log(`[email] provider=${hasResendKey() ? 'resend' : 'console-fallback'} app_base=${APP_BASE_URL}`);
 console.log(`[ai] provider=${ai.hasKey() ? `deepseek (${ai.DEEPSEEK_MODEL})` : 'disabled'}`);
-
-const DEFAULT_MAP_SETTINGS = {
-  // 与前端 src/types/index.ts 保持一致：新项目默认 dot-label（专业线网）；
-  // normalizeMapSettings 的 fallback 仍是 classic-badge，老数据不受影响。
-  mapStyle: 'dot-label',
-  canvasTheme: 'light',
-  cityStyle: 'standard',
-  showLineNameLabels: true,
-  dotLabelStyle: {
-    fontSize: 13,
-    fontWeight: 700,
-    color: '#0f172a'
-  },
-  baseMap: {
-    mode: 'plain',
-    amap: {
-      center: [116.397428, 39.90923],
-      zoom: 11,
-      style: 'normal'
-    }
-  },
-  cornerRadius: 0
-};
 
 const allowedOrigins = FRONTEND_ORIGIN
   ? FRONTEND_ORIGIN.split(',').map(origin => origin.trim()).filter(Boolean)
@@ -174,48 +152,6 @@ function toIsoDate(value) {
 
 function normalizePhone(value) {
   return String(value || '').replace(/\s+/g, '').trim();
-}
-
-function normalizeNumber(value, fallback, min, max) {
-  const numberValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
-  return Math.max(min, Math.min(max, numberValue));
-}
-
-function normalizeMapSettings(settings) {
-  const dotLabelStyle = settings && settings.dotLabelStyle ? settings.dotLabelStyle : {};
-  const baseMap = settings && settings.baseMap ? settings.baseMap : {};
-  const amap = baseMap && baseMap.amap ? baseMap.amap : {};
-  return {
-    mapStyle: settings && settings.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
-    canvasTheme: settings && settings.canvasTheme === 'dark' ? 'dark' : 'light',
-    cityStyle:
-      settings && ['standard', 'beijing', 'shanghai', 'mtr'].includes(settings.cityStyle)
-        ? settings.cityStyle
-        : 'standard',
-    showLineNameLabels: !settings || settings.showLineNameLabels !== false,
-    dotLabelStyle: {
-      fontSize: normalizeNumber(dotLabelStyle.fontSize, DEFAULT_MAP_SETTINGS.dotLabelStyle.fontSize, 10, 24),
-      fontWeight: normalizeNumber(dotLabelStyle.fontWeight, DEFAULT_MAP_SETTINGS.dotLabelStyle.fontWeight, 300, 900),
-      color:
-        typeof dotLabelStyle.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(dotLabelStyle.color)
-          ? dotLabelStyle.color
-          : DEFAULT_MAP_SETTINGS.dotLabelStyle.color
-    },
-    baseMap: {
-      mode: baseMap.mode === 'amap' ? 'amap' : 'plain',
-      amap: {
-        center:
-          Array.isArray(amap.center) &&
-          amap.center.length === 2 &&
-          amap.center.every(value => typeof value === 'number' && Number.isFinite(value))
-            ? [amap.center[0], amap.center[1]]
-            : DEFAULT_MAP_SETTINGS.baseMap.amap.center,
-        zoom: normalizeNumber(amap.zoom, DEFAULT_MAP_SETTINGS.baseMap.amap.zoom, 3, 20),
-        style: ['dark', 'grey', 'fresh'].includes(amap.style) ? amap.style : 'normal'
-      }
-    },
-    cornerRadius: normalizeNumber(settings && settings.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40)
-  };
 }
 
 function sanitizeUser(user) {
@@ -980,42 +916,48 @@ app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res)
 
   const lng = Number(req.query.lng);
   const lat = Number(req.query.lat);
-  const zoom = Math.max(3, Math.min(20, Number(req.query.zoom) || DEFAULT_MAP_SETTINGS.baseMap.amap.zoom));
-  const width = Math.max(320, Math.min(1280, Math.round(Number(req.query.width) || 1280)));
-  const height = Math.max(240, Math.min(1280, Math.round(Number(req.query.height) || 720)));
-  const style = ['dark', 'grey', 'fresh'].includes(req.query.style) ? String(req.query.style) : 'normal';
+  const zoom = Math.max(1, Math.min(17, Math.round(Number(req.query.zoom) || DEFAULT_MAP_SETTINGS.baseMap.amap.zoom)));
+  const width = Number(req.query.width || 960);
+  const height = Number(req.query.height || 540);
 
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) {
+  if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -85.05112878 || lat > 85.05112878) {
     return res.status(400).json({ message: '高德静态地图中心点无效' });
   }
 
-  const styleMap = {
-    normal: 'normal',
-    dark: 'dark',
-    grey: 'grey',
-    fresh: 'fresh'
-  };
+  // 拒绝无效尺寸，不能悄悄改变宽高后让前端投影错位。
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 1024 || height > 1024) {
+    return res.status(400).json({ message: '高德静态地图尺寸需为 1–1024 的整数' });
+  }
   const query = new URLSearchParams({
     location: `${lng},${lat}`,
-    zoom: String(Math.round(zoom)),
+    zoom: String(zoom),
     size: `${width}*${height}`,
     scale: '1',
     key: AMAP_WEB_SERVICE_KEY
   });
-  if (styleMap[style]) query.set('style', styleMap[style]);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+  const abortUpstream = () => controller.abort();
+  res.once('close', abortUpstream);
+  try {
+    const upstream = await fetch(`https://restapi.amap.com/v3/staticmap?${query.toString()}`, { signal: controller.signal });
+    const contentType = upstream.headers.get('content-type') || '';
+    if (!upstream.ok || !contentType.startsWith('image/')) {
+      const text = await upstream.text().catch(() => '');
+      console.error('AMap static map failed:', upstream.status, text.slice(0, 300));
+      return res.status(502).json({ message: '高德静态地图获取失败，请检查 Web Service Key 和配额' });
+    }
 
-  const upstream = await fetch(`https://restapi.amap.com/v3/staticmap?${query.toString()}`);
-  const contentType = upstream.headers.get('content-type') || '';
-  if (!upstream.ok || !contentType.startsWith('image/')) {
-    const text = await upstream.text().catch(() => '');
-    console.error('AMap static map failed:', upstream.status, text.slice(0, 300));
-    return res.status(502).json({ message: '高德静态地图获取失败，请检查 Web Service Key 和配额' });
+    const arrayBuffer = await upstream.arrayBuffer();
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(Buffer.from(arrayBuffer));
+  } catch (error) {
+    if (!res.destroyed) return res.status(502).json({ message: controller.signal.aborted ? '高德静态地图请求超时，请重试' : '高德静态地图获取失败，请重试' });
+  } finally {
+    clearTimeout(timeout);
+    res.off('close', abortUpstream);
   }
-
-  const arrayBuffer = await upstream.arrayBuffer();
-  res.setHeader('Content-Type', contentType);
-  res.setHeader('Cache-Control', 'private, max-age=300');
-  res.send(Buffer.from(arrayBuffer));
 }));
 
 // 注册：新用户走纯邮箱路径。注册成功后并不直接 issue JWT —— 必须先点验证邮件链接。

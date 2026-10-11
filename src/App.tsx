@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Radio, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Progress, Radio, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
 import {
   DownOutlined,
   FileAddOutlined,
@@ -23,7 +23,9 @@ import VideoExportModal, { VideoExportConfig } from './components/VideoExportMod
 import AIAssistantModal from './components/AIAssistantModal';
 import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import { exportVideoFromStage } from './lib/exportVideo';
+import { VideoExportProgress } from './lib/recordVideo';
 import { deleteStationFromGraph } from './lib/graphOps';
+import { DocumentSession } from './lib/documentSession';
 import { interpretCommand, ResolvedCommand, AppAction } from './lib/commandParser';
 import CommandBar from './components/CommandBar';
 import { compressImageDataUrl } from './utils/imageCompress';
@@ -61,6 +63,10 @@ const cloneDoc = (doc: DocSnapshot): DocSnapshot => ({
   stations: doc.stations.map(station => ({ ...station })),
   mapSettings: {
     ...doc.mapSettings,
+    ...(doc.mapSettings.videoExport ? { videoExport: {
+      ...doc.mapSettings.videoExport,
+      segments: doc.mapSettings.videoExport.segments.map(segment => ({ ...segment }))
+    } } : {}),
     dotLabelStyle: { ...doc.mapSettings.dotLabelStyle },
     baseMap: {
       ...doc.mapSettings.baseMap,
@@ -274,8 +280,12 @@ const App: React.FC = () => {
   const [mapsVisible, setMapsVisible] = useState(false);
   const [mapsLoading, setMapsLoading] = useState(false);
   const [saveMapSaving, setSaveMapSaving] = useState(false);
+  const saveMapInFlightRef = useRef(false);
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [videoProgress, setVideoProgress] = useState<VideoExportProgress>({ phase: 'preparing', percent: 0, elapsedSec: 0, totalSec: 0 });
+  const videoAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => videoAbortRef.current?.abort(), []);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   // AI 助手对话框
@@ -284,6 +294,8 @@ const App: React.FC = () => {
   const [mapName, setMapName] = useState('');
   const [savedMaps, setSavedMaps] = useState<MapSummaryState[]>([]);
   const [currentMap, setCurrentMap] = useState<MapSummaryState | null>(null);
+  const currentMapRef = useRef(currentMap);
+  useLayoutEffect(() => { currentMapRef.current = currentMap; }, [currentMap]);
   // "我的地图"列表的搜索 / 行内重命名 / 复制状态
   const [mapsSearchKeyword, setMapsSearchKeyword] = useState('');
   const [renameMapModal, setRenameMapModal] = useState<{ visible: boolean; mapId: string | null; name: string; saving: boolean }>({
@@ -309,7 +321,10 @@ const App: React.FC = () => {
   // dirtyRef 给 beforeunload 监听器读最新值用，避免重复挂载监听。
   const [dirty, setDirty] = useState(false);
   const dirtyRef = useRef(false);
+  const documentSessionRef = useRef(new DocumentSession());
+  const skipNextDocumentChangeRef = useRef(false);
   const markDirty = useCallback(() => {
+    documentSessionRef.current.edit();
     if (!dirtyRef.current) {
       dirtyRef.current = true;
       setDirty(true);
@@ -337,10 +352,22 @@ const App: React.FC = () => {
   const sectionsRef = useRef(sections);
   const stationsRef = useRef(stations);
   const mapSettingsRef = useRef(mapSettings);
-  useEffect(() => { linesRef.current = lines; }, [lines]);
-  useEffect(() => { sectionsRef.current = sections; }, [sections]);
-  useEffect(() => { stationsRef.current = stations; }, [stations]);
-  useEffect(() => { mapSettingsRef.current = mapSettings; }, [mapSettings]);
+  useLayoutEffect(() => {
+    // Slider 连续修改只压一次历史，也必须识别保存期间的后续修改。
+    if (linesRef.current !== lines || sectionsRef.current !== sections ||
+      stationsRef.current !== stations || mapSettingsRef.current !== mapSettings) {
+      documentSessionRef.current.edit();
+      if (!skipNextDocumentChangeRef.current && !dirtyRef.current) {
+        dirtyRef.current = true;
+        setDirty(true);
+      }
+    }
+    skipNextDocumentChangeRef.current = false;
+    linesRef.current = lines;
+    sectionsRef.current = sections;
+    stationsRef.current = stations;
+    mapSettingsRef.current = mapSettings;
+  }, [lines, sections, stations, mapSettings]);
   // 命令行：当前线路 ref（给命令上下文取最新值）；命令栏输入 ref（/ 聚焦）；视图命令通道
   const currentLineIdRef = useRef<string | null>(null);
   useEffect(() => { currentLineIdRef.current = currentLineId; }, [currentLineId]);
@@ -364,6 +391,8 @@ const App: React.FC = () => {
   }, [markDirty]);
 
   const resetHistory = useCallback(() => {
+    documentSessionRef.current.reset();
+    skipNextDocumentChangeRef.current = true;
     setPast([]);
     setFuture([]);
     clearDirty();
@@ -471,12 +500,13 @@ const App: React.FC = () => {
   };
 
   const refreshSavedMaps = async (showError = false) => {
+    const requestToken = getToken();
     setMapsLoading(true);
     try {
       const { maps } = await api.listMaps();
-      setSavedMaps(maps);
+      if (getToken() === requestToken) setSavedMaps(maps);
     } catch (error: any) {
-      if (showError) {
+      if (showError && getToken() === requestToken) {
         message.error(error.message || '加载地图列表失败');
       }
     } finally {
@@ -514,8 +544,10 @@ const App: React.FC = () => {
     const boot = async () => {
       const token = getToken();
       if (!token) return;
+      const restoreTicket = documentSessionRef.current.beginLoad();
       try {
         const { user } = await api.me();
+        if (getToken() !== token) return;
         setUserProfile({ ...user, password: '' });
         refreshSavedMaps(false);
         // 自动恢复上次编辑的方案。任何一步失败就清掉指针并保持空白工作台。
@@ -524,9 +556,11 @@ const App: React.FC = () => {
         if (lastMapId) {
           try {
             const { map } = await api.getMap(lastMapId);
-            applyLoadedMap(map);
+            if (getToken() === token && documentSessionRef.current.canApplyLoad(restoreTicket)) applyLoadedMap(map);
           } catch {
-            try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
+            if (getToken() === token && documentSessionRef.current.isLatestLoad(restoreTicket)) {
+              try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
+            }
           }
         }
         // 历史存量头像可能是几百 KB 的原图 dataURL，DB 全是这种东西会拖慢列表/me。
@@ -540,14 +574,14 @@ const App: React.FC = () => {
             const compressed = await compressImageDataUrl(user.avatar);
             if (compressed.length < user.avatar.length) {
               const { user: migrated } = await api.updateMe({ avatar: compressed });
-              setUserProfile({ ...migrated, password: '' });
+              if (getToken() === token) setUserProfile({ ...migrated, password: '' });
             }
           } catch (e) {
             console.warn('avatar migration skipped', e);
           }
         }
       } catch {
-        clearToken();
+        if (getToken() === token) clearToken();
       }
     };
     boot();
@@ -852,6 +886,7 @@ const App: React.FC = () => {
     setMapSettings(DEFAULT_MAP_SETTINGS);
     setProfileVisible(false);
     setSettingsVisible(false);
+    setVideoModalOpen(false);
     setMapName('');
     resetHistory();
     message.info('已退出登录');
@@ -862,7 +897,7 @@ const App: React.FC = () => {
   // - 已经保存过的方案不会被删，仍在「我的地图」里；这里只是把当前会话清掉
   // - 同时清除 localStorage 里"上次编辑方案"指针，避免刷新又自动加载回来
   const handleNewMap = () => {
-    const hasContent = lines.length > 0 || sections.length > 0 || stations.length > 0;
+    const hasContent = dirtyRef.current || lines.length > 0 || sections.length > 0 || stations.length > 0;
     const doReset = () => {
       // 用户当前的 labelDensity 选择会带到新方案里，不被默认值覆盖
       // (跨 session 也用 localStorage 兜底，所以 readLabelDensity 也能 fallback)
@@ -876,6 +911,7 @@ const App: React.FC = () => {
       setMapSettings({ ...DEFAULT_MAP_SETTINGS, labelDensity: stickyLabelDensity });
       try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
       resetHistory();
+      setVideoModalOpen(false);
       message.success('已新建空白方案');
     };
     if (!hasContent) {
@@ -884,9 +920,9 @@ const App: React.FC = () => {
     }
     Modal.confirm({
       title: '新建空白方案？',
-      content: currentMap
-        ? '当前方案已保存在「我的地图」，需要时可重新打开。画布即将清空。'
-        : '当前方案尚未保存，未保存的修改将丢失。是否继续？',
+      content: dirtyRef.current || !currentMap
+        ? '当前方案有尚未保存的内容，新建后将丢失。是否继续？'
+        : '当前方案已保存在「我的地图」，需要时可重新打开。画布即将清空。',
       okText: '新建',
       cancelText: '取消',
       onOk: doReset
@@ -991,11 +1027,16 @@ const App: React.FC = () => {
   };
 
   const handleSaveMap = async () => {
-    if (saveMapSaving) return;
+    if (saveMapInFlightRef.current) return;
     const trimmed = mapName.trim();
     const fallbackName = currentMap?.name || `我的地图 ${new Date().toLocaleString()}`;
     const name = trimmed || fallbackName;
     const wasVisible = saveMapVisible;
+    const ticket = documentSessionRef.current.capture();
+    const requestToken = getToken();
+    const targetMapId = currentMap?.id;
+    const snapshot = cloneDoc({ lines, stations, sections, mapSettings });
+    saveMapInFlightRef.current = true;
     setSaveMapSaving(true);
     setSaveMapVisible(false);
     message.loading({ content: '正在保存地图...', key: 'save-map', duration: 0 });
@@ -1007,28 +1048,34 @@ const App: React.FC = () => {
       sectionCount: sections.length
     };
     try {
-      if (currentMap) {
-        const { map } = await api.updateMap(currentMap.id, { name, lines, stations, sections, mapSettings });
-        setCurrentMap({ ...map, ...counts });
-        upsertSavedMap({ ...map, ...counts });
-        setMapName('');
-        try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
-        clearDirty();
-        message.success({ content: '地图已覆盖保存', key: 'save-map' });
+      const { map } = targetMapId
+        ? await api.updateMap(targetMapId, { name, ...snapshot })
+        : await api.createMap({ name, ...snapshot });
+      if (getToken() !== requestToken) {
+        message.destroy('save-map');
         return;
       }
-
-      const { map } = await api.createMap({ name, lines, stations, sections, mapSettings });
-      setCurrentMap({ ...map, ...counts });
       upsertSavedMap({ ...map, ...counts });
-      setMapName('');
-      try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
-      clearDirty();
-      message.success({ content: '地图已保存', key: 'save-map' });
+      if (documentSessionRef.current.isSameDocument(ticket)) {
+        setCurrentMap({ ...map, ...counts });
+        setMapName('');
+        try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
+        if (documentSessionRef.current.isUnchanged(ticket)) {
+          clearDirty();
+          message.success({ content: targetMapId ? '地图已覆盖保存' : '地图已保存', key: 'save-map' });
+        } else {
+          message.success({ content: '已保存提交时的版本，后续修改仍需保存', key: 'save-map' });
+        }
+      } else {
+        message.success({ content: `“${map.name}”已保存`, key: 'save-map' });
+      }
     } catch (error: any) {
-      if (wasVisible) setSaveMapVisible(true);
-      message.error({ content: error.message || '保存地图失败', key: 'save-map' });
+      if (getToken() === requestToken) {
+        if (wasVisible && documentSessionRef.current.isSameDocument(ticket)) setSaveMapVisible(true);
+        message.error({ content: error.message || '保存地图失败', key: 'save-map' });
+      } else message.destroy('save-map');
     } finally {
+      saveMapInFlightRef.current = false;
       setSaveMapSaving(false);
     }
   };
@@ -1049,6 +1096,7 @@ const App: React.FC = () => {
     });
     setMapName(map.name);
     resetHistory();
+    setVideoModalOpen(false);
     try {
       localStorage.setItem(LAST_MAP_KEY, map.id);
     } catch {
@@ -1057,26 +1105,46 @@ const App: React.FC = () => {
   };
 
   const handleLoadMap = async (mapId: string) => {
-    try {
-      const { map } = await api.getMap(mapId);
-      applyLoadedMap(map);
-      setMapsVisible(false);
-      message.success('地图已加载');
-    } catch (error: any) {
-      message.error(error.message || '加载地图失败');
-    }
+    const load = async () => {
+      const ticket = documentSessionRef.current.beginLoad();
+      const requestToken = getToken();
+      try {
+        const { map } = await api.getMap(mapId);
+        if (getToken() !== requestToken || !documentSessionRef.current.isLatestLoad(ticket)) return;
+        if (!documentSessionRef.current.canApplyLoad(ticket)) {
+          message.warning('加载期间有新修改，已保留当前画布。请保存后再打开地图。');
+          return;
+        }
+        applyLoadedMap(map);
+        setMapsVisible(false);
+        message.success('地图已加载');
+      } catch (error: any) {
+        if (getToken() === requestToken && documentSessionRef.current.isLatestLoad(ticket)) {
+          message.error(error.message || '加载地图失败');
+        }
+      }
+    };
+    if (!dirtyRef.current) { await load(); return; }
+    Modal.confirm({
+      title: '打开其他地图？',
+      content: '当前方案有未保存的修改，打开后将丢失。是否继续？',
+      okText: '继续打开', cancelText: '取消', onOk: load
+    });
   };
 
   const handleDeleteMap = async (mapId: string) => {
+    const requestToken = getToken();
     try {
       await api.deleteMap(mapId);
+      if (getToken() !== requestToken) return;
       setSavedMaps((prev) => prev.filter((item) => item.id !== mapId));
 
-      if (currentMap?.id === mapId) {
+      if (currentMapRef.current?.id === mapId) {
         setCurrentMap(null);
-        setMapSettings(DEFAULT_MAP_SETTINGS);
         setMapName('');
-        resetHistory();
+        // 删除云端存档后保留正在编辑的内容，可另存为新地图。
+        documentSessionRef.current.reset();
+        markDirty();
       }
       // 删的就是上次记住的那张：清掉指针，避免下次启动尝试加载不存在的方案
       try {
@@ -1108,9 +1176,11 @@ const App: React.FC = () => {
       return;
     }
     setRenameMapModal(prev => ({ ...prev, saving: true }));
+    const requestToken = getToken();
     try {
       // 只发 name 字段，后端 storage.updateMap 会保留 lines/stations/sections/mapSettings
       const { map } = await api.updateMap(mapId, { name: trimmed });
+      if (getToken() !== requestToken) return;
       setSavedMaps(prev =>
         prev
           .map(item =>
@@ -1118,8 +1188,8 @@ const App: React.FC = () => {
           )
           .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
       );
-      if (currentMap?.id === mapId) {
-        setCurrentMap({ ...currentMap, name: map.name, updatedAt: map.updatedAt });
+      if (currentMapRef.current?.id === mapId) {
+        setCurrentMap(prev => prev?.id === mapId ? { ...prev, name: map.name, updatedAt: map.updatedAt } : prev);
         setMapName(map.name);
       }
       closeRenameMapModal();
@@ -1133,8 +1203,10 @@ const App: React.FC = () => {
   const handleDuplicateMap = async (mapId: string) => {
     if (duplicatingMapId) return;
     setDuplicatingMapId(mapId);
+    const requestToken = getToken();
     try {
       const { map } = await api.getMap(mapId);
+      if (getToken() !== requestToken) return;
       const dupName = `${map.name} 副本`;
       const { map: created } = await api.createMap({
         name: dupName,
@@ -1143,6 +1215,7 @@ const App: React.FC = () => {
         sections: map.sections || [],
         mapSettings: map.mapSettings
       });
+      if (getToken() !== requestToken) return;
       upsertSavedMap({
         ...created,
         lineCount: (map.lines || []).length,
@@ -1158,6 +1231,7 @@ const App: React.FC = () => {
   };
 
   const handleConfirmSegments = async (config: VideoExportConfig) => {
+    if (videoAbortRef.current) return;
     if (!stageRef.current) {
       message.error('画布尚未准备好');
       return;
@@ -1165,6 +1239,9 @@ const App: React.FC = () => {
 
     setVideoModalOpen(false);
     setIsExporting(true);
+    setVideoProgress({ phase: 'preparing', percent: 0, elapsedSec: 0, totalSec: 0 });
+    const controller = new AbortController();
+    videoAbortRef.current = controller;
 
     try {
       const blob = await exportVideoFromStage({
@@ -1177,20 +1254,30 @@ const App: React.FC = () => {
         title: config.title,
         subtitle: config.subtitle,
         titleDurationSec: config.titleDurationSec,
+        signal: controller.signal,
+        onProgress: setVideoProgress,
         fetchAmapStaticMap: api.getAmapStaticMap,
         onWarn: (msg) => message.warning(msg)
       });
       const url = URL.createObjectURL(blob);
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = `metro-demo-${Date.now()}.webm`;
+      const extension = blob.type.startsWith('video/mp4') ? 'mp4' : 'webm';
+      const fileTitle = config.title.replace(/[<>:"/\\|?*]/g, '_').trim() || 'metro-demo';
+      anchor.download = `${fileTitle}-${Date.now()}.${extension}`;
+      document.body.appendChild(anchor);
       anchor.click();
-      URL.revokeObjectURL(url);
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
       message.success('视频导出完成，已开始下载');
     } catch (error: any) {
-      console.error(error);
-      message.error(error?.message || '导出失败，请重试');
+      if (error?.name === 'AbortError') message.info('已取消视频导出');
+      else {
+        console.error(error);
+        message.error(error?.message || '导出失败，请重试');
+      }
     } finally {
+      videoAbortRef.current = null;
       setIsExporting(false);
     }
   };
@@ -2081,10 +2168,18 @@ const App: React.FC = () => {
         </Layout>
 
         <VideoExportModal
+          key={currentMap?.id || 'unsaved'}
           open={videoModalOpen}
           lines={lines}
           stations={stations}
+          sections={sections}
           defaultTitle={currentMap?.name || '城市轨道线网历程'}
+          config={mapSettings.videoExport}
+          onChange={(config) => {
+            if (JSON.stringify(mapSettingsRef.current.videoExport) === JSON.stringify(config)) return;
+            pushHistory();
+            setMapSettings(prev => normalizeMapSettings({ ...prev, videoExport: config }));
+          }}
           onCancel={() => setVideoModalOpen(false)}
           onConfirm={handleConfirmSegments}
         />
@@ -2737,8 +2832,19 @@ const App: React.FC = () => {
           </Form>
         </DraggableModal>
 
-        <DraggableModal open={isExporting} footer={null} closable={false} centered>
-          正在导出动态视频，请稍候…
+        <DraggableModal title="导出动态视频" open={isExporting} footer={null} closable={false} maskClosable={false} keyboard={false} centered>
+          <Space direction="vertical" style={{ width: '100%' }} size="middle">
+            <div aria-live="polite">
+              {videoProgress.phase === 'preparing' ? '正在准备线路与底图…' :
+                videoProgress.phase === 'paused' ? '录制已暂停，返回此页面后自动继续' :
+                videoProgress.phase === 'finalizing' ? '正在保存视频…' : '正在录制线路开通过程…'}
+            </div>
+            <Progress percent={videoProgress.percent} status={videoProgress.phase === 'paused' ? 'normal' : 'active'} />
+            {videoProgress.totalSec > 0 && (
+              <div>已录制 {Math.floor(videoProgress.elapsedSec)} 秒 / 共 {Math.ceil(videoProgress.totalSec)} 秒</div>
+            )}
+            <Button onClick={() => videoAbortRef.current?.abort()}>取消导出</Button>
+          </Space>
         </DraggableModal>
       </Layout>
     </div>

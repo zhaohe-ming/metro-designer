@@ -1,4 +1,4 @@
-import { DEFAULT_MAP_SETTINGS, normalizeMapSettings, normalizeSections } from './index';
+import { DEFAULT_MAP_SETTINGS, normalizeMapSettings, normalizeSections, normalizeVideoExportConfig } from './index';
 
 describe('normalizeSections', () => {
   it('非数组输入返回空数组', () => {
@@ -49,6 +49,46 @@ describe('normalizeSections', () => {
       { id: 's1', lineId: 'L1', startStationId: 'a', endStationId: 'b', waypoints: [{ x: 'x', y: 'y' }] }
     ]);
     expect(out[0].waypoints).toBeUndefined();
+  });
+});
+
+describe('视频配置保存', () => {
+  const videoExport = {
+    segments: [{ id: 'step-1', lineId: 'L1', startStationId: 'a', endStationId: 'b', openDate: '2020-01-01' }],
+    title: '城市轨道线网历程', subtitle: '1969 - 2026', titleDurationSec: 2.5
+  };
+
+  it('保存和重新加载会保留区间、标题与时长，且不共享可变对象', () => {
+    const stored = JSON.parse(JSON.stringify(normalizeMapSettings({ videoExport, labelDensity: 'key' })));
+    const loaded = normalizeMapSettings(stored);
+    expect(loaded.videoExport).toEqual(videoExport);
+    expect(loaded.labelDensity).toBe('key');
+    expect(loaded.videoExport!.segments[0]).not.toBe(videoExport.segments[0]);
+  });
+
+  it('未完成的配置也能保存，重复行 id 修复后可以分别编辑', () => {
+    const draft = normalizeVideoExportConfig({
+      segments: [null, { id: 'same', lineId: 'L1' }, { id: 'same', openDate: '2020-01-01' }],
+      title: 42, subtitle: '草稿', titleDurationSec: 100
+    })!;
+    expect(draft.segments).toHaveLength(2);
+    expect(new Set(draft.segments.map(segment => segment.id)).size).toBe(2);
+    expect(draft.segments[0]).toMatchObject({ lineId: 'L1', startStationId: '', endStationId: '', openDate: '' });
+    expect(draft.title).toBe('');
+    expect(draft.titleDurationSec).toBe(8);
+  });
+
+  it('前后端的设置归一化保持一致，云端不会丢失标签密度或视频草稿', () => {
+    const backend = require('../../server/lib/mapSettings');
+    const fixtures = [undefined, null, {},
+      { labelDensity: 'adaptive', videoExport },
+      { labelDensity: 'key', videoExport: { segments: [{ id: 'x' }, { id: 'x' }], titleDurationSec: -2 } },
+      { labelDensity: 'unknown', videoExport: 'invalid', cornerRadius: 100 },
+      { videoExport: { segments: [null, [], 9, { openDate: 23 }], title: 'x'.repeat(100), titleDurationSec: NaN } }
+    ];
+    fixtures.forEach(settings => {
+      expect(backend.normalizeMapSettings(settings)).toEqual(normalizeMapSettings(settings as any));
+    });
   });
 });
 

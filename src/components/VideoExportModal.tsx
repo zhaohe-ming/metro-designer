@@ -1,35 +1,24 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Alert, Button, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd';
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Line, Station } from '../types';
+import { Line, Section, Station, VideoExportConfig } from '../types';
+import { resolveVideoRoute, VideoSegmentInput } from '../lib/videoModel';
 import DraggableModal from './DraggableModal';
 
 const { Text } = Typography;
 
-export interface VideoSegmentInput {
-  id: string;
-  lineId: string;
-  startStationId: string;
-  endStationId: string;
-  openDate: string;
-}
-
-// 完整的导出参数：除了区间表，还有片头标题等观感配置。
-// 加新字段时只用扩展这里 + exportVideo.ts 的 ExportVideoOptions，
-// VideoExportModal 自己消化默认值。
-export interface VideoExportConfig {
-  segments: VideoSegmentInput[];
-  title: string;
-  subtitle: string;
-  titleDurationSec: number;
-}
+export type { VideoSegmentInput } from '../lib/videoModel';
+export type { VideoExportConfig } from '../types';
 
 interface VideoExportModalProps {
   open: boolean;
   lines: Line[];
   stations: Station[];
+  sections: Section[];
   // 当前方案名 → 作为默认主标题；空时退回到通用文案
   defaultTitle?: string;
+  config?: VideoExportConfig;
+  onChange: (config: VideoExportConfig) => void;
   onCancel: () => void;
   onConfirm: (config: VideoExportConfig) => void;
 }
@@ -48,21 +37,23 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
   open,
   lines,
   stations,
+  sections,
   defaultTitle,
+  config,
+  onChange,
   onCancel,
   onConfirm
 }) => {
-  const [segments, setSegments] = useState<VideoSegmentInput[]>([createEmptySegment()]);
-  // 片头配置；title 默认 = 当前方案名；模态被打开 / defaultTitle 变化时同步一次
-  const [title, setTitle] = useState<string>(defaultTitle || '城市轨道线网历程');
-  const [subtitle, setSubtitle] = useState<string>('');
-  const [titleDurationSec, setTitleDurationSec] = useState<number>(DEFAULT_TITLE_DURATION_SEC);
-
-  useEffect(() => {
-    if (open) {
-      setTitle((prev) => prev || defaultTitle || '城市轨道线网历程');
-    }
-  }, [open, defaultTitle]);
+  const [emptySegments] = useState<VideoSegmentInput[]>(() => [createEmptySegment()]);
+  const draft: VideoExportConfig = config || {
+    segments: emptySegments,
+    title: defaultTitle || '城市轨道线网历程',
+    subtitle: '',
+    titleDurationSec: DEFAULT_TITLE_DURATION_SEC
+  };
+  const { title, subtitle, titleDurationSec } = draft;
+  const segments = draft.segments.length ? draft.segments : emptySegments;
+  const updateConfig = (patch: Partial<VideoExportConfig>) => onChange({ ...draft, segments, ...patch });
 
   const lineOptions = lines.map((line) => ({ label: line.name, value: line.id }));
 
@@ -89,7 +80,7 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
   }, [segments]);
 
   const handleAddRow = () => {
-    setSegments((prev) => [...prev, createEmptySegment()]);
+    updateConfig({ segments: [...segments, createEmptySegment()] });
   };
 
   const handleDeleteRow = (id: string) => {
@@ -97,11 +88,11 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       message.warning('至少保留一个区间');
       return;
     }
-    setSegments((prev) => prev.filter((item) => item.id !== id));
+    updateConfig({ segments: segments.filter((item) => item.id !== id) });
   };
 
   const handleChange = (id: string, patch: Partial<VideoSegmentInput>) => {
-    setSegments((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    updateConfig({ segments: segments.map((item) => (item.id === id ? { ...item, ...patch } : item)) });
   };
 
   const handleConfirm = () => {
@@ -122,12 +113,20 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       return;
     }
 
-    onConfirm({
+    try {
+      sortedSegments.forEach(segment => resolveVideoRoute(segment, lines, stations, sections));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : '区间路径无效');
+      return;
+    }
+    const confirmed = {
       segments: sortedSegments,
       title: title.trim() || '城市轨道线网历程',
       subtitle: subtitle.trim(),
       titleDurationSec: Math.max(1, Math.min(8, titleDurationSec || DEFAULT_TITLE_DURATION_SEC))
-    });
+    };
+    onChange(confirmed);
+    onConfirm(confirmed);
   };
 
   return (
@@ -142,6 +141,7 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       <Alert
         type="info"
         message="请按开通日期先后填写各个区间，导出时会按时间顺序生成动态演示。"
+        description="区间和片头配置会随地图保存，重新打开可继续编辑。视频按实际时长录制；切到后台会暂停，浏览器通常导出 WebM 格式。"
         style={{ marginBottom: 12 }}
       />
 
@@ -156,13 +156,14 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
         }}
       >
         <Text strong style={{ display: 'block', marginBottom: 8 }}>片头</Text>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 130px', gap: 8 }}>
+        <Form layout="vertical" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 130px', gap: 8 }}>
           <Form.Item label="主标题" style={{ marginBottom: 0 }}>
             <Input
               placeholder="例：北京轨道交通线网历程"
               value={title}
               maxLength={32}
-              onChange={(e) => setTitle(e.target.value)}
+              aria-label="视频主标题"
+              onChange={(e) => updateConfig({ title: e.target.value })}
             />
           </Form.Item>
           <Form.Item label="副标题（可选）" style={{ marginBottom: 0 }}>
@@ -170,7 +171,8 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
               placeholder="例：1969 - 2024"
               value={subtitle}
               maxLength={48}
-              onChange={(e) => setSubtitle(e.target.value)}
+              aria-label="视频副标题"
+              onChange={(e) => updateConfig({ subtitle: e.target.value })}
             />
           </Form.Item>
           <Form.Item label="片头停留 (秒)" style={{ marginBottom: 0 }}>
@@ -179,11 +181,12 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
               max={8}
               step={0.5}
               value={titleDurationSec}
-              onChange={(value) => setTitleDurationSec(Number(value) || DEFAULT_TITLE_DURATION_SEC)}
+              aria-label="片头停留秒数"
+              onChange={(value) => updateConfig({ titleDurationSec: Number(value) || DEFAULT_TITLE_DURATION_SEC })}
               style={{ width: '100%' }}
             />
           </Form.Item>
-        </div>
+        </Form>
       </div>
 
       <Space
@@ -251,7 +254,7 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
             </Form>
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', paddingTop: 4 }}>
-              <Button type="text" danger icon={<DeleteOutlined />} onClick={() => handleDeleteRow(segment.id)} />
+              <Button type="text" danger aria-label={`删除步骤 ${index + 1}`} icon={<DeleteOutlined />} onClick={() => handleDeleteRow(segment.id)} />
             </div>
           </div>
         ))}

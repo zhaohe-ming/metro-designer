@@ -60,6 +60,21 @@ export type BaseMapSettings = {
 // - key:      只显示换乘 + 首末站；其他站名永久隐藏（圆点仍画）
 export type LabelDensity = 'paper' | 'adaptive' | 'key';
 
+export interface VideoSegmentInput {
+  id: string;
+  lineId: string;
+  startStationId: string;
+  endStationId: string;
+  openDate: string;
+}
+
+export interface VideoExportConfig {
+  segments: VideoSegmentInput[];
+  title: string;
+  subtitle: string;
+  titleDurationSec: number;
+}
+
 export interface MapSettings {
   mapStyle: MapStyle;
   canvasTheme: CanvasTheme;
@@ -70,6 +85,7 @@ export interface MapSettings {
   labelDensity: LabelDensity;
   // 线路转角圆角半径（世界坐标单位）。0 = 直角（关闭）。只圆途经点拐角，站点端点不圆。
   cornerRadius: number;
+  videoExport?: VideoExportConfig;
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
@@ -102,6 +118,33 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
 const normalizeNumber = (value: unknown, fallback: number, min: number, max: number) => {
   const numberValue = typeof value === 'number' && Number.isFinite(value) ? value : fallback;
   return Math.max(min, Math.min(max, numberValue));
+};
+
+export const normalizeVideoExportConfig = (raw: unknown): VideoExportConfig | undefined => {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const config = raw as Partial<VideoExportConfig>;
+  const text = (value: unknown, max: number) => typeof value === 'string' ? value.slice(0, max) : '';
+  const usedIds = new Set<string>();
+  const segments = (Array.isArray(config.segments) ? config.segments : [])
+    .filter(segment => segment && typeof segment === 'object' && !Array.isArray(segment))
+    .map((segment, index) => {
+      let id = text(segment.id, 128) || `video-step-${index + 1}`;
+      while (usedIds.has(id)) id += '-copy';
+      usedIds.add(id);
+      return {
+        id,
+        lineId: text(segment.lineId, 128),
+        startStationId: text(segment.startStationId, 128),
+        endStationId: text(segment.endStationId, 128),
+        openDate: text(segment.openDate, 10)
+      };
+    });
+  return {
+    segments,
+    title: text(config.title, 32),
+    subtitle: text(config.subtitle, 48),
+    titleDurationSec: normalizeNumber(config.titleDurationSec, 3, 1, 8)
+  };
 };
 
 export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): MapSettings => {
@@ -148,7 +191,8 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
       settings?.labelDensity === 'key'
         ? settings.labelDensity
         : 'paper',
-    cornerRadius: normalizeNumber(settings?.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40)
+    cornerRadius: normalizeNumber(settings?.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40),
+    ...(settings?.videoExport ? { videoExport: normalizeVideoExportConfig(settings.videoExport) } : {})
   };
 };
 
