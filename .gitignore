@@ -32,3 +32,7 @@ Thumbs.db
 
 # Claude Code worktrees / state
 .claude/
+
+# Desktop dependencies, caches and installers
+desktop/.cache/
+outputs/

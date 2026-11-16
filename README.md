@@ -4,6 +4,9 @@
 
 **在线访问：** https://metro-designer.com
 
+**Windows 客户端：** [下载页面](https://www.metro-designer.com/downloads.html) · Windows 10 / 11 x64，联网使用，与网页版共用账号及云端地图。
+桌面源码和打包说明见 [`desktop/README.md`](desktop/README.md)。
+
 <!-- TODO: 放一张工作台截图 + 一段视频导出的 GIF 到 docs/，引用如下：
 ![Workbench](docs/screenshot.png)
 ![Demo](docs/video-demo.gif)

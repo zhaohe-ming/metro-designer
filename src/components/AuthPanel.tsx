@@ -7,7 +7,7 @@ import {
   ReloadOutlined,
   UserOutlined
 } from '@ant-design/icons';
-import authHeroImage from '../assets/auth-metro-hero.png';
+import AuthBrandPanel from './AuthBrandPanel';
 import { api, LoginResult, UserDto } from '../api';
 
 // 登录态切换：把所有"需要在登录卡里展示的中间态"集中在这里管，避免 App.tsx 处理多个分支。
@@ -266,8 +266,8 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
   return (
     <div className={`auth-card auth-card--${mode}`}>
       <div className="auth-card__inner">
-        <section className="auth-card__info" aria-hidden="true">
-          <img className="auth-hero-image" src={authHeroImage} alt="" />
+        <section className="auth-card__info">
+          <AuthBrandPanel />
         </section>
 
         <section className="auth-card__form">
