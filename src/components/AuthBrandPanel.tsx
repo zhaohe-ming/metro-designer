@@ -4,7 +4,7 @@ import { isDesktopClient } from '../lib/desktopClient';
 const AuthBrandPanel: React.FC = () => {
   const id = `auth-map-${useId().replace(/:/g, '')}`;
   return (
-    <div className="auth-brand-panel">
+    <div className={`auth-brand-panel${isDesktopClient ? ' auth-brand-panel--desktop' : ''}`}>
       <div className="auth-brand-badge">
         <svg width="22" height="24" viewBox="0 0 24 26" fill="none" aria-hidden="true" focusable="false">
           <rect x="4" y="2" width="16" height="18" rx="4" stroke="currentColor" strokeWidth="1.7" />

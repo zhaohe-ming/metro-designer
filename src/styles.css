@@ -3577,6 +3577,10 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   pointer-events: none;
 }
 
+.auth-brand-panel--desktop .auth-brand-map {
+  transform: translate(-14px, -32px);
+}
+
 .auth-brand-map__glow {
   position: absolute;
   inset: 8% 2% 0 8%;
