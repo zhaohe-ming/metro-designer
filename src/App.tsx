@@ -2025,7 +2025,9 @@ const App: React.FC = () => {
               <button
                 type="button"
                 className="metro-mobile-toggle"
-                aria-label="打开侧栏"
+                aria-label={isMobileSidebarOpen ? '关闭线路列表' : '打开线路列表'}
+                aria-expanded={isMobileSidebarOpen}
+                aria-controls="metro-line-sidebar"
                 onClick={() => setIsMobileSidebarOpen((prev) => !prev)}
               >
                 <MenuOutlined />
@@ -2077,6 +2079,7 @@ const App: React.FC = () => {
               <Button
                 type="primary"
                 className="metro-header-save-btn"
+                aria-label={currentMap ? text.overwriteSave : text.saveMap}
                 icon={<SaveOutlined />}
                 loading={saveMapSaving}
                 onClick={handleOpenSaveMap}
@@ -2121,6 +2124,7 @@ const App: React.FC = () => {
             aria-hidden="true"
           />
           <Sider
+            id="metro-line-sidebar"
             className={`metro-sider${isMobileSidebarOpen ? ' is-mobile-open' : ''}`}
             width={252}
           >

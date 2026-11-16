@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
+import Konva from 'konva';
 import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
 import {
@@ -19,6 +20,7 @@ import { AppAction } from '../lib/commandParser';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
+import { TouchViewportGesture, TouchPoint } from '../lib/touchViewport';
 
 // 性能诊断开关。用户在 DevTools Console 输入：
 //   localStorage.setItem('metro_perf', '1'); location.reload();
@@ -237,6 +239,22 @@ const Canvas: React.FC<CanvasProps> = ({
   });
   // 右键点击标志
   const lastIsRightClickRef = useRef(false);
+  const touchGestureRef = useRef(new TouchViewportGesture());
+  const touchTapAllowedRef = useRef(false);
+  const longPressTimerRef = useRef<number | null>(null);
+  const [isCompact, setIsCompact] = useState(() => window.matchMedia('(max-width: 768px), (max-width: 1024px) and (max-height: 500px)').matches);
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 768px), (max-width: 1024px) and (max-height: 500px)');
+    const update = () => setIsCompact(query.matches);
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
+  }, []);
+  useEffect(() => {
+    if (!isCompact && !window.matchMedia('(pointer: coarse)').matches) return;
+    const previous = Konva.hitOnDragEnabled;
+    Konva.hitOnDragEnabled = true;
+    return () => { Konva.hitOnDragEnabled = previous; };
+  }, [isCompact]);
   // 区间右键菜单相关状态
   const [sectionContextMenu, setSectionContextMenu] = useState<{
     visible: boolean;
@@ -259,7 +277,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // 默认工具：桌面端"站点"（最常用），移动端"移动"（先让人能拖图，再让他想加站点）。
   // 仅 mount 时检测一次，之后用户切换 tool 由 setCanvasTool 接管。
   const [activeTool, setActiveTool] = useState<CanvasTool>(() => {
-    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px)').matches) {
+    if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px), (max-width: 1024px) and (max-height: 500px)').matches) {
       return 'pan';
     }
     return 'station';
@@ -440,11 +458,11 @@ const Canvas: React.FC<CanvasProps> = ({
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('click', handleGlobalClick);
+    document.addEventListener('pointerdown', handleGlobalClick);
     
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('click', handleGlobalClick);
+      document.removeEventListener('pointerdown', handleGlobalClick);
     };
   }, [isDrawing, isDrawingMode]);
 
@@ -455,6 +473,7 @@ const Canvas: React.FC<CanvasProps> = ({
         window.clearTimeout(canvasInteractionEndTimerRef.current);
         canvasInteractionEndTimerRef.current = null;
       }
+      if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
     };
   }, []);
 
@@ -831,6 +850,124 @@ const Canvas: React.FC<CanvasProps> = ({
     stage.batchDraw();
   };
 
+  const clearLongPress = () => {
+    if (longPressTimerRef.current !== null) window.clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
+
+  const readTouchPoints = (e: any): TouchPoint[] => {
+    const stage = stageRef.current;
+    if (!stage) return [];
+    const rect = stage.container().getBoundingClientRect();
+    return Array.from(e.evt.touches as TouchList).map(t => ({
+      id: t.identifier,
+      x: (t.clientX - rect.left) * stage.width() / rect.width,
+      y: (t.clientY - rect.top) * stage.height() / rect.height
+    }));
+  };
+
+  const handleTouchStart = (e: any) => {
+    e.evt.preventDefault();
+    const points = readTouchPoints(e);
+    const gesture = touchGestureRef.current;
+    gesture.start(points);
+    touchTapAllowedRef.current = false;
+    lastIsRightClickRef.current = false;
+    clearLongPress();
+    closeStationContextMenu();
+    setSectionContextMenu(prev => ({ ...prev, visible: false }));
+    setCanvasContextMenu(prev => ({ ...prev, visible: false }));
+    if (points.length > 1) {
+      // 第二指接管导航，结束 Konva 可能已开始的单指节点拖拽。
+      stageRef.current?.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
+      setIsDraggingNode(false);
+      setActiveCalibrationGuides([]);
+      setIsDragging(false);
+      startCanvasInteraction();
+      return;
+    }
+    if (activeTool === 'pan') startCanvasInteraction();
+    if (points.length !== 1) return;
+    const point = points[0];
+    const stationNode = e.target.findAncestor('.touch-station', true);
+    const station = stationNode ? stations.find(s => s.id === stationNode.id()) : null;
+    const sectionId = e.target.getAttr('sectionId');
+    const waypointIndex = e.target.getAttr('waypointIndex');
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null;
+      if (!gesture.canLongPress || isDrawingMode || addingWaypoint) return;
+      gesture.consume();
+      stationNode?.stopDrag();
+      if (station) {
+        setShowConnectAction(true);
+        setStationContextMenu({ visible: true, station, ...point });
+      } else if (sectionId) {
+        setSectionContextMenu({ visible: true, sectionKey: sectionId, waypointIndex: waypointIndex ?? null,
+          waypointOnly: waypointIndex !== undefined, ...point });
+      } else if (e.target === stageRef.current) {
+        setCanvasContextMenu({ visible: true, ...point });
+      }
+    }, 550);
+  };
+
+  const handleTouchMove = (e: any) => {
+    e.evt.preventDefault();
+    const stage = stageRef.current;
+    if (!stage) return;
+    const points = readTouchPoints(e);
+    const gesture = touchGestureRef.current;
+    if (points.length > 1 && !gesture.isNavigating) {
+      stage.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
+    }
+    const next = gesture.move(points, isAmapMode ? { x: 0, y: 0, scale: 1 }
+      : { ...stage.position(), scale: stage.scaleX() }, activeTool === 'pan');
+    if (!gesture.canLongPress) clearLongPress();
+    if (!next) return;
+    startCanvasInteraction();
+    if (isAmapMode && amapRef.current) {
+      const map = amapRef.current;
+      const center = points.length > 1
+        ? { x: (points[0].x + points[1].x) / 2, y: (points[0].y + points[1].y) / 2 } : null;
+      const anchor = center ? getLngLatFromContainerPoint({
+        x: (center.x - next.x) / next.scale, y: (center.y - next.y) / next.scale
+      }) : null;
+      if (next.scale !== 1) {
+        const zoom = Math.max(3, Math.min(20, map.getZoom() + Math.log2(next.scale)));
+        map.setZoom(zoom, true, 0);
+      }
+      const pixel = anchor ? map.lngLatToContainer([anchor.lng, anchor.lat]) : null;
+      if (center && pixel) map.panBy?.(center.x - pixel.x, center.y - pixel.y, 0);
+      else map.panBy?.(next.x, next.y, 0);
+      return;
+    }
+    stage.scale({ x: next.scale, y: next.scale });
+    stage.position({ x: next.x, y: next.y });
+    stage.batchDraw();
+  };
+
+  const handleTouchEnd = (e: any) => {
+    e.evt.preventDefault();
+    clearLongPress();
+    const remaining = readTouchPoints(e);
+    touchTapAllowedRef.current = touchGestureRef.current.end(remaining);
+    if (remaining.length) return;
+    setIsDragging(false);
+    scheduleCanvasInteractionEnd(120);
+    // 站点/区间由自己的 onTap 处理；空白画布在此处理添加站点。
+    if (touchTapAllowedRef.current && e.target === stageRef.current && !addingWaypoint) handleStageClick(e);
+  };
+
+  const handleTouchCancel = () => {
+    clearLongPress();
+    touchGestureRef.current.cancel();
+    touchTapAllowedRef.current = false;
+    stageRef.current?.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
+    setIsDragging(false);
+    setIsDraggingNode(false);
+    setActiveCalibrationGuides([]);
+    scheduleCanvasInteractionEnd(0);
+  };
+
   // 处理拖拽开始
   const handleMouseDown = (e: any) => {
     const __t0 = performance.now();
@@ -940,6 +1077,18 @@ const Canvas: React.FC<CanvasProps> = ({
     perfMark('handleMouseUp sync body (inc stageClick if any)', __t0);
   };
 
+  const applyCanvasViewport = (nextScale: number, nextPosition: { x: number; y: number }) => {
+    const stage = stageRef.current;
+    if (stage) {
+      stage.scale({ x: nextScale, y: nextScale });
+      stage.position(nextPosition);
+      stage.batchDraw();
+    }
+    setScale(nextScale);
+    setPosition(nextPosition);
+    scheduleCanvasInteractionEnd(0);
+  };
+
   // 重置视图
   const resetView = () => {
     if (isAmapMode && amapRef.current) {
@@ -947,8 +1096,18 @@ const Canvas: React.FC<CanvasProps> = ({
       amapRef.current.setZoomAndCenter?.(amapOptions.zoom, amapOptions.center);
       return;
     }
-    setScale(1);
-    setPosition({ x: 0, y: 0 });
+    applyCanvasViewport(1, { x: 0, y: 0 });
+  };
+
+  const setCanvasZoom = (requested: number) => {
+    const stage = stageRef.current;
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, requested));
+    if (!stage) { setScale(next); return; }
+    const old = stage.scaleX();
+    const center = { x: stage.width() / 2, y: stage.height() / 2 };
+    const pos = stage.position();
+    applyCanvasViewport(next, { x: center.x - (center.x - pos.x) * next / old,
+      y: center.y - (center.y - pos.y) * next / old });
   };
 
   // 放大
@@ -957,7 +1116,7 @@ const Canvas: React.FC<CanvasProps> = ({
       amapRef.current.setZoom?.(Math.min(20, (amapRef.current.getZoom?.() || 11) + 1));
       return;
     }
-    setScale(prev => Math.min(5, prev * 1.2));
+    setCanvasZoom((stageRef.current?.scaleX() || scale) * 1.2);
   };
 
   // 缩小
@@ -966,14 +1125,14 @@ const Canvas: React.FC<CanvasProps> = ({
       amapRef.current.setZoom?.(Math.max(3, (amapRef.current.getZoom?.() || 11) - 1));
       return;
     }
-    setScale(prev => Math.max(0.1, prev / 1.2));
+    setCanvasZoom((stageRef.current?.scaleX() || scale) / 1.2);
   };
 
   // 直接跳到某个缩放百分比（仅在纯画布模式下用 —— AMap 自己有标准 zoom 级别，
   // 把"100%"硬塞过去会很别扭，HUD 里 AMap 模式时直接禁用预设下拉）
   const setZoomPercent = (percent: number) => {
     const next = Math.max(0.1, Math.min(5, percent / 100));
-    setScale(next);
+    setCanvasZoom(next);
   };
 
   // 适应视图
@@ -1002,14 +1161,16 @@ const Canvas: React.FC<CanvasProps> = ({
     const stageWidth = stageSize.width;
     const stageHeight = stageSize.height;
     
-    const scaleX = (stageWidth - 100) / contentWidth;
-    const scaleY = (stageHeight - 100) / contentHeight;
-    const newScale = Math.min(scaleX, scaleY, 2);
+    const paddingX = isCompact ? 64 : 50;
+    const paddingTop = isCompact ? 132 : 50;
+    const paddingBottom = isCompact ? 156 : 50;
+    const scaleX = Math.max(40, stageWidth - paddingX * 2) / Math.max(contentWidth, 1);
+    const scaleY = Math.max(40, stageHeight - paddingTop - paddingBottom) / Math.max(contentHeight, 1);
+    const newScale = Math.max(ZOOM_MIN, Math.min(scaleX, scaleY, 2));
     
-    setScale(newScale);
-    setPosition({
+    applyCanvasViewport(newScale, {
       x: (stageWidth - contentWidth * newScale) / 2 - minX * newScale,
-      y: (stageHeight - contentHeight * newScale) / 2 - minY * newScale
+      y: paddingTop + (stageHeight - paddingTop - paddingBottom - contentHeight * newScale) / 2 - minY * newScale
     });
   };
 
@@ -1236,6 +1397,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 拖动站点（含自动吸附）
   const handleDragMove = (id: string, pos: { x: number; y: number }) => {
+    if (touchGestureRef.current.isNavigating) return;
     const updatedStation = stations.find(s => s.id === id);
     if (updatedStation) {
       if (isAmapMode) {
@@ -1288,7 +1450,7 @@ const Canvas: React.FC<CanvasProps> = ({
       lastIsRightClickRef.current = false;
       return;
     }
-    if (e?.evt && e.evt.button !== 0) {
+    if (e?.evt && e.evt.button !== undefined && e.evt.button !== 0) {
       return;
     }
     if (isDrawingMode) {
@@ -1319,6 +1481,17 @@ const Canvas: React.FC<CanvasProps> = ({
           station
         });
       }
+    }
+  };
+
+  const handleStationTap = (station: Station, e: any) => {
+    if (!touchTapAllowedRef.current || addingWaypoint) return;
+    if (isDrawingMode) { handleDrawingModeClick(e); return; }
+    if (activeTool === 'pan') return;
+    const pointer = e.target.getStage()?.getPointerPosition();
+    if (pointer) {
+      setShowConnectAction(true);
+      setStationContextMenu({ visible: true, station, x: pointer.x, y: pointer.y });
     }
   };
 
@@ -1813,7 +1986,15 @@ const Canvas: React.FC<CanvasProps> = ({
           lastIsRightClickRef.current = false;
           return;
         }
-        if (!e.evt || e.evt.button !== 0) return;
+        if (!e.evt || (e.evt.button !== undefined && e.evt.button !== 0)) return;
+        if (e.evt.touches !== undefined && !touchTapAllowedRef.current) return;
+        if (activeTool === 'pan' || addingWaypoint) return;
+        if (isCompact && activeTool === 'select') {
+          const pointer = e.target.getStage()?.getPointerPosition();
+          setSectionContextMenu({ visible: true, x: pointer?.x || 0, y: pointer?.y || 0,
+            sectionKey: seg.section.id, waypointIndex: null, waypointOnly: false });
+          return;
+        }
         const stage = e.target.getStage();
         if (isSectionMode) {
           setSelectedSection({
@@ -1857,6 +2038,8 @@ const Canvas: React.FC<CanvasProps> = ({
           lineCap="round"
           lineJoin="round"
           tension={0}
+          sectionId={seg.section.id}
+          onTap={handleSectionLineClick}
           onClick={handleSectionLineClick}
           onContextMenu={handleSectionLineContextMenu}
         />,
@@ -1872,6 +2055,8 @@ const Canvas: React.FC<CanvasProps> = ({
           shadowBlur={isLightRender ? 0 : stylePreset.lineShadowBlur}
           shadowOpacity={isLightRender ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
+          sectionId={seg.section.id}
+          onTap={handleSectionLineClick}
           onClick={handleSectionLineClick}
           onContextMenu={handleSectionLineContextMenu}
         />
@@ -2266,9 +2451,53 @@ const Canvas: React.FC<CanvasProps> = ({
     stationDisplayPoints
   ]);
 
+  const handleWaypointPlacement = (e: any) => {
+    if (e.evt?.touches !== undefined && !touchTapAllowedRef.current) return;
+    if (sectionContextMenu.visible) {
+      // 区间右键菜单弹出时不响应途经点添加
+      return;
+    }
+    if (isSectionMode && selectedSection && addingWaypoint) {
+      // 保持原有途经点添加逻辑
+      const stage = e.target.getStage();
+      if (stage) {
+        const pointer = stage.getPointerPosition();
+        if (pointer) {
+          const worldPos = {
+            ...getPointerWorldPosition(stage, pointer),
+            ...(getLngLatFromContainerPoint(pointer) || {})
+          };
+          const sectionKey = selectedSection.sectionId;
+          const currentWaypoints = getSectionWaypoints(sectionKey);
+          if (currentWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
+            message.warning(`最多只能添加${MAX_WAYPOINTS_PER_SECTION}个途经点`);
+            setAddingWaypoint(false);
+            setSelectedSection(null);
+            return;
+          }
+          onBeginInteraction?.();
+          const nextWaypoints = [...currentWaypoints, worldPos];
+          writeSectionWaypoints(sectionKey, nextWaypoints);
+          setAddingWaypoint(false);
+          if (nextWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
+            setSelectedSection(null);
+            message.success(`已达到最多${MAX_WAYPOINTS_PER_SECTION}个途经点`);
+          } else {
+            message.success('已添加途经点');
+          }
+          return;
+        }
+      }
+      return;
+    }
+    // 画布单击不再处理添加站点弹窗，交由 onMouseUp 统一处理
+
+  };
+
   return (
     <div
       ref={containerRef}
+      onTouchCancel={handleTouchCancel}
       className={`metro-canvas-surface ${isDarkCanvas ? 'is-canvas-dark' : ''}`}
       style={{
         width: '100%',
@@ -2337,11 +2566,12 @@ const Canvas: React.FC<CanvasProps> = ({
           ].map((tool) => {
             const active = activeTool === tool.key;
             return (
-              <Tooltip key={tool.key} title={tool.hint} placement="bottom" mouseEnterDelay={0.2}>
+              <Tooltip key={tool.key} title={isCompact ? null : tool.hint} placement="bottom" mouseEnterDelay={0.2}>
                 <button
                   type="button"
                   className={`metro-tool-button ${active ? 'is-active' : ''}`}
                   onClick={() => setCanvasTool(tool.key)}
+                  aria-label={tool.label}
                   aria-pressed={active}
                 >
                   {active ? <span className="metro-tool-button__dot" aria-hidden="true" /> : null}
@@ -2352,6 +2582,20 @@ const Canvas: React.FC<CanvasProps> = ({
             );
           })}
         </div>
+      </div>
+      <div className="metro-touch-hint" aria-live="polite">
+        <span>{language === 'en-US'
+          ? (addingWaypoint ? 'Tap the canvas to place a waypoint' : isDrawing ? `From ${drawingLine.startStation?.name}: tap the destination` : 'Two fingers to move and zoom')
+          : addingWaypoint ? '点画布放置途经点 · 双指移动和缩放'
+          : isDrawing ? `从${drawingLine.startStation?.name}出发，点击终点站`
+          : activeTool === 'pan' ? '单指移动 · 双指缩放 · 长按站点编辑'
+          : activeTool === 'station' ? '点空白处加站 · 双指移动和缩放'
+          : activeTool === 'line' ? '依次点起点、终点 · 双指移动和缩放'
+          : activeTool === 'section' ? '点击区间调整走向 · 双指移动和缩放'
+          : '点站点编辑 · 拖动调整位置 · 双指导航'}</span>
+        {isDrawing || addingWaypoint ? <button type="button" onClick={() => {
+          cancelDrawing(); setAddingWaypoint(false); setSelectedSection(null);
+        }}>{language === 'en-US' ? 'Cancel' : '取消'}</button> : null}
       </div>
       {isSectionMode && selectedSection && (
         <DraggableModal
@@ -2459,53 +2703,14 @@ const Canvas: React.FC<CanvasProps> = ({
           // 拖拽结束（handleMouseUp 内部已经按 click 距离阈值决定要不要触发 handleStageClick）
           handleMouseUp(e);
         }}
-        // 触摸事件：Konva 自带的 mouse↔touch 合成在某些移动浏览器里会被 touch-action:auto
-        // 吃掉（手势被浏览器解读成页面滚动），所以这里显式挂三个 onTouch*，行为完全镜像鼠标。
-        onTouchStart={handleMouseDown}
-        onTouchMove={handleMouseMove}
-        onTouchEnd={handleMouseUp}
+        // 触屏单独识别点击、单指编辑、双指导航及系统取消。
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
         onContextMenu={handleCanvasContextMenu}
         onWheel={handleWheel}
-        onClick={e => {
-          if (sectionContextMenu.visible) {
-            // 区间右键菜单弹出时不响应途经点添加
-            return;
-          }
-          if (isSectionMode && selectedSection && addingWaypoint) {
-            // 保持原有途经点添加逻辑
-            const stage = e.target.getStage();
-            if (stage) {
-              const pointer = stage.getPointerPosition();
-              if (pointer) {
-                const worldPos = {
-                  ...getPointerWorldPosition(stage, pointer),
-                  ...(getLngLatFromContainerPoint(pointer) || {})
-                };
-                const sectionKey = selectedSection.sectionId;
-                const currentWaypoints = getSectionWaypoints(sectionKey);
-                if (currentWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
-                  message.warning(`最多只能添加${MAX_WAYPOINTS_PER_SECTION}个途经点`);
-                  setAddingWaypoint(false);
-                  setSelectedSection(null);
-                  return;
-                }
-                onBeginInteraction?.();
-                const nextWaypoints = [...currentWaypoints, worldPos];
-                writeSectionWaypoints(sectionKey, nextWaypoints);
-                setAddingWaypoint(false);
-                if (nextWaypoints.length >= MAX_WAYPOINTS_PER_SECTION) {
-                  setSelectedSection(null);
-                  message.success(`已达到最多${MAX_WAYPOINTS_PER_SECTION}个途经点`);
-                } else {
-                  message.success('已添加途经点');
-                }
-                return;
-              }
-            }
-            return;
-          }
-          // 画布单击不再处理添加站点弹窗，交由 onMouseUp 统一处理
-        }}
+        onClick={handleWaypointPlacement}
+        onTap={handleWaypointPlacement}
         style={{ cursor: activeTool === 'pan' ? 'grab' : isDrawingMode || activeTool === 'station' ? 'crosshair' : 'default' }}
       >
         <Layer>
@@ -2578,7 +2783,11 @@ const Canvas: React.FC<CanvasProps> = ({
                   strokeWidth={2}
                   shadowColor={canvasPalette.waypointShadow}
                   shadowBlur={isLightRender ? 0 : 5}
-                  draggable
+                  name="touch-edit-node"
+                  sectionId={section.id}
+                  waypointIndex={idx}
+                  draggable={!isCompact || activeTool === 'select' || activeTool === 'section'}
+                  dragDistance={isCompact ? 8 : 3}
                   onDragStart={() => {
                     onBeginInteraction?.();
                     setIsDraggingNode(true);
@@ -2633,9 +2842,12 @@ const Canvas: React.FC<CanvasProps> = ({
             return (
               <Group
                 key={station.id}
+                id={station.id}
+                name="touch-edit-node touch-station"
+                dragDistance={isCompact ? 8 : 3}
                 x={stationPoint.x}
                 y={stationPoint.y}
-                draggable={activeTool === 'select' || activeTool === 'station'}
+                draggable={activeTool === 'select' || (!isCompact && activeTool === 'station')}
                 onDragStart={() => {
                   onBeginInteraction?.();
                   setIsDraggingNode(true);
@@ -2647,10 +2859,16 @@ const Canvas: React.FC<CanvasProps> = ({
                   setActiveCalibrationGuides([]);
                   setIsDraggingNode(false);
                 }}
-                onClick={(e) => handleStationClick(station, e)}
+                onTap={(e) => handleStationTap(station, e)}
+                onClick={(e) => {
+                  if (isCompact) { touchTapAllowedRef.current = true; handleStationTap(station, e); }
+                  else handleStationClick(station, e);
+                }}
                 onContextMenu={(e) => handleStationRightClick(e, station)}
                 style={{ cursor: isDrawingMode ? 'crosshair' : 'pointer' }}
               >
+                {isCompact ? <Circle radius={Math.max(scaledNormalStationRadius, 22 / (isAmapMode ? 1 : scale))}
+                  fill="rgba(0,0,0,0.001)" /> : null}
                 {isDotLabelStyle ? (
                   <>
                     {isInterchangeStation ? (
@@ -3004,6 +3222,13 @@ const Canvas: React.FC<CanvasProps> = ({
           </div>
         )}
       </DraggableModal>
+      {isCompact && (stationContextMenu.visible || sectionContextMenu.visible || canvasContextMenu.visible) ? (
+        <button type="button" className="metro-context-backdrop" aria-label="关闭编辑菜单" onClick={() => {
+          closeStationContextMenu();
+          setSectionContextMenu(prev => ({ ...prev, visible: false }));
+          setCanvasContextMenu(prev => ({ ...prev, visible: false }));
+        }} />
+      ) : null}
       {canvasContextMenu.visible && (
         <div
           className="canvas-context-menu"
@@ -3053,6 +3278,7 @@ const Canvas: React.FC<CanvasProps> = ({
          return (
            <div
              className="section-context-menu"
+             role="region" aria-label="区间操作"
              onMouseDown={e => e.stopPropagation()}
              style={{
                position: 'absolute',
@@ -3130,6 +3356,15 @@ const Canvas: React.FC<CanvasProps> = ({
                  ) : (
                    <div style={{ color: canvasPalette.menuMuted }}>暂无途经点</div>
                  )}
+                 {isCompact ? <Button size="small" onClick={() => {
+                   const section = sections.find(item => item.id === sectionKey);
+                   const startStation = stations.find(item => item.id === section?.startStationId);
+                   const endStation = stations.find(item => item.id === section?.endStationId);
+                   if (!section || !startStation || !endStation) return;
+                   setSectionContextMenu(prev => ({ ...prev, visible: false }));
+                   setCanvasTool('section');
+                   setSelectedSection({ sectionId: section.id, lineId: section.lineId, startStation, endStation });
+                 }}>调整区间走向</Button> : null}
                  <Button
                    size="small"
                    danger
@@ -3151,6 +3386,7 @@ const Canvas: React.FC<CanvasProps> = ({
        {stationContextMenu.visible && (
          <div
             className="station-context-menu"
+            role="region" aria-label="站点操作"
            style={{
              position: 'absolute',
              top: stationContextMenu.y,
@@ -3181,9 +3417,9 @@ const Canvas: React.FC<CanvasProps> = ({
                 }}
                 disabled={!currentLineId}
               >
-                {showConnectAction ? '添加到当前线路（建立默认连接）' : '添加到当前线路'}
+                {!isCompact && showConnectAction ? '添加到当前线路（建立默认连接）' : '添加到当前线路'}
               </Button>
-              {showConnectAction && (
+              {(showConnectAction || isCompact) && (
                 <Button
                   size="small"
                   type="dashed"
@@ -3193,7 +3429,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   与其他站点进行连接
                 </Button>
               )}
-              {showConnectAction && (
+              {(showConnectAction || isCompact) && (
                 <Button
                   size="small"
                   onClick={() => {
@@ -3206,6 +3442,11 @@ const Canvas: React.FC<CanvasProps> = ({
                 </Button>
               )}
             </div>
+            {isCompact ? <Button size="small" onClick={() => {
+              const station = stationContextMenu.station;
+              closeStationContextMenu();
+              if (station) setStationInfoModal({ visible: true, station, note: station.note || '' });
+            }}>站点详情与标注</Button> : null}
             <Button size="small" onClick={handleOpenRenameStation}>
               修改站点名称
             </Button>

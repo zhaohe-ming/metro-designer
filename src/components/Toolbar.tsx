@@ -70,6 +70,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <Tooltip title={undoText}>
             <Button
               className="metro-toolbar__secondary"
+              aria-label={language === 'en-US' ? 'Undo' : '撤销'}
               onClick={onUndo}
               disabled={!canUndo}
               icon={<UndoOutlined />}
@@ -80,6 +81,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           <Tooltip title={redoText}>
             <Button
               className="metro-toolbar__secondary"
+              aria-label={language === 'en-US' ? 'Redo' : '重做'}
               onClick={onRedo}
               disabled={!canRedo}
               icon={<RedoOutlined />}
@@ -88,7 +90,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
         ) : null}
         {exportItems.length ? (
           <Dropdown menu={{ items: exportItems }} placement="bottomRight" trigger={['click']}>
-            <Button className="metro-toolbar__secondary" icon={<DownloadOutlined />}>
+            <Button className="metro-toolbar__secondary metro-toolbar__export" icon={<DownloadOutlined />}>
               {text.exportLabel} <DownOutlined style={{ fontSize: 10 }} />
             </Button>
           </Dropdown>

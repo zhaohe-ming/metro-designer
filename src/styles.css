@@ -3097,7 +3097,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   display: none;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
   /* ── 整体 shell：让 header 高度更紧凑、画布吃满剩余空间 ── */
   .metro-header {
     padding: 0 10px !important;
@@ -3726,3 +3726,68 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .desktop-update-notice a { flex-shrink: 0; color: #1d4ed8; font-weight: 600; }
 .desktop-update-notice button { border: 0; background: transparent; color: #475569; cursor: pointer; padding: 6px; }
 .desktop-update-notice :is(a, button):focus-visible { outline: 2px solid #2563eb; outline-offset: 4px; }
+/* Phone workbench: labelled tools above the canvas, document actions within thumb reach. */
+.metro-touch-hint, .metro-context-backdrop { display: none; }
+@media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
+  .metro-app-shell { height: 100vh; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; }
+  .metro-workbench { height: 100%; min-height: 0; }
+  .metro-header { flex: 0 0 56px; height: 56px !important; min-height: 56px; padding: 0 12px !important; }
+  .metro-header, .app-header { transform: none !important; }
+  .app-header { height: 100%; }
+  .metro-body { flex: 1; min-height: 0; flex-wrap: nowrap; gap: 0; padding: 0; }
+  .metro-content, .metro-canvas-stage { height: 100%; min-height: 0; }
+  .metro-mobile-toggle, .metro-header-save-btn, .user-chip--trigger { min-width: 44px; min-height: 44px; }
+  .metro-brand-panel { gap: 4px; }
+  .metro-brand-mark { display: none; }
+  .metro-header-mapchip { max-width: 34vw; }
+  .metro-user-panel { gap: 4px !important; }
+  .metro-sider.ant-layout-sider { top: 56px; width: min(88vw, 340px) !important; max-width: 340px !important;
+    min-width: 0 !important; flex: 0 0 auto !important; }
+  .metro-sider:not(.is-mobile-open) { visibility: hidden; }
+  .metro-mobile-overlay { inset: 56px 0 0; }
+  .metro-canvas-tools { position: absolute !important; top: 10px !important; max-width: calc(100% - 24px) !important; }
+  .metro-tool-group { gap: 2px; padding: 4px !important; }
+  .metro-tool-button { width: 56px; min-width: 0; height: 52px; flex-direction: column; gap: 5px; padding: 5px 4px !important; }
+  .metro-tool-button__label { display: block !important; font-size: 13px; line-height: 16px; }
+  .metro-tool-button__icon { font-size: 18px !important; }
+  .metro-touch-hint { display: flex; position: absolute; top: 82px; left: 12px; right: 12px; z-index: 19;
+    align-items: center; justify-content: center; gap: 8px; color: var(--color-text-soft); font-size: 13px;
+    line-height: 20px; pointer-events: none; text-align: center; }
+  .metro-touch-hint span { padding: 5px 9px; border-radius: 8px; background: var(--color-surface); }
+  .metro-touch-hint button { min-height: 44px; flex-shrink: 0; padding: 6px 10px; border: 1px solid var(--color-border);
+    border-radius: 8px; background: var(--color-surface); color: var(--color-primary-700); font: inherit; pointer-events: auto; }
+  .metro-toolbar-panel { display: block !important; position: fixed; left: 12px; right: 12px;
+    top: auto;
+    bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 85; padding: 5px;
+    border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.1); }
+  .metro-toolbar, .metro-toolbar__right { width: 100%; }
+  .metro-toolbar__right { display: flex; gap: 8px; }
+  .metro-toolbar__secondary.ant-btn { min-width: 44px; min-height: 44px; height: 44px; border-radius: 9px; }
+  .metro-toolbar__export { margin-left: auto; }
+  .metro-canvas-hud { bottom: calc(82px + env(safe-area-inset-bottom)) !important; right: 12px !important; padding: 3px; }
+  .metro-canvas-hud__btn { width: 44px; height: 44px; }
+  .metro-canvas-hud__value { min-width: 60px; min-height: 44px; }
+  .metro-command-bar { display: none; }
+  .metro-context-backdrop { display: block; position: fixed; inset: 56px 0 0; z-index: 999; border: 0;
+    background: rgba(15, 23, 42, 0.2); }
+  .station-context-menu, .section-context-menu, .canvas-context-menu { position: fixed !important;
+    top: auto !important; left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important;
+    max-height: calc(100vh - 90px); max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain;
+    padding: 16px !important; border: 1px solid var(--color-border); border-radius: 16px !important;
+    color: var(--color-text) !important; background: var(--color-surface) !important; font-size: 15px !important; }
+  .station-context-menu .ant-btn, .section-context-menu .ant-btn, .canvas-context-menu .ant-btn { min-height: 44px; font-size: 14px; }
+  .metro-modal-root .ant-input, .metro-modal-root .ant-input-affix-wrapper { font-size: 16px; }
+  .metro-modal-root .ant-modal-body { max-height: calc(100dvh - 180px); overflow-y: auto; overscroll-behavior: contain; }
+  .metro-modal-root .ant-modal-footer .ant-btn { min-height: 44px; }
+}
+@media (max-width: 360px) {
+  .metro-tool-button { width: 51px; }
+  .metro-header-ai-btn { width: 36px; height: 36px; }
+}
+
+@media (max-width: 1024px) and (max-height: 500px) {
+  .metro-touch-hint { display: none; }
+  .metro-toolbar-panel { left: 12px; right: auto; width: 210px; }
+  .metro-canvas-hud { bottom: calc(10px + env(safe-area-inset-bottom)) !important; }
+}
