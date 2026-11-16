@@ -1,18 +1,118 @@
 <!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="下载 Metro Designer Windows 客户端，设计地铁线路图，导出高清图片和动态演示。">
-<meta name="theme-color" content="#0b1930"><link rel="icon" type="image/svg+xml" href="/favicon.svg">
-<title>Windows 客户端下载 · Metro Designer</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#0b1930;color:#eff6ff;font-family:'Segoe UI','Microsoft YaHei',sans-serif}a{color:inherit}header{max-width:1120px;margin:auto;padding:32px;display:flex;justify-content:space-between;gap:24px;font-size:14px}header a{text-decoration:none}header strong{letter-spacing:.08em}main{max-width:1120px;margin:32px auto;padding:32px;display:grid;grid-template-columns:1.1fr 1fr;gap:56px;align-items:center}.eyebrow{color:#67e8f9;letter-spacing:.1em;font-size:14px}h1{font-size:clamp(36px,5vw,56px);line-height:1.2;letter-spacing:-.04em;margin:20px 0 24px}p{font-size:17px;line-height:1.8;color:#b6c8df}.download{display:inline-flex;gap:12px;align-items:center;margin-top:18px;background:#2563eb;padding:16px 24px;border-radius:12px;text-decoration:none;font-weight:600}.download:hover{background:#1d4ed8}a:focus-visible{outline:3px solid #67e8f9;outline-offset:4px}.meta{font-size:14px;line-height:1.8;margin-top:16px;color:#b6c8df}.notice{font-size:14px;line-height:1.9;border-top:1px solid #29405e;margin-top:32px;padding-top:20px}.art{border:1px solid #29405e;border-radius:24px;padding:32px;background:radial-gradient(ellipse at 50% 65%,#153c67,transparent 70%),#101f36;aspect-ratio:1;display:grid;place-items:center}.art svg{width:100%;height:auto}.checks{display:flex;flex-wrap:wrap;gap:12px 24px;font-size:14px;color:#c6d9ee;margin-top:28px}.checks span::before{content:'✓';color:#4ade80;margin-right:8px}footer{max-width:1120px;padding:32px;margin:auto;color:#92a9c5;font-size:13px}@media(max-width:760px){main{grid-template-columns:1fr;margin:0;gap:32px;padding:24px}header{padding:24px}.art{max-width:440px;width:100%;aspect-ratio:1.25}.notice{margin-top:24px}}
-</style></head><body>
-<header><a href="/"><strong>METRO DESIGNER</strong></a><a href="/">返回网页版 ↗</a></header>
-<main><section><div class="eyebrow">WINDOWS DESKTOP</div><h1>把你的线网<br>放上桌面。</h1><p>熟悉的 Metro Designer，专注的独立窗口。<br>绘制线路、编排换乘、生成动态演示。</p>
-<a class="download" href="https://github.com/zhaohe-ming/metro-designer/releases/download/v1.1.0/Metro-Designer-Setup-1.1.0-x64.exe"><svg width="20" height="20" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M1 3.5 8.5 2.4v7H1zm8.5-1.3L19 1v8.4H9.5zM1 10.5h7.5v7L1 16.4zm8.5 0H19V19l-9.5-1.3z"/></svg>下载 Windows 版 <span aria-hidden="true">↓</span></a>
-<div class="meta">v1.1.0 · Windows 10 / 11 · 64 位（x64）<br>安装后联网使用 · 与网页版共用账号及云端地图</div>
-<div class="checks"><span>PNG 高清导出</span><span>WebM 动态演示</span><span>独立登录状态</span></div>
-<p class="notice">此版本采用在线客户端架构，功能随网站更新，启动时自动检查客户端新版；下载和安装均由你确认。安装包尚未进行发布者数字签名，Windows 可能显示来源提示。请核对下载来源及版本校验文件。</p>
-<a class="meta" href="https://github.com/zhaohe-ming/metro-designer/releases/tag/v1.1.0" target="_blank" rel="noopener noreferrer">版本说明与 SHA-256 校验文件 ↗</a>
-</section><div class="art" aria-hidden="true"><svg viewBox="0 0 400 340" fill="none"><g stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><path d="M22 180h166q14 0 24-10l84-84q10-10 24-10h58" stroke="#22d3ee"/><path d="m70 38 78 78q12 12 12 28v104q0 16 16 16h200" stroke="#fb923c"/><path d="M286 136v154q0 16 16 16h78" stroke="#4ade80"/></g><g fill="#fff" stroke="#102c61" stroke-width="4"><circle cx="160" cy="180" r="11"/><circle cx="286" cy="264" r="11"/></g><g fill="white"><circle cx="70" cy="180" r="5"/><circle cx="112" cy="80" r="5"/><circle cx="160" cy="232" r="5"/><circle cx="220" cy="264" r="5"/><circle cx="342" cy="76" r="5"/><circle cx="286" cy="190" r="5"/></g></svg></div></main>
-<footer>Metro Designer · 地铁线路图设计器</footer>
-</body></html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="下载 Metro Designer Windows 客户端，设计地铁线路图，导出高清图片和动态演示。">
+    <meta name="theme-color" content="#f7faff">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="stylesheet" href="/downloads.css">
+    <title>Windows 客户端下载 · Metro Designer</title>
+  </head>
+  <body>
+    <header class="download-header shell">
+      <a class="download-brand" href="/" aria-label="Metro Designer 首页">
+        <svg width="26" height="28" viewBox="0 0 24 26" fill="none" aria-hidden="true" focusable="false">
+          <rect x="4" y="2" width="16" height="18" rx="4" stroke="currentColor" stroke-width="1.7"/>
+          <rect x="7" y="6" width="10" height="6" rx="1.5" stroke="currentColor" stroke-width="1.5"/>
+          <circle cx="8" cy="16" r="1.3" fill="currentColor"/><circle cx="16" cy="16" r="1.3" fill="currentColor"/>
+          <path d="m8 20-3 4m11-4 3 4M7 23h10" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+        <span>METRO DESIGNER</span>
+      </a>
+      <a class="download-back" href="/">返回网页版 <span aria-hidden="true">↗</span></a>
+    </header>
+
+    <main class="download-main shell">
+      <section class="download-copy" aria-labelledby="download-title">
+        <p class="download-eyebrow reveal">WINDOWS 客户端</p>
+        <h1 id="download-title" class="download-title reveal">
+          <span>把线网装进桌面，</span>
+          <span>随时开始设计。</span>
+        </h1>
+        <p class="download-subtitle reveal">
+          <span>独立窗口，专注绘制。</span>
+          <span>线路、换乘、动态演示，一个应用全部完成。</span>
+        </p>
+
+        <div class="download-action reveal">
+          <a class="download-button" href="https://github.com/zhaohe-ming/metro-designer/releases/download/v1.1.0/Metro-Designer-Setup-1.1.0-x64.exe">
+            <svg width="23" height="23" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true" focusable="false">
+              <path d="M1 3.5 8.5 2.4v7H1zm8.5-1.3L19 1v8.4H9.5zM1 10.5h7.5v7L1 16.4zm8.5 0H19V19l-9.5-1.3z"/>
+            </svg>
+            下载 Windows 版
+          </a>
+          <ul class="download-meta" aria-label="版本与系统要求">
+            <li>v1.1.0</li><li>Windows 10 / 11（64 位）</li><li>121.8 MB</li>
+          </ul>
+        </div>
+
+        <ul class="download-features reveal" aria-label="客户端功能">
+          <li><svg viewBox="0 0 18 18" aria-hidden="true"><path d="m3 9 4 4 8-10"/></svg>PNG 高清导出</li>
+          <li><svg viewBox="0 0 18 18" aria-hidden="true"><path d="m3 9 4 4 8-10"/></svg>WebM 动态演示</li>
+          <li><svg viewBox="0 0 18 18" aria-hidden="true"><path d="m3 9 4 4 8-10"/></svg>独立登录状态</li>
+        </ul>
+
+        <div class="download-install reveal">
+          <p class="download-notice">未签名版本，Windows 可能显示来源提示。</p>
+          <details class="install-details">
+            <summary>安装说明<svg viewBox="0 0 20 20" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg></summary>
+            <div class="install-details__body">
+              <ol>
+                <li>下载适用于 Windows 10 / 11、64 位（x64）的安装包。完整文件为 121,807,463 字节，页面大小按十进制 MB 显示。</li>
+                <li>先保存当前作品，关闭旧客户端，再运行安装程序。已有客户端可沿原目录覆盖安装。</li>
+                <li>安装后联网使用，与网页版共用账号及云端地图；客户端保留独立登录状态。</li>
+                <li>启动时自动检查新版，下载与安装分别由你确认。v1.0.0 用户完成这次覆盖安装后接入原生更新。</li>
+                <li>当前安装包尚未进行发布者数字签名。请核对官网、版本和文件校验信息；<a href="https://github.com/zhaohe-ming/metro-designer/releases/download/v1.1.0/SHA256SUMS.txt" target="_blank" rel="noopener noreferrer">查看 SHA-256 校验文件</a>。</li>
+              </ol>
+            </div>
+          </details>
+          <a class="download-release" href="https://github.com/zhaohe-ming/metro-designer/releases/tag/v1.1.0" target="_blank" rel="noopener noreferrer">版本说明与文件校验 <span aria-hidden="true">↗</span></a>
+        </div>
+      </section>
+
+      <div class="download-map" aria-hidden="true">
+        <svg class="download-map__svg" viewBox="60 0 560 370" fill="none" focusable="false" aria-hidden="true">
+          <defs>
+            <linearGradient id="download-map-top" gradientUnits="userSpaceOnUse" x1="0" y1="35" x2="0" y2="78">
+              <stop stop-color="white" stop-opacity="0"/><stop offset="1" stop-color="white"/>
+            </linearGradient>
+            <mask id="download-map-fade" x="0" y="0" width="620" height="370" maskUnits="userSpaceOnUse">
+              <rect width="620" height="370" fill="url(#download-map-top)"/>
+            </mask>
+            <linearGradient id="download-map-orange" gradientUnits="userSpaceOnUse" x1="150" y1="0" x2="594" y2="0">
+              <stop stop-color="var(--metro-line-orange)"/><stop offset="0.79" stop-color="var(--metro-line-orange)"/>
+              <stop offset="1" stop-color="var(--metro-line-orange)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+          <g stroke-width="10" stroke-linecap="round" stroke-linejoin="round">
+            <path class="map-route map-route--cyan" pathLength="1" stroke="var(--metro-line-cyan)" d="M84 212H344Q360 212 372 200L428 144Q440 132 456 132H570"/>
+            <g mask="url(#download-map-fade)">
+              <path class="map-route map-route--orange" pathLength="1" stroke="url(#download-map-orange)" d="M150 20 266 136Q276 146 276 162V286Q276 304 294 304H594"/>
+              <path class="map-route map-route--green" pathLength="1" stroke="var(--metro-line-green)" d="M472 0V344"/>
+            </g>
+          </g>
+          <g fill="white" stroke="#8bc9d9" stroke-width="1">
+            <g class="map-stations map-stations--cyan">
+              <circle cx="84" cy="212" r="6"/><circle cx="144" cy="212" r="5"/>
+              <circle cx="205" cy="212" r="5"/><circle cx="570" cy="132" r="6"/>
+            </g>
+            <g class="map-stations map-stations--orange">
+              <circle cx="196" cy="66" r="5"/><circle cx="276" cy="264" r="5"/><circle cx="374" cy="304" r="5"/>
+            </g>
+            <g class="map-stations map-stations--green">
+              <circle cx="472" cy="78" r="5"/><circle cx="472" cy="192" r="5"/>
+            </g>
+            <g class="map-stations map-stations--transfer" stroke="#102c61" stroke-width="4">
+              <circle cx="276" cy="212" r="11"/><circle cx="472" cy="132" r="11"/><circle cx="472" cy="304" r="11"/>
+            </g>
+          </g>
+        </svg>
+        <span class="map-label map-label--start">起点站</span>
+        <span class="map-label map-label--transfer">换乘站</span>
+        <span class="map-label map-label--end">终点站</span>
+      </div>
+    </main>
+    <footer class="download-footer shell">Metro Designer · 地铁线路图设计器</footer>
+  </body>
+</html>
