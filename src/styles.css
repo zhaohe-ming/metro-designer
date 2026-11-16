@@ -3446,6 +3446,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
 /* Login brand panel: scoped artwork; the form keeps its existing styles. */
 .auth-brand-panel {
+  container-type: inline-size;
   position: relative;
   isolation: isolate;
   display: flex;
@@ -3456,7 +3457,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   padding: 56px;
   color: #fff;
   font-family: inherit;
-  background: linear-gradient(145deg, #0b3d91 0%, #1f5fe0 62%, #2a3fb8 100%);
+  background: linear-gradient(145deg, #0b3d91 0%, #1459df 66%, #2342b8 100%);
 }
 
 .auth-brand-panel::before,
@@ -3469,11 +3470,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-brand-panel::before {
-  /* The dark wash preserves AA contrast for translucent body text. */
-  background-image:
-    linear-gradient(180deg, rgba(4, 16, 46, 0.22) 0%, rgba(4, 16, 46, 0.22) 72%, rgba(4, 16, 46, 0.1) 100%),
-    radial-gradient(circle, rgba(255, 255, 255, 0.06) 0.7px, transparent 0.8px);
-  background-size: 100% 100%, 24px 24px;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.06) 0.7px, transparent 0.8px);
+  background-size: 24px 24px;
 }
 
 .auth-brand-panel::after {
@@ -3509,6 +3507,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-brand-title {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
   margin: 0;
   /* Match the form heading's existing serif display token; body text inherits the UI font. */
   font-family: var(--font-display);
@@ -3524,26 +3525,17 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   white-space: nowrap;
 }
 
-.auth-brand-title__accent {
-  position: relative;
-  display: inline-block;
-}
+.auth-brand-title > span:first-child { font-size: 46px; }
 
-.auth-brand-title__accent::after {
-  position: absolute;
-  right: 0;
-  bottom: -3px;
-  left: 0;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--metro-line-cyan);
-  content: "";
+@supports (font-size: 1cqw) {
+  .auth-brand-title { font-size: clamp(22px, 8.35cqw, 42px); }
+  .auth-brand-title > span:first-child { font-size: clamp(24px, 9.2cqw, 46px); }
 }
 
 .auth-brand-palette {
   display: flex;
   gap: 4px;
-  margin-top: 16px;
+  margin-top: 32px;
 }
 
 .auth-brand-palette span {
@@ -3557,53 +3549,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-brand-palette span:nth-child(3) { background: var(--metro-line-green); }
 .auth-brand-palette span:nth-child(4) { background: var(--metro-line-pink); }
 
-.auth-brand-subtitle {
-  max-width: 440px;
-  margin: 16px 0 0;
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 16px;
-  line-height: 1.6;
-}
-
-.auth-brand-features {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 18px 0 0;
-  padding: 0;
-  list-style: none;
-}
-
-.auth-brand-feature {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  color: rgba(255, 255, 255, 0.92);
-  font-size: 15px;
-  line-height: 24px;
-}
-
-.auth-brand-feature__dot {
-  flex: 0 0 8px;
-  width: 8px;
-  height: 8px;
-  margin-top: 8px;
-  border-radius: 50%;
-  background: var(--metro-line-cyan);
-}
-
-.auth-brand-feature:nth-child(2) .auth-brand-feature__dot { background: var(--metro-line-orange); }
-.auth-brand-feature:nth-child(3) .auth-brand-feature__dot { background: var(--metro-line-green); }
-
 .auth-brand-download {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  margin-top: 18px;
-  padding: 9px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.42);
+  margin-top: 38px;
+  padding: 10px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.65);
   border-radius: var(--radius-md);
-  background: #123d89;
+  background: transparent;
   color: #fff;
   font-size: 14px;
   font-weight: 600;
@@ -3611,15 +3565,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   text-decoration: none;
 }
 
-.auth-brand-download:hover { background: #0d326e; color: #fff; }
+.auth-brand-download:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
 .auth-brand-download:focus-visible { outline: 3px solid var(--metro-line-cyan); outline-offset: 4px; }
 
 .auth-brand-map {
   position: absolute;
-  right: -56px;
-  bottom: -40px;
-  width: calc(100% + 16px);
-  aspect-ratio: 620 / 330;
+  right: 0;
+  bottom: 8px;
+  width: 100%;
+  aspect-ratio: 620 / 370;
   pointer-events: none;
 }
 
@@ -3638,7 +3592,6 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 .auth-brand-route--cyan { stroke: var(--metro-line-cyan); }
-.auth-brand-route--orange { stroke: var(--metro-line-orange); }
 .auth-brand-route--green { stroke: var(--metro-line-green); }
 
 .auth-brand-map__label {
@@ -3652,10 +3605,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   white-space: nowrap;
 }
 
-.auth-brand-map__label--start { top: 40%; left: 7%; }
-.auth-brand-map__label--transfer { top: 40%; left: 41%; }
-.auth-brand-map__label--square { top: 66%; left: 72%; }
-.auth-brand-map__label--end { top: 16%; left: 80%; margin-left: -24px; }
+.auth-brand-map__label--start { top: 50%; left: 10%; }
+.auth-brand-map__label--transfer { top: 50%; left: 47.5%; }
+.auth-brand-map__label--end { top: 28%; right: 4%; }
 
 /* Keep the desktop shell in two columns through tablet widths. */
 @media (min-width: 768px) {
@@ -3692,8 +3644,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
 @media (min-width: 768px) and (max-width: 1023px) {
   .auth-brand-panel { padding: 32px; }
-  .auth-brand-title { font-size: 32px; }
-  .auth-brand-map { right: -40px; bottom: -24px; }
+  .auth-brand-title { gap: 18px; }
+  .auth-brand-map { bottom: 24px; }
 }
 
 @media (max-width: 767px) {
@@ -3705,17 +3657,13 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .auth-brand-badge,
   .auth-brand-title,
   .auth-brand-palette,
-  .auth-brand-subtitle,
-  .auth-brand-feature {
+  .auth-brand-download {
     animation: auth-brand-rise 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   .auth-brand-title { animation-delay: 60ms; }
   .auth-brand-palette { animation-delay: 120ms; }
-  .auth-brand-subtitle { animation-delay: 180ms; }
-  .auth-brand-feature:nth-child(1) { animation-delay: 240ms; }
-  .auth-brand-feature:nth-child(2) { animation-delay: 300ms; }
-  .auth-brand-feature:nth-child(3) { animation-delay: 360ms; }
+  .auth-brand-download { animation-delay: 180ms; }
 
   .auth-brand-route {
     stroke-dasharray: 1;
@@ -3752,3 +3700,25 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     to { opacity: 1; transform: scale(1); }
   }
 }
+
+.desktop-update-notice {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1100;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: min(620px, calc(100vw - 32px));
+  padding: 18px 20px;
+  border: 1px solid #bfdbfe;
+  border-radius: 14px;
+  background: #f8fbff;
+  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16);
+  color: #0f172a;
+  font-size: 14px;
+}
+.desktop-update-notice p { margin: 6px 0 0; color: #475569; line-height: 1.6; }
+.desktop-update-notice a { flex-shrink: 0; color: #1d4ed8; font-weight: 600; }
+.desktop-update-notice button { border: 0; background: transparent; color: #475569; cursor: pointer; padding: 6px; }
+.desktop-update-notice :is(a, button):focus-visible { outline: 2px solid #2563eb; outline-offset: 4px; }

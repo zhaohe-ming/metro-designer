@@ -10,11 +10,13 @@ import {
   EditOutlined,
   MenuOutlined,
   SaveOutlined,
+  DownloadOutlined,
   ThunderboltOutlined
 } from '@ant-design/icons';
 import { api, clearToken, getToken, setToken, AIOperation } from './api';
 import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
+import DesktopUpdateNotice from './components/DesktopUpdateNotice';
 import Canvas from './components/Canvas';
 import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
@@ -1959,6 +1961,11 @@ const App: React.FC = () => {
       label: '设置',
       onClick: () => setSettingsVisible(true)
     },
+    {
+      key: 'download-client',
+      icon: <DownloadOutlined />,
+      label: <a href="/downloads.html" target="_blank" rel="noopener noreferrer">下载客户端</a>
+    },
     { type: 'divider' as const },
     {
       key: 'logout',
@@ -1999,6 +2006,7 @@ const App: React.FC = () => {
           <div className="auth-layout" data-interface-theme={resolvedInterfaceTheme}>
             <AuthPanel onAuthenticated={handleAuthenticated} />
           </div>
+          <DesktopUpdateNotice />
         </AntdApp>
       </ConfigProvider>
     );
@@ -2008,6 +2016,7 @@ const App: React.FC = () => {
     <ConfigProvider theme={antdThemeConfig}>
       <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
+      <DesktopUpdateNotice />
       <Layout className="metro-workbench">
         <Header className="metro-header">
           <div className="app-header">

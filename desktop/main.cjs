@@ -1,6 +1,8 @@
 const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
+const { autoUpdater } = require('electron-updater');
+const { attachUpdates } = require('./updates.cjs');
 const { SITE_URL, isSite, isExternalLink, isExport } = require('./policy.cjs');
 
 let mainWindow;
@@ -85,7 +87,8 @@ function createWindow() {
     if (!isSite(url)) event.preventDefault();
   });
   wc.setWindowOpenHandler(({ url }) => {
-    if (isSite(url)) wc.loadURL(url).catch(() => {});
+    if (isSite(url) && new URL(url).pathname === '/downloads.html') openExternal(url);
+    else if (isSite(url)) wc.loadURL(url).catch(() => {});
     else if (isExport(url)) wc.downloadURL(url);
     else openExternal(url);
     return { action: 'deny' };
@@ -100,6 +103,14 @@ function createWindow() {
     if (wc.getURL() === offlineURL) win.show();
   });
 
+  const updates = attachUpdates({ updater: autoUpdater, dialog, getWindow: () => mainWindow,
+    isPackaged: app.isPackaged, getVersion: () => app.getVersion() });
+  wc.once('did-finish-load', () => {
+    if (app.isPackaged) {
+      const timer = setTimeout(() => { if (!win.isDestroyed()) void updates.check(); }, 5000);
+      win.once('closed', () => clearTimeout(timer));
+    }
+  });
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     { label: '文件', submenu: [
       { label: '在浏览器打开', click: () => openExternal(SITE_URL) },
@@ -118,6 +129,7 @@ function createWindow() {
       { type: 'separator' }, { role: 'togglefullscreen', label: '全屏' }
     ] },
     { label: '帮助', submenu: [
+      { label: '检查更新…', click: () => { void updates.check(true); } },
       { label: '下载新版', click: () => openExternal('https://www.metro-designer.com/downloads.html') },
       { label: '关于 Metro Designer', click: () => dialog.showMessageBox(win, {
         type: 'info', title: 'Metro Designer', message: `Metro Designer ${app.getVersion()}`,
