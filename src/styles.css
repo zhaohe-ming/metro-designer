@@ -3769,6 +3769,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .desktop-update-notice button { border: 0; background: transparent; color: #475569; cursor: pointer; padding: 6px; }
 .desktop-update-notice :is(a, button):focus-visible { outline: 2px solid #2563eb; outline-offset: 4px; }
 /* Phone workbench: labelled tools above the canvas, document actions within thumb reach. */
+.metro-toolbar__mobile-view-slot { display: none; }
 .metro-touch-hint, .metro-context-backdrop { display: none; }
 @media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
   .metro-app-shell { height: 100vh; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; }
@@ -3865,12 +3866,14 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     border-radius: 8px; background: var(--color-surface); color: var(--color-primary-700); font: inherit; pointer-events: auto; }
   .metro-toolbar-panel { display: block !important; position: fixed; left: 12px; right: 12px;
     top: auto;
-    bottom: calc(10px + env(safe-area-inset-bottom)); z-index: 85; padding: 5px;
-    border: 1px solid var(--color-border); border-radius: 14px; background: var(--color-surface);
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.1); }
+    bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 85; padding: 5px 6px;
+    border: 1px solid var(--color-border); border-radius: 30px; background: var(--color-surface);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 24px rgba(31, 57, 98, 0.1); }
+  .metro-toolbar-panel.is-mobile-obscured { display: none !important; }
   .metro-toolbar, .metro-toolbar__right { width: 100%; }
-  .metro-toolbar__right { display: flex; gap: 8px; }
-  .metro-toolbar__secondary.ant-btn { min-width: 44px; min-height: 44px; height: 44px; border-radius: 9px; }
+  .metro-toolbar, .metro-toolbar__right { height: 44px; line-height: 1; }
+  .metro-toolbar__right { display: flex; flex-wrap: nowrap; align-items: center; gap: 0; }
+  .metro-toolbar__secondary.ant-btn { flex: 0 0 38px; width: 38px; min-width: 38px; min-height: 44px; height: 44px; padding: 0; border-radius: 18px; font-size: 18px; }
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn {
     border: 0 !important; background: transparent !important; box-shadow: none;
   }
@@ -3880,10 +3883,29 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn:focus-visible {
     outline: 2px solid var(--color-primary-600); outline-offset: -2px;
   }
-  .metro-toolbar__export { margin-left: auto; }
-  .metro-canvas-hud { bottom: calc(82px + env(safe-area-inset-bottom)) !important; right: 12px !important; padding: 3px; }
-  .metro-canvas-hud__btn { width: 44px; height: 44px; }
-  .metro-canvas-hud__value { min-width: 60px; min-height: 44px; }
+  .metro-toolbar__mobile-view-slot { display: flex; flex: 1; min-width: 0; margin-left: 4px; padding-left: 4px; }
+  .metro-mobile-view-controls { display: flex; align-items: center; width: 100%; min-width: 0; }
+  .metro-toolbar__mobile-view-slot, .metro-mobile-view-controls__view { position: relative; }
+  .metro-toolbar__mobile-view-slot::before, .metro-mobile-view-controls__view::before,
+  .metro-toolbar__export::before { content: ''; position: absolute; top: 12px; bottom: 12px; left: 0;
+    width: 1px; background: var(--color-border); pointer-events: none; }
+  .metro-mobile-view-controls__zoom { display: flex; flex: 1; align-items: center; min-width: 0; }
+  .metro-mobile-view-controls__button, .metro-mobile-view-controls__value { display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 34px; width: 34px; min-width: 0; height: 44px; padding: 0; gap: 5px; border: 0; border-radius: 16px;
+    background: transparent; color: var(--color-text); font-family: inherit; font-size: 17px; cursor: pointer; touch-action: manipulation; }
+  .metro-mobile-view-controls__value { flex: 1; width: auto; min-width: 48px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .metro-mobile-view-controls__caret { font-size: 9px; }
+  .metro-mobile-view-controls__view { display: flex; align-items: center; height: 44px; flex: 0 0 44px; padding-left: 4px; margin-left: 4px; }
+  .metro-mobile-view-controls__view-button { width: 40px; }
+  .metro-mobile-view-controls button:hover { background: var(--color-primary-50); }
+  .metro-mobile-view-controls button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { position: relative; flex: 0 0 auto; width: auto; min-width: 76px;
+    margin-left: 4px; padding: 0 4px 0 8px; gap: 5px; border-radius: 0 22px 22px 0; color: var(--color-primary-600); font-size: 14px; }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .metro-toolbar-panel { background: rgba(248, 251, 255, 0.9); -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%); }
+    .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { background: rgba(17, 24, 39, 0.94); }
+  }
+  .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.22); }
   .metro-command-bar { display: none; }
   .metro-context-backdrop { display: block; position: fixed; inset: 56px 0 0; z-index: 999; border: 0;
     background: rgba(15, 23, 42, 0.2); }
@@ -3906,6 +3928,13 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-basemap-options { gap: 12px; }
 }
 @media (max-width: 360px) {
+  .metro-toolbar__secondary.ant-btn { flex-basis: 32px; width: 32px; min-width: 32px; }
+  .metro-toolbar__mobile-view-slot { margin-left: 2px; padding-left: 2px; }
+  .metro-mobile-view-controls__button { flex-basis: 28px; width: 28px; }
+  .metro-mobile-view-controls__value { min-width: 44px; gap: 3px; font-size: 13px; }
+  .metro-mobile-view-controls__view { flex-basis: 36px; margin-left: 2px; padding-left: 2px; }
+  .metro-mobile-view-controls__view-button { width: 34px; gap: 3px; }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { min-width: 70px; margin-left: 2px; padding-left: 5px; gap: 3px; font-size: 13px; }
   .metro-app-shell .metro-canvas-tools .metro-tool-group { --phone-tool-size: 51px; }
   .metro-canvas-start__actions { flex-direction: column; align-items: center; }
   .metro-canvas-start__actions .ant-btn { width: 206px; }
@@ -3925,8 +3954,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-canvas-start p { margin-top: 4px; max-width: none; }
   .metro-canvas-start__actions { margin-top: 12px; }
   .metro-touch-hint { display: none; }
-  .metro-toolbar-panel { left: 12px; right: auto; width: 210px; }
-  .metro-canvas-hud { bottom: calc(10px + env(safe-area-inset-bottom)) !important; }
+  .metro-toolbar-panel { left: 50%; right: auto; width: min(500px, calc(100% - 24px)); transform: translateX(-50%); }
 }
 
 .auth-mobile-download { display: none; }

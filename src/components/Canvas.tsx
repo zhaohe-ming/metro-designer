@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import Konva from 'konva';
 import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
@@ -23,6 +24,7 @@ import DraggableModal from './DraggableModal';
 import CanvasStartPrompt from './CanvasStartPrompt';
 import { TouchViewportGesture, TouchPoint } from '../lib/touchViewport';
 import { useElasticToolbar } from '../lib/useElasticToolbar';
+import MobileViewControls from './MobileViewControls';
 
 // 性能诊断开关。用户在 DevTools Console 输入：
 //   localStorage.setItem('metro_perf', '1'); location.reload();
@@ -150,6 +152,7 @@ interface CanvasProps {
   // 命令行视图通道：App 执行器把视图类命令（zoom/fit/reset/center）通过这个 prop 下发，
   // Canvas 在 effect 里执行（Canvas 才持有 scale/position/amapRef）。seq 保证重复命令也能再触发。
   viewCommand?: { seq: number; action: AppAction } | null;
+  mobileViewControlsHost?: HTMLDivElement | null;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -173,7 +176,8 @@ const Canvas: React.FC<CanvasProps> = ({
   onBeginInteraction,
   onCreateLine,
   onStartWithAmap,
-  viewCommand
+  viewCommand,
+  mobileViewControlsHost
 }) => {
   const text = language === 'en-US'
     ? {
@@ -2667,7 +2671,15 @@ const Canvas: React.FC<CanvasProps> = ({
       )}
       {/* 画布 HUD：底部右侧一条胶囊，整合"缩放 +/-"、"当前缩放（带预设下拉）"、"适应视图 / 重置"。
           替换了原本分布在右上 + 右下的两个独立控件，视觉上更整合，也腾出右上角空间 */}
-      <div className="metro-canvas-hud">
+      {isCompact && mobileViewControlsHost ? createPortal(
+        <MobileViewControls language={language} isMapMode={isAmapMode}
+          zoomLabel={isAmapMode
+            ? (amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11).toFixed(1)
+            : `${Math.round(scale * 100)}%`}
+          onZoomOut={zoomOut} onZoomIn={zoomIn} onZoomPercent={setZoomPercent}
+          onFitView={fitView} onResetView={resetView} />,
+        mobileViewControlsHost
+      ) : !isCompact ? <div className="metro-canvas-hud">
         <Tooltip title={text.zoomOut}>
           <button type="button" className="metro-canvas-hud__btn" onClick={zoomOut} aria-label={text.zoomOut}>−</button>
         </Tooltip>
@@ -2702,7 +2714,7 @@ const Canvas: React.FC<CanvasProps> = ({
         <Tooltip title={text.resetView}>
           <button type="button" className="metro-canvas-hud__btn" onClick={resetView} aria-label={text.resetView}>⌂</button>
         </Tooltip>
-      </div>
+      </div> : null}
 
       <Stage
         ref={stageRef}

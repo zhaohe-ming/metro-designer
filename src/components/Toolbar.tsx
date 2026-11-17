@@ -19,6 +19,7 @@ interface ToolbarProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  mobileViewControlsRef?: React.Ref<HTMLDivElement>;
 }
 
 const Toolbar: React.FC<ToolbarProps> = ({
@@ -28,7 +29,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onUndo,
   onRedo,
   canUndo,
-  canRedo
+  canRedo,
+  mobileViewControlsRef
 }) => {
   const text = language === 'en-US'
     ? {
@@ -88,6 +90,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
             />
           </Tooltip>
         ) : null}
+        <div className="metro-toolbar__mobile-view-slot" ref={mobileViewControlsRef} />
         {exportItems.length ? (
           <Dropdown menu={{ items: exportItems }} placement="bottomRight" trigger={['click']}>
             <Button className="metro-toolbar__secondary metro-toolbar__export" icon={<DownloadOutlined />}>

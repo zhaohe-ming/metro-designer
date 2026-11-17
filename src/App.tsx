@@ -294,6 +294,7 @@ const App: React.FC = () => {
   useEffect(() => () => videoAbortRef.current?.abort(), []);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [mobileViewControlsHost, setMobileViewControlsHost] = useState<HTMLDivElement | null>(null);
   const [createLineRequest, setCreateLineRequest] = useState(0);
   // AI 助手对话框
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -2060,7 +2061,7 @@ const App: React.FC = () => {
               </Tooltip>
             </section>
 
-            <section className="metro-toolbar-panel">
+            <section className={`metro-toolbar-panel${isMobileSidebarOpen ? ' is-mobile-obscured' : ''}`}>
               <Toolbar
                 language={language}
                 onExportImage={handleExportImage}
@@ -2069,6 +2070,7 @@ const App: React.FC = () => {
                 onRedo={handleRedo}
                 canUndo={canUndo}
                 canRedo={canRedo}
+                mobileViewControlsRef={setMobileViewControlsHost}
               />
             </section>
 
@@ -2193,6 +2195,7 @@ const App: React.FC = () => {
                   stageRef.current = stage;
                 }}
                 viewCommand={viewCmd}
+                mobileViewControlsHost={mobileViewControlsHost}
               />
               <CommandBar onSubmit={runCommand} inputRef={commandInputRef} />
             </div>
