@@ -3742,8 +3742,9 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-header-mapchip { max-width: 34vw; }
   .metro-user-panel { gap: 4px !important; }
   .metro-sider.ant-layout-sider { top: 56px; width: min(88vw, 340px) !important; max-width: 340px !important;
-    min-width: 0 !important; flex: 0 0 auto !important; }
+    min-width: 0 !important; flex: 0 0 auto !important; background: var(--color-surface) !important; }
   .metro-sider:not(.is-mobile-open) { visibility: hidden; }
+  .metro-sider.is-mobile-open ~ .metro-content .metro-canvas-hud { display: none; }
   .metro-mobile-overlay { inset: 56px 0 0; }
   .metro-canvas-tools { position: absolute !important; top: 10px !important; max-width: calc(100% - 24px) !important; }
   .metro-tool-group { gap: 2px; padding: 4px !important; }
