@@ -8,6 +8,7 @@ import {
   UserOutlined
 } from '@ant-design/icons';
 import AuthBrandPanel from './AuthBrandPanel';
+import AndroidDownloadLink from './AndroidDownloadLink';
 import { api, LoginResult, UserDto } from '../api';
 
 // 登录态切换：把所有"需要在登录卡里展示的中间态"集中在这里管，避免 App.tsx 处理多个分支。
@@ -274,6 +275,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
           <div className="auth-form-shell">
             <Title className="auth-form-title">{title}</Title>
             <Text className="auth-form-subtitle">{subtitle}</Text>
+            <AndroidDownloadLink />
 
             {(mode === 'login' || mode === 'register') && (
               <div className="auth-switcher">

@@ -30,6 +30,7 @@ import { deleteStationFromGraph } from './lib/graphOps';
 import { DocumentSession } from './lib/documentSession';
 import { interpretCommand, ResolvedCommand, AppAction } from './lib/commandParser';
 import CommandBar from './components/CommandBar';
+import { isAndroidClient, isAndroidDevice, saveAndroidExport } from './lib/androidClient';
 import { compressImageDataUrl } from './utils/imageCompress';
 
 // 头像 dataURL 体积阈值：超过即认为是"需要压缩的大头像"。
@@ -1261,17 +1262,24 @@ const App: React.FC = () => {
         fetchAmapStaticMap: api.getAmapStaticMap,
         onWarn: (msg) => message.warning(msg)
       });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement('a');
-      anchor.href = url;
       const extension = blob.type.startsWith('video/mp4') ? 'mp4' : 'webm';
       const fileTitle = config.title.replace(/[<>:"/\\|?*]/g, '_').trim() || 'metro-demo';
-      anchor.download = `${fileTitle}-${Date.now()}.${extension}`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      message.success('视频导出完成，已开始下载');
+      const filename = `${fileTitle}-${Date.now()}.${extension}`;
+      if (isAndroidClient) {
+        const saved = await saveAndroidExport(blob, filename);
+        if (saved) message.success('视频已保存');
+        else message.info('已取消保存');
+      } else {
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = url;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+        message.success('视频导出完成，已开始下载');
+      }
     } catch (error: any) {
       if (error?.name === 'AbortError') message.info('已取消视频导出');
       else {
@@ -1823,71 +1831,48 @@ const App: React.FC = () => {
     return executeCommand(interpretCommand(input, ctx));
   };
 
-  const handleExportImage = () => {
-    if (!stageRef.current) {
-      message.error('无法获取画布');
-      return;
-    }
-
+  const handleExportImage = async () => {
+    const stage = stageRef.current;
+    if (!stage) { message.error('无法获取画布'); return; }
+    const original = { scale: stage.scaleX(), x: stage.x(), y: stage.y(), width: stage.width(), height: stage.height() };
+    let dataUrl = '';
     try {
-      const stage = stageRef.current;
-      const currentScale = stage.scaleX();
-      const currentX = stage.x();
-      const currentY = stage.y();
-
       stage.scale({ x: 1, y: 1 });
       stage.position({ x: 0, y: 0 });
-
-      const stageWidth = stage.width();
-      const stageHeight = stage.height();
-
-      let minX = 0;
-      let minY = 0;
-      let maxX = stageWidth;
-      let maxY = stageHeight;
-
-      if (stations.length > 0) {
-        minX = Math.min(...stations.map((station) => station.x));
-        minY = Math.min(...stations.map((station) => station.y));
-        maxX = Math.max(...stations.map((station) => station.x));
-        maxY = Math.max(...stations.map((station) => station.y));
-      }
-
-      const padding = 100;
-      const contentWidth = maxX - minX + padding * 2;
-      const contentHeight = maxY - minY + padding * 2;
-      const exportWidth = Math.max(contentWidth, 800);
-      const exportHeight = Math.max(contentHeight, 600);
-
-      stage.width(exportWidth);
-      stage.height(exportHeight);
-
-      const centerX = (exportWidth - (maxX - minX)) / 2;
-      const centerY = (exportHeight - (maxY - minY)) / 2;
-      stage.position({ x: centerX - minX, y: centerY - minY });
-
-      const dataUrl = stage.toDataURL({
-        pixelRatio: 2,
-        mimeType: 'image/png',
-        quality: 1
-      });
-
-      const link = document.createElement('a');
-      link.download = `metro-line-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
-      link.href = dataUrl;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-
-      stage.scale({ x: currentScale, y: currentScale });
-      stage.position({ x: currentX, y: currentY });
-      stage.width(stageWidth);
-      stage.height(stageHeight);
-      message.success('图片导出成功');
+      const minX = stations.length ? Math.min(...stations.map(station => station.x)) : 0;
+      const minY = stations.length ? Math.min(...stations.map(station => station.y)) : 0;
+      const maxX = stations.length ? Math.max(...stations.map(station => station.x)) : original.width;
+      const maxY = stations.length ? Math.max(...stations.map(station => station.y)) : original.height;
+      const width = Math.max(maxX - minX + 200, 800);
+      const height = Math.max(maxY - minY + 200, 600);
+      stage.width(width); stage.height(height);
+      stage.position({ x: (width - maxX + minX) / 2 - minX, y: (height - maxY + minY) / 2 - minY });
+      dataUrl = stage.toDataURL({ pixelRatio: 2, mimeType: 'image/png', quality: 1 });
     } catch (error) {
       console.error('导出图片失败:', error);
       message.error('导出图片失败，请重试');
+      return;
+    } finally {
+      // Restore the interactive canvas before opening Android's system picker.
+      stage.scale({ x: original.scale, y: original.scale });
+      stage.position({ x: original.x, y: original.y });
+      stage.width(original.width); stage.height(original.height);
+      stage.batchDraw();
     }
+    try {
+      const filename = `metro-line-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+      if (isAndroidClient) {
+        const blob = await (await fetch(dataUrl)).blob();
+        const saved = await saveAndroidExport(blob, filename);
+        if (saved) message.success('图片已保存');
+        else message.info('已取消保存');
+      } else {
+        const link = document.createElement('a');
+        link.download = filename; link.href = dataUrl;
+        document.body.appendChild(link); link.click(); link.remove();
+        message.success('图片导出成功');
+      }
+    } catch (error: any) { message.error(error?.message || '图片保存失败，请重试'); }
   };
 
   const displayName = userProfile?.username || text.defaultUserName;
@@ -1964,7 +1949,7 @@ const App: React.FC = () => {
     {
       key: 'download-client',
       icon: <DownloadOutlined />,
-      label: <a href="/downloads.html" target="_blank" rel="noopener noreferrer">下载客户端</a>
+      label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">下载客户端</a>
     },
     { type: 'divider' as const },
     {

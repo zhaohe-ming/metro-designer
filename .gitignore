@@ -36,3 +36,10 @@ Thumbs.db
 # Desktop dependencies, caches and installers
 desktop/.cache/
 outputs/
+
+# Android toolchain, build products and private release signing material
+android/.cache/
+android/.private/
+android/.gradle/
+android/local.properties
+android/**/build/
