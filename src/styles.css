@@ -514,6 +514,26 @@ body {
   height: 100%;
 }
 
+.metro-canvas-start {
+  position: absolute;
+  inset: 96px 24px 226px;
+  z-index: 18;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.metro-canvas-start__content { max-width: 560px; text-align: center; pointer-events: auto; }
+.metro-canvas-start__art { display: block; width: 288px; height: 144px; margin: 0 auto 24px; object-fit: contain; }
+.metro-canvas-start h1 { margin: 0; color: #0f172a; font-family: inherit; font-size: 32px; font-weight: 700; line-height: 1.4; }
+.metro-canvas-start p { margin: 12px 0 0; color: #52647d; font-size: 16px; line-height: 1.7; }
+.metro-canvas-start__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 16px; margin-top: 28px; }
+.metro-canvas-start__actions .ant-btn { min-width: 156px; height: 44px; padding: 0 24px; border-radius: 8px; font-size: 16px; }
+.metro-canvas-start__actions .ant-btn-default { min-width: 188px; border-color: #bfd3f7; background: #ffffff; color: #2563eb; }
+.is-canvas-dark .metro-canvas-start h1 { color: #f8fafc; }
+.is-canvas-dark .metro-canvas-start p { color: #b8c9e0; }
+.is-canvas-dark .metro-canvas-start__actions .ant-btn-default { border-color: #50698e; background: #172033; color: #93c5fd; }
+
 .metro-sidebar {
   height: 100%;
   padding: 12px;
@@ -3736,6 +3756,13 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-sider.is-mobile-open ~ .metro-content .metro-canvas-hud { display: none; }
   .metro-mobile-overlay { inset: 56px 0 0; }
   .metro-canvas-tools { position: absolute !important; top: 10px !important; max-width: calc(100% - 24px) !important; }
+  .metro-canvas-start { inset: 112px 16px 146px; }
+  .metro-canvas-start__content { max-width: 100%; }
+  .metro-canvas-start__art { width: 168px; height: 88px; margin-bottom: 18px; }
+  .metro-canvas-start h1 { font-size: 24px; }
+  .metro-canvas-start p { max-width: 320px; margin: 10px auto 0; font-size: 15px; }
+  .metro-canvas-start__actions { gap: 12px; margin-top: 22px; }
+  .metro-canvas-start__actions .ant-btn { padding: 0 14px; font-size: 14px; }
   .metro-tool-group { gap: 2px; padding: 4px !important; }
   .metro-tool-button { width: 56px; min-width: 0; height: 52px; flex-direction: column; gap: 5px; padding: 5px 4px !important; }
   .metro-tool-button__label { display: block !important; font-size: 13px; line-height: 16px; }
@@ -3772,11 +3799,18 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-modal-root .ant-modal-footer .ant-btn { min-height: 44px; }
 }
 @media (max-width: 360px) {
+  .metro-canvas-start__actions { flex-direction: column; align-items: center; }
+  .metro-canvas-start__actions .ant-btn { width: 206px; }
   .metro-tool-button { width: 51px; }
   .metro-header-ai-btn { width: 36px; height: 36px; }
 }
 
 @media (max-width: 1024px) and (max-height: 500px) {
+  .metro-canvas-start { inset: 80px 16px 70px; }
+  .metro-canvas-start__art { width: 104px; height: 46px; margin-bottom: 8px; }
+  .metro-canvas-start h1 { font-size: 22px; }
+  .metro-canvas-start p { margin-top: 4px; max-width: none; }
+  .metro-canvas-start__actions { margin-top: 12px; }
   .metro-touch-hint { display: none; }
   .metro-toolbar-panel { left: 12px; right: auto; width: 210px; }
   .metro-canvas-hud { bottom: calc(10px + env(safe-area-inset-bottom)) !important; }

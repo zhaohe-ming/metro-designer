@@ -291,6 +291,7 @@ const App: React.FC = () => {
   useEffect(() => () => videoAbortRef.current?.abort(), []);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [createLineRequest, setCreateLineRequest] = useState(0);
   // AI 助手对话框
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
@@ -935,6 +936,19 @@ const App: React.FC = () => {
   const handleBaseMapModeChange = (nextMode: BaseMapMode) => {
     if (nextMode === mapSettings.baseMap.mode) return;
 
+    const applyModeChange = () => {
+      pushHistory();
+      setCurrentLineId(null);
+      setMapSettings((prev) => normalizeMapSettings({
+        ...prev,
+        baseMap: { ...prev.baseMap, mode: nextMode }
+      }));
+    };
+    if (lines.length === 0 && stations.length === 0 && sections.length === 0) {
+      applyModeChange();
+      return;
+    }
+
     const switchingToPlain = mapSettings.baseMap.mode === 'amap' && nextMode === 'plain';
     Modal.confirm({
       title: switchingToPlain ? '切换到纯画布？' : '切换到高德地图？',
@@ -943,19 +957,7 @@ const App: React.FC = () => {
         : '高德地图使用真实经纬度定位。已有经纬度的站点会贴合底图；没有经纬度的旧站点需要拖动一次或重新定位后才会绑定真实位置。',
       okText: '确认切换',
       cancelText: '取消',
-      onOk: () => {
-        pushHistory();
-        setCurrentLineId(null);
-        setMapSettings((prev) =>
-          normalizeMapSettings({
-            ...prev,
-            baseMap: {
-              ...prev.baseMap,
-              mode: nextMode
-            }
-          })
-        );
-      }
+      onOk: applyModeChange
     });
   };
 
@@ -2115,6 +2117,7 @@ const App: React.FC = () => {
           >
             <Sidebar
               language={language}
+              createLineRequest={createLineRequest}
               lines={lines}
               stations={stations}
               currentLineId={currentLineId}
@@ -2138,6 +2141,14 @@ const App: React.FC = () => {
             <div className="metro-canvas-stage">
 
               <Canvas
+                onCreateLine={() => {
+                  setIsMobileSidebarOpen(false);
+                  setCreateLineRequest((request) => request + 1);
+                }}
+                onStartWithAmap={() => {
+                  setIsMobileSidebarOpen(false);
+                  handleBaseMapModeChange('amap');
+                }}
                 currentLineId={currentLineId}
                 lines={lines}
                 sections={sections}

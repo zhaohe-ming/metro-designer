@@ -20,6 +20,7 @@ import { AppAction } from '../lib/commandParser';
 import { getAmapConfig, loadAmap } from '../amapLoader';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
+import CanvasStartPrompt from './CanvasStartPrompt';
 import { TouchViewportGesture, TouchPoint } from '../lib/touchViewport';
 
 // 性能诊断开关。用户在 DevTools Console 输入：
@@ -142,6 +143,8 @@ interface CanvasProps {
   onMapSettingsChange?: (settings: MapSettings) => void;
   onStageReady?: (stage: any) => void;
   onBeginInteraction?: () => void;
+  onCreateLine?: () => void;
+  onStartWithAmap?: () => void;
   // 命令行视图通道：App 执行器把视图类命令（zoom/fit/reset/center）通过这个 prop 下发，
   // Canvas 在 effect 里执行（Canvas 才持有 scale/position/amapRef）。seq 保证重复命令也能再触发。
   viewCommand?: { seq: number; action: AppAction } | null;
@@ -166,6 +169,8 @@ const Canvas: React.FC<CanvasProps> = ({
   onMapSettingsChange,
   onStageReady,
   onBeginInteraction,
+  onCreateLine,
+  onStartWithAmap,
   viewCommand
 }) => {
   const text = language === 'en-US'
@@ -2513,6 +2518,9 @@ const Canvas: React.FC<CanvasProps> = ({
         backgroundRepeat: 'no-repeat'
       } as React.CSSProperties}
     >
+      {lines.length === 0 && stations.length === 0 && sections.length === 0 && !isAmapMode && !canvasBackgroundImage && onCreateLine && onStartWithAmap && (
+        <CanvasStartPrompt language={language} onCreateLine={onCreateLine} onStartWithAmap={onStartWithAmap} />
+      )}
       {isAmapMode && (
         <div
           ref={amapContainerRef}

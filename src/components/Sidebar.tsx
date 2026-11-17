@@ -9,6 +9,7 @@ const { Text } = Typography;
 
 interface SidebarProps {
   language?: 'zh-CN' | 'en-US';
+  createLineRequest?: number;
   lines: Line[];
   stations: Station[];
   currentLineId: string | null;
@@ -25,6 +26,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({
   language = 'zh-CN',
+  createLineRequest = 0,
   lines,
   stations,
   currentLineId,
@@ -48,7 +50,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         emptyLines: 'No lines yet. Click the "+ New" button above to start.',
         emptyLinesTitle: 'No lines yet',
         emptyLinesText: 'Start your map by drawing the first metro line.',
-        emptyLinesCta: 'Create first line',
         emptyStationsTitle: 'No stations yet',
         emptyStationsText: 'Click any blank spot on the canvas to add a station.',
         addLine: 'New',
@@ -90,7 +91,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         emptyLines: '还没有线路。点击上方"+ 新建"按钮创建第一条线路。',
         emptyLinesTitle: '还没有线路',
         emptyLinesText: '从绘制第一条线路开始你的方案。',
-        emptyLinesCta: '创建第一条线路',
         emptyStationsTitle: '暂无站点',
         emptyStationsText: '在画布空白处点击即可创建站点。',
         addLine: '新建',
@@ -143,6 +143,15 @@ const Sidebar: React.FC<SidebarProps> = ({
     color: LINE_COLORS[0],
     showPicker: false
   });
+
+  const handledCreateLineRequest = useRef(createLineRequest);
+  useEffect(() => {
+    if (handledCreateLineRequest.current === createLineRequest) return;
+    handledCreateLineRequest.current = createLineRequest;
+    if (createLineRequest > 0) {
+      setAddLineModal({ visible: true, name: '', color: LINE_COLORS[0], showPicker: false });
+    }
+  }, [createLineRequest]);
 
   // 线路 list / 站点 list 之间的可拖拽分界比例。1.0 = 全归线路，0.0 = 全归站点。
   // 默认 0.5。clamp 到 [0.15, 0.85]，避免某一边塌成 0 高度。持久化到 localStorage。
@@ -450,15 +459,6 @@ const Sidebar: React.FC<SidebarProps> = ({
               </svg>
               <div className="metro-empty-card__title">{text.emptyLinesTitle}</div>
               <div className="metro-empty-card__text">{text.emptyLinesText}</div>
-              <Button
-                type="primary"
-                size="small"
-                icon={<PlusOutlined />}
-                onClick={openAddLineModal}
-                className="metro-empty-card__cta"
-              >
-                {text.emptyLinesCta}
-              </Button>
             </div>
           ) : (
             lines.map((line) => {
