@@ -11,6 +11,7 @@ import {
   MenuOutlined,
   SaveOutlined,
   DownloadOutlined,
+  InfoCircleOutlined,
   ThunderboltOutlined
 } from '@ant-design/icons';
 import { api, clearToken, getToken, setToken, AIOperation } from './api';
@@ -310,6 +311,7 @@ const App: React.FC = () => {
   });
   const [duplicatingMapId, setDuplicatingMapId] = useState<string | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
+  const [aboutVisible, setAboutVisible] = useState(false);
   const [language, setLanguage] = useState<AppLanguage>(getInitialLanguage);
   const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
@@ -890,6 +892,7 @@ const App: React.FC = () => {
     setMapSettings(DEFAULT_MAP_SETTINGS);
     setProfileVisible(false);
     setSettingsVisible(false);
+    setAboutVisible(false);
     setVideoModalOpen(false);
     setMapName('');
     resetHistory();
@@ -1948,10 +1951,16 @@ const App: React.FC = () => {
       label: '设置',
       onClick: () => setSettingsVisible(true)
     },
-    {
+    ...(!isAndroidClient ? [{
       key: 'download-client',
       icon: <DownloadOutlined />,
       label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">下载客户端</a>
+    }] : []),
+    {
+      key: 'about',
+      icon: <InfoCircleOutlined />,
+      label: language === 'en-US' ? 'About us' : '关于我们',
+      onClick: () => setAboutVisible(true)
     },
     { type: 'divider' as const },
     {
@@ -2373,6 +2382,16 @@ const App: React.FC = () => {
             maxLength={40}
             onPressEnter={handleConfirmRenameMap}
           />
+        </DraggableModal>
+
+        <DraggableModal
+          title={language === 'en-US' ? 'About Metro Designer' : '关于 Metro Designer'}
+          open={aboutVisible}
+          onCancel={() => setAboutVisible(false)}
+          width={420}
+          footer={<Button type="primary" onClick={() => setAboutVisible(false)}>{text.close}</Button>}
+        >
+          <p>{language === 'en-US' ? 'More about Metro Designer is coming soon.' : '关于 Metro Designer 的更多信息，敬请期待。'}</p>
         </DraggableModal>
 
         <DraggableModal title={text.settings} open={settingsVisible} onCancel={() => setSettingsVisible(false)} footer={null} width={640}>

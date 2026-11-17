@@ -3781,6 +3781,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-toolbar, .metro-toolbar__right { width: 100%; }
   .metro-toolbar__right { display: flex; gap: 8px; }
   .metro-toolbar__secondary.ant-btn { min-width: 44px; min-height: 44px; height: 44px; border-radius: 9px; }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn {
+    border: 0 !important; background: transparent !important; box-shadow: none;
+  }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn:not(:disabled):hover {
+    background: var(--color-primary-50) !important;
+  }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn:focus-visible {
+    outline: 2px solid var(--color-primary-600); outline-offset: -2px;
+  }
   .metro-toolbar__export { margin-left: auto; }
   .metro-canvas-hud { bottom: calc(82px + env(safe-area-inset-bottom)) !important; right: 12px !important; padding: 3px; }
   .metro-canvas-hud__btn { width: 44px; height: 44px; }
