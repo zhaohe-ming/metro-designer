@@ -54,7 +54,6 @@ const Sidebar: React.FC<SidebarProps> = ({
         addLine: 'New',
         stationUnit: 'stations',
         sectionUnit: 'sections',
-        active: 'Editing',
         expand: 'Expand',
         collapse: 'Collapse',
         noStations: 'No stations',
@@ -95,9 +94,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         emptyStationsTitle: '暂无站点',
         emptyStationsText: '在画布空白处点击即可创建站点。',
         addLine: '新建',
-        stationUnit: '个站点',
-        sectionUnit: '个区间',
-        active: '当前编辑',
+        stationUnit: '站点',
+        sectionUnit: '区间',
         expand: '展开',
         collapse: '收起',
         noStations: '暂无站点',
@@ -495,11 +493,6 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                         <div style={{ minWidth: 0 }}>
                           <div className="metro-line-card__name">{line.name}</div>
-                          <div className="metro-line-card__sub">
-                            <span>{line.stationIds.length} {text.stationUnit}</span>
-                            <span>{line.sectionIds.length} {text.sectionUnit}</span>
-                            {active ? <span className="metro-line-card__active-pill">{text.active}</span> : null}
-                          </div>
                         </div>
                       </div>
 
@@ -528,6 +521,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                           />
                         </Dropdown>
                       </Space>
+                    </div>
+
+                    <div className="metro-line-card__sub">
+                      <span>{line.stationIds.length}{language === 'en-US' ? ' ' : ''}{text.stationUnit}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{line.sectionIds.length}{language === 'en-US' ? ' ' : ''}{text.sectionUnit}</span>
                     </div>
 
                     {expandedLines[line.id] ? (

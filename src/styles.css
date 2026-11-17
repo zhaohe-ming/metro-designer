@@ -712,19 +712,6 @@ body {
   opacity: 1;
 }
 
-/* 「当前编辑」徽标：从纯文字升级成 pill，配合 active 状态更显眼 */
-.metro-line-card__active-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 1px 8px;
-  border-radius: var(--radius-pill);
-  background: var(--accent-color, var(--color-primary-600));
-  color: #ffffff;
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-}
-
 .metro-line-card__body {
   position: relative;
   padding: 12px;
@@ -758,8 +745,10 @@ body {
 
 .metro-line-card__sub {
   margin-top: 4px;
+  margin-left: 18px;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  white-space: nowrap;
   gap: 6px;
   font-size: 11px;
   color: var(--metro-text-soft);
