@@ -532,10 +532,11 @@ body {
 .metro-canvas-start__actions .ant-btn-default { min-width: 188px; border-color: #bfd3f7; background: #ffffff; color: #2563eb; }
 .metro-basemap-intro { margin: 0 0 18px; color: var(--color-text-soft); font-size: 15px; line-height: 1.7; }
 .metro-basemap-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.metro-basemap-option { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-border); border-radius: 12px; cursor: pointer; background: var(--color-surface); }
+.metro-basemap-option { display: flex; flex-direction: column; overflow: hidden; border: 2px solid var(--color-border); border-radius: 12px; cursor: pointer; background: var(--color-surface); }
 .metro-basemap-option img { width: 100%; height: auto; aspect-ratio: 400 / 256; object-fit: contain; background: var(--color-surface-muted); }
-.metro-basemap-option.is-selected { border-color: var(--color-primary-600); box-shadow: 0 0 0 1px var(--color-primary-600); }
-.metro-basemap-option:focus-within { outline: 2px solid var(--color-primary-600); outline-offset: 3px; }
+.metro-basemap-option.is-selected { border-color: var(--color-primary-600); }
+.metro-basemap-option:focus-within { outline: none; }
+.metro-basemap-option input:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: 2px; }
 .metro-basemap-option__label { display: flex; align-items: center; gap: 8px; padding: 10px 12px 4px; color: var(--color-text); font-size: 15px; font-weight: 600; }
 .metro-basemap-option input { margin: 0; accent-color: #2563eb; width: 16px; height: 16px; }
 .metro-basemap-option__hint { padding: 0 12px 12px; color: var(--color-text-soft); font-size: 13px; line-height: 1.5; }
@@ -3795,7 +3796,52 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-canvas-start p { max-width: 320px; margin: 10px auto 0; font-size: 15px; }
   .metro-canvas-start__actions { gap: 12px; margin-top: 22px; }
   .metro-canvas-start__actions .ant-btn { padding: 0 14px; font-size: 14px; }
-  .metro-tool-group { gap: 2px; padding: 4px !important; }
+  .metro-app-shell .metro-canvas-tools .metro-tool-group {
+    --phone-tool-size: 56px;
+    position: relative; isolation: isolate; overflow: hidden;
+    gap: 2px; padding: 4px !important; border-radius: 26px;
+    background: var(--phone-tools-solid, #f8fbff) !important;
+    border-color: var(--phone-tools-edge, rgba(203, 220, 241, 0.7)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 26px rgba(31, 57, 98, 0.12) !important;
+  }
+  .metro-tool-group[data-active-tool="select"] { --phone-tool-index: 0; }
+  .metro-tool-group[data-active-tool="station"] { --phone-tool-index: 1; }
+  .metro-tool-group[data-active-tool="line"] { --phone-tool-index: 2; }
+  .metro-tool-group[data-active-tool="section"] { --phone-tool-index: 3; }
+  .metro-tool-group[data-active-tool="pan"] { --phone-tool-index: 4; }
+  .metro-canvas-tools .metro-tool-group::before {
+    content: ''; position: absolute; top: 4px; left: 4px; z-index: 0;
+    width: var(--phone-tool-size); height: 52px; border-radius: 20px;
+    background: linear-gradient(145deg, #3688ff, #0862f0);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 7px rgba(18, 93, 223, 0.22);
+    transform: translateX(calc(var(--phone-tool-index, 1) * (var(--phone-tool-size) + 2px)));
+    pointer-events: none;
+  }
+  .metro-app-shell .metro-canvas-tools .metro-tool-button {
+    position: relative; z-index: 1; border-radius: 20px;
+    background: transparent !important; box-shadow: none; color: var(--color-text-soft);
+  }
+  .metro-app-shell .metro-canvas-tools .metro-tool-button.is-active { background: transparent !important; color: #fff !important; }
+  .metro-canvas-tools .metro-tool-button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
+  .metro-canvas-tools .metro-tool-button.is-active:focus-visible { outline-color: #fff; }
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group {
+    --phone-tools-solid: #172033; --phone-tools-surface: rgba(17, 24, 39, 0.9);
+    --phone-tools-edge: rgba(153, 182, 222, 0.28);
+    box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.13), 0 10px 26px rgba(0, 0, 0, 0.22) !important;
+  }
+  .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(248, 251, 255, 0.93); }
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(17, 24, 39, 0.95); }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .metro-app-shell .metro-canvas-tools .metro-tool-group {
+      background: var(--phone-tools-surface, rgba(248, 251, 255, 0.82)) !important;
+      -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%);
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .metro-canvas-tools .metro-tool-group::before { transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .metro-canvas-tools .metro-tool-button { transition: color 140ms ease, transform 90ms ease; }
+    .metro-canvas-tools .metro-tool-button:active { transform: scale(0.96); }
+  }
   .metro-tool-button { width: 56px; min-width: 0; height: 52px; flex-direction: column; gap: 5px; padding: 5px 4px !important; }
   .metro-tool-button__label { display: block !important; font-size: 13px; line-height: 16px; }
   .metro-tool-button__icon { font-size: 18px !important; }
@@ -3848,6 +3894,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-basemap-options { gap: 12px; }
 }
 @media (max-width: 360px) {
+  .metro-app-shell .metro-canvas-tools .metro-tool-group { --phone-tool-size: 51px; }
   .metro-canvas-start__actions { flex-direction: column; align-items: center; }
   .metro-canvas-start__actions .ant-btn { width: 206px; }
   .metro-tool-button { width: 51px; }

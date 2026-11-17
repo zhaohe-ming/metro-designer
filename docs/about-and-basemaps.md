@@ -21,6 +21,10 @@
 - 隐私、协议页面桌面/手机可阅读；协议到第三方说明的链接实际点击通过。
 - 本轮没有对生产账号和云端作品发起写入，也未发送联系邮件或执行账号注销。
 
-## 工具栏材质概念
+## 工具栏材质概念与手机实现
 
-仅生成图片，保留现有上方工具栏样式。图：`C:/Users/Alienware/.codex/generated_images/01a07ea4-5d4b-7530-80e9-266661bd87cb/exec-1a6b2e2c-a9d5-44d3-8af1-01270bfef7b5.png`。
+参考图：`C:/Users/Alienware/.codex/generated_images/01a07ea4-5d4b-7530-80e9-266661bd87cb/exec-1a6b2e2c-a9d5-44d3-8af1-01270bfef7b5.png`。用户随后确认只实现手机端：磨砂背景、26px 外圆角、共享蓝色选中滑块；桌面保留 8px 外圆角、无磨砂及无共享滑块。
+
+已检查 390×844 和 320×740：工具切换后滑块与按钮对齐，320px 移动工具的最终位移为 212px，页面无横向溢出；1440×900 桌面半径为 8px、backdrop-filter 为 none。实景：`C:/Users/Alienware/Documents/Codex/2026-09-08/new-chat/mobile-glass-toolbar.png`。
+
+底图卡片修订：去掉选中阴影与 `focus-within` 卡片外框，所有选项统一 2px 边框，选中只改颜色；四边计算值均为 2px、outline-style 为 none、box-shadow 为 none。单选输入保留键盘焦点提示。实景：`C:/Users/Alienware/Documents/Codex/2026-09-08/new-chat/basemap-single-border.png`。

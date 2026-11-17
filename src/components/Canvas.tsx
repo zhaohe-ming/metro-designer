@@ -2504,6 +2504,7 @@ const Canvas: React.FC<CanvasProps> = ({
       ref={containerRef}
       onTouchCancel={handleTouchCancel}
       className={`metro-canvas-surface ${isDarkCanvas ? 'is-canvas-dark' : ''}`}
+      data-map-mode={mapSettings.baseMap.mode}
       style={{
         width: '100%',
         height: '100%',
@@ -2553,7 +2554,7 @@ const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
       <div className="metro-canvas-tools">
-        <div className="metro-tool-group" role="toolbar" aria-label="Canvas tools">
+        <div className="metro-tool-group" data-active-tool={activeTool} role="toolbar" aria-label="Canvas tools">
           {/* 工具组：5 个按钮 = icon + label。
               激活态在 label 前显式插一个小蓝点，比单靠背景色更直观；
               hint 不再常驻一行长文案，改成每个按钮 hover 时的 Tooltip */}
