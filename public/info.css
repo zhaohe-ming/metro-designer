@@ -1,0 +1,18 @@
+:root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #0f172a; background: #f8fbff; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+a { color: #1d4ed8; text-underline-offset: 3px; overflow-wrap: anywhere; }
+a:focus-visible { outline: 2px solid #2563eb; outline-offset: 4px; }
+header, main, footer { width: min(800px, calc(100% - 48px)); margin-inline: auto; }
+header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-block: 28px; font-size: 14px; }
+.brand { display: flex; align-items: center; gap: 10px; color: #123574; text-decoration: none; font-weight: 700; }
+.brand img { width: 28px; height: 28px; }
+main { padding: 24px 0 40px; font-size: 16px; line-height: 1.85; }
+h1 { margin: 0 0 12px; font-size: clamp(26px, 5vw, 36px); line-height: 1.35; }
+h2 { margin: 30px 0 10px; font-size: 20px; line-height: 1.5; }
+p { margin: 10px 0; }
+li { margin-block: 8px; }
+.meta { color: #64748b; font-size: 14px; margin-bottom: 28px; }
+nav { display: flex; flex-wrap: wrap; gap: 14px 24px; }
+footer { border-top: 1px solid #d5e3f7; padding: 24px 0 32px; color: #64748b; font-size: 14px; line-height: 1.8; }
+@media(max-width: 480px) { header, main, footer { width: calc(100% - 32px); } header { flex-wrap: wrap; } }

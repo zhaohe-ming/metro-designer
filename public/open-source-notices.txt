@@ -1,0 +1,635 @@
+Metro Designer — Open-source notices
+Generated from installed dependencies.
+
+
+========== @ant-design/icons 5.6.1 (MIT) ==========
+
+MIT LICENSE
+
+Copyright (c) 2018-present Ant UED, https://xtech.antfin.com/
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== antd 5.26.4 (MIT) ==========
+
+MIT LICENSE
+
+Copyright (c) 2015-present Ant UED, https://xtech.antfin.com/
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== bcryptjs 2.4.3 (MIT) ==========
+
+bcrypt.js
+---------
+Copyright (c) 2012 Nevins Bartolomeo <nevins.bartolomeo@gmail.com>
+Copyright (c) 2012 Shane Girish <shaneGirish@gmail.com>
+Copyright (c) 2014 Daniel Wirtz <dcode@dcode.io>
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. The name of the author may not be used to endorse or promote products
+   derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE AUTHOR ``AS IS'' AND ANY EXPRESS OR
+IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED.
+IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT
+NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+isaac.js
+--------
+Copyright (c) 2012 Yves-Marie K. Rinquin
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== cors 2.8.6 (MIT) ==========
+
+(The MIT License)
+
+Copyright (c) 2013 Troy Goode <troygoode@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== express 4.21.2 (MIT) ==========
+
+(The MIT License)
+
+Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
+Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>
+Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== express-rate-limit 8.5.2 (MIT) ==========
+
+﻿# MIT License
+
+Copyright 2023 Nathan Friedly, Vedant K
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== helmet 8.1.0 (MIT) ==========
+
+The MIT License
+
+Copyright (c) 2012-2025 Evan Hahn, Adam Baldwin
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+========== jsonwebtoken 9.0.3 (MIT) ==========
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Auth0, Inc. <support@auth0.com> (http://auth0.com)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========== konva 9.3.21 (MIT) ==========
+
+MIT License
+
+Original work Copyright (C) 2011 - 2013 by Eric Rowell (KineticJS)
+Modified work Copyright (C) 2014 - present by Anton Lavrenov (Konva)
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+========== pg 8.20.0 (MIT) ==========
+
+MIT License
+
+Copyright (c) 2010 - 2021 Brian Carlson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========== react 18.3.1 (MIT) ==========
+
+MIT License
+
+Copyright (c) Facebook, Inc. and its affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========== react-dom 18.3.1 (MIT) ==========
+
+MIT License
+
+Copyright (c) Facebook, Inc. and its affiliates.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========== react-konva 18.2.12 (MIT) ==========
+
+MIT License
+
+Copyright (c) 2017 Anton Lavrenov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========== react-scripts 5.0.1 (MIT) ==========
+
+MIT License
+
+Copyright (c) 2013-present, Facebook, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+========== typescript 4.9.5 (Apache-2.0) ==========
+
+Apache License
+
+Version 2.0, January 2004
+
+http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1. Definitions.
+
+"License" shall mean the terms and conditions for use, reproduction, and distribution as defined by Sections 1 through 9 of this document.
+
+"Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
+
+"Legal Entity" shall mean the union of the acting entity and all other entities that control, are controlled by, or are under common control with that entity. For the purposes of this definition, "control" means (i) the power, direct or indirect, to cause the direction or management of such entity, whether by contract or otherwise, or (ii) ownership of fifty percent (50%) or more of the outstanding shares, or (iii) beneficial ownership of such entity.
+
+"You" (or "Your") shall mean an individual or Legal Entity exercising permissions granted by this License.
+
+"Source" form shall mean the preferred form for making modifications, including but not limited to software source code, documentation source, and configuration files.
+
+"Object" form shall mean any form resulting from mechanical transformation or translation of a Source form, including but not limited to compiled object code, generated documentation, and conversions to other media types.
+
+"Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
+
+"Derivative Works" shall mean any work, whether in Source or Object form, that is based on (or derived from) the Work and for which the editorial revisions, annotations, elaborations, or other modifications represent, as a whole, an original work of authorship. For the purposes of this License, Derivative Works shall not include works that remain separable from, or merely link (or bind by name) to the interfaces of, the Work and Derivative Works thereof.
+
+"Contribution" shall mean any work of authorship, including the original version of the Work and any modifications or additions to that Work or Derivative Works thereof, that is intentionally submitted to Licensor for inclusion in the Work by the copyright owner or by an individual or Legal Entity authorized to submit on behalf of the copyright owner. For the purposes of this definition, "submitted" means any form of electronic, verbal, or written communication sent to the Licensor or its representatives, including but not limited to communication on electronic mailing lists, source code control systems, and issue tracking systems that are managed by, or on behalf of, the Licensor for the purpose of discussing and improving the Work, but excluding communication that is conspicuously marked or otherwise designated in writing by the copyright owner as "Not a Contribution."
+
+"Contributor" shall mean Licensor and any individual or Legal Entity on behalf of whom a Contribution has been received by Licensor and subsequently incorporated within the Work.
+
+2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
+
+3. Grant of Patent License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable (except as stated in this section) patent license to make, have made, use, offer to sell, sell, import, and otherwise transfer the Work, where such license applies only to those patent claims licensable by such Contributor that are necessarily infringed by their Contribution(s) alone or by combination of their Contribution(s) with the Work to which such Contribution(s) was submitted. If You institute patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Work or a Contribution incorporated within the Work constitutes direct or contributory patent infringement, then any patent licenses granted to You under this License for that Work shall terminate as of the date such litigation is filed.
+
+4. Redistribution. You may reproduce and distribute copies of the Work or Derivative Works thereof in any medium, with or without modifications, and in Source or Object form, provided that You meet the following conditions:
+
+You must give any other recipients of the Work or Derivative Works a copy of this License; and
+
+You must cause any modified files to carry prominent notices stating that You changed the files; and
+
+You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
+
+If the Work includes a "NOTICE" text file as part of its distribution, then any Derivative Works that You distribute must include a readable copy of the attribution notices contained within such NOTICE file, excluding those notices that do not pertain to any part of the Derivative Works, in at least one of the following places: within a NOTICE text file distributed as part of the Derivative Works; within the Source form or documentation, if provided along with the Derivative Works; or, within a display generated by the Derivative Works, if and wherever such third-party notices normally appear. The contents of the NOTICE file are for informational purposes only and do not modify the License. You may add Your own attribution notices within Derivative Works that You distribute, alongside or as an addendum to the NOTICE text from the Work, provided that such additional attribution notices cannot be construed as modifying the License. You may add Your own copyright statement to Your modifications and may provide additional or different license terms and conditions for use, reproduction, or distribution of Your modifications, or for any such Derivative Works as a whole, provided Your use, reproduction, and distribution of the Work otherwise complies with the conditions stated in this License.
+
+5. Submission of Contributions. Unless You explicitly state otherwise, any Contribution intentionally submitted for inclusion in the Work by You to the Licensor shall be under the terms and conditions of this License, without any additional terms or conditions. Notwithstanding the above, nothing herein shall supersede or modify the terms of any separate license agreement you may have executed with Licensor regarding such Contributions.
+
+6. Trademarks. This License does not grant permission to use the trade names, trademarks, service marks, or product names of the Licensor, except as required for reasonable and customary use in describing the origin of the Work and reproducing the content of the NOTICE file.
+
+7. Disclaimer of Warranty. Unless required by applicable law or agreed to in writing, Licensor provides the Work (and each Contributor provides its Contributions) on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied, including, without limitation, any warranties or conditions of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A PARTICULAR PURPOSE. You are solely responsible for determining the appropriateness of using or redistributing the Work and assume any risks associated with Your exercise of permissions under this License.
+
+8. Limitation of Liability. In no event and under no legal theory, whether in tort (including negligence), contract, or otherwise, unless required by applicable law (such as deliberate and grossly negligent acts) or agreed to in writing, shall any Contributor be liable to You for damages, including any direct, indirect, special, incidental, or consequential damages of any character arising as a result of this License or out of the use or inability to use the Work (including but not limited to damages for loss of goodwill, work stoppage, computer failure or malfunction, or any and all other commercial damages or losses), even if such Contributor has been advised of the possibility of such damages.
+
+9. Accepting Warranty or Additional Liability. While redistributing the Work or Derivative Works thereof, You may choose to offer, and charge a fee for, acceptance of support, warranty, indemnity, or other liability obligations and/or rights consistent with this License. However, in accepting such obligations, You may act only on Your own behalf and on Your sole responsibility, not on behalf of any other Contributor, and only if You agree to indemnify, defend, and hold each Contributor harmless for any liability incurred by, or claims asserted against, such Contributor by reason of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+
+========== Bundled dependency notices: main.2964b128.js.LICENSE.txt ==========
+
+/*!
+	Copyright (c) 2018 Jed Watson.
+	Licensed under the MIT License (MIT), see
+	http://jedwatson.github.io/classnames
+*/
+
+/*! regenerator-runtime -- Copyright (c) 2014-present, Facebook, Inc. -- license (MIT): https://github.com/babel/babel/blob/main/packages/babel-helpers/LICENSE */
+
+/**
+ * @license React
+ * react-dom.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react-is.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react-jsx-runtime.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react-reconciler-constants.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react-reconciler.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * react.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**
+ * @license React
+ * scheduler.production.min.js
+ *
+ * Copyright (c) Facebook, Inc. and its affiliates.
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/**![arrow-right](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg2OSA0ODcuOEw0OTEuMiAxNTkuOWMtMi45LTIuNS02LjYtMy45LTEwLjUtMy45aC04OC41Yy03LjQgMC0xMC44IDkuMi01LjIgMTRsMzUwLjIgMzA0SDE1MmMtNC40IDAtOCAzLjYtOCA4djYwYzAgNC40IDMuNiA4IDggOGg1ODUuMUwzODYuOSA4NTRjLTUuNiA0LjktMi4yIDE0IDUuMiAxNGg5MS41YzEuOSAwIDMuOC0uNyA1LjItMkw4NjkgNTM2LjJhMzIuMDcgMzIuMDcgMCAwMDAtNDguNHoiIC8+PC9zdmc+) */
+
+/**![bars](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkxMiAxOTJIMzI4Yy00LjQgMC04IDMuNi04IDh2NTZjMCA0LjQgMy42IDggOCA4aDU4NGM0LjQgMCA4LTMuNiA4LTh2LTU2YzAtNC40LTMuNi04LTgtOHptMCAyODRIMzI4Yy00LjQgMC04IDMuNi04IDh2NTZjMCA0LjQgMy42IDggOCA4aDU4NGM0LjQgMCA4LTMuNiA4LTh2LTU2YzAtNC40LTMuNi04LTgtOHptMCAyODRIMzI4Yy00LjQgMC04IDMuNi04IDh2NTZjMCA0LjQgMy42IDggOCA4aDU4NGM0LjQgMCA4LTMuNiA4LTh2LTU2YzAtNC40LTMuNi04LTgtOHpNMTA0IDIyOGE1NiA1NiAwIDEwMTEyIDAgNTYgNTYgMCAxMC0xMTIgMHptMCAyODRhNTYgNTYgMCAxMDExMiAwIDU2IDU2IDAgMTAtMTEyIDB6bTAgMjg0YTU2IDU2IDAgMTAxMTIgMCA1NiA1NiAwIDEwLTExMiAweiIgLz48L3N2Zz4=) */
+
+/**![check-circle](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUxMiA2NEMyNjQuNiA2NCA2NCAyNjQuNiA2NCA1MTJzMjAwLjYgNDQ4IDQ0OCA0NDggNDQ4LTIwMC42IDQ0OC00NDhTNzU5LjQgNjQgNTEyIDY0em0xOTMuNSAzMDEuN2wtMjEwLjYgMjkyYTMxLjggMzEuOCAwIDAxLTUxLjcgMEwzMTguNSA0ODQuOWMtMy44LTUuMyAwLTEyLjcgNi41LTEyLjdoNDYuOWMxMC4yIDAgMTkuOSA0LjkgMjUuOSAxMy4zbDcxLjIgOTguOCAxNTcuMi0yMThjNi04LjMgMTUuNi0xMy4zIDI1LjktMTMuM0g2OTljNi41IDAgMTAuMyA3LjQgNi41IDEyLjd6IiAvPjwvc3ZnPg==) */
+
+/**![check](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkxMiAxOTBoLTY5LjljLTkuOCAwLTE5LjEgNC41LTI1LjEgMTIuMkw0MDQuNyA3MjQuNSAyMDcgNDc0YTMyIDMyIDAgMDAtMjUuMS0xMi4ySDExMmMtNi43IDAtMTAuNCA3LjctNi4zIDEyLjlsMjczLjkgMzQ3YzEyLjggMTYuMiAzNy40IDE2LjIgNTAuMyAwbDQ4OC40LTYxOC45YzQuMS01LjEuNC0xMi44LTYuMy0xMi44eiIgLz48L3N2Zz4=) */
+
+/**![close-circle](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdmlld0JveD0iNjQgNjQgODk2IDg5NiIgZm9jdXNhYmxlPSJmYWxzZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNTEyIDY0YzI0Ny40IDAgNDQ4IDIwMC42IDQ0OCA0NDhTNzU5LjQgOTYwIDUxMiA5NjAgNjQgNzU5LjQgNjQgNTEyIDI2NC42IDY0IDUxMiA2NHptMTI3Ljk4IDI3NC44MmgtLjA0bC0uMDguMDZMNTEyIDQ2Ni43NSAzODQuMTQgMzM4Ljg4Yy0uMDQtLjA1LS4wNi0uMDYtLjA4LS4wNmEuMTIuMTIgMCAwMC0uMDcgMGMtLjAzIDAtLjA1LjAxLS4wOS4wNWwtNDUuMDIgNDUuMDJhLjIuMiAwIDAwLS4wNS4wOS4xMi4xMiAwIDAwMCAuMDd2LjAyYS4yNy4yNyAwIDAwLjA2LjA2TDQ2Ni43NSA1MTIgMzM4Ljg4IDYzOS44NmMtLjA1LjA0LS4wNi4wNi0uMDYuMDhhLjEyLjEyIDAgMDAwIC4wN2MwIC4wMy4wMS4wNS4wNS4wOWw0NS4wMiA0NS4wMmEuMi4yIDAgMDAuMDkuMDUuMTIuMTIgMCAwMC4wNyAwYy4wMiAwIC4wNC0uMDEuMDgtLjA1TDUxMiA1NTcuMjVsMTI3Ljg2IDEyNy44N2MuMDQuMDQuMDYuMDUuMDguMDVhLjEyLjEyIDAgMDAuMDcgMGMuMDMgMCAuMDUtLjAxLjA5LS4wNWw0NS4wMi00NS4wMmEuMi4yIDAgMDAuMDUtLjA5LjEyLjEyIDAgMDAwLS4wN3YtLjAyYS4yNy4yNyAwIDAwLS4wNS0uMDZMNTU3LjI1IDUxMmwxMjcuODctMTI3Ljg2Yy4wNC0uMDQuMDUtLjA2LjA1LS4wOGEuMTIuMTIgMCAwMDAtLjA3YzAtLjAzLS4wMS0uMDUtLjA1LS4wOWwtNDUuMDItNDUuMDJhLjIuMiAwIDAwLS4wOS0uMDUuMTIuMTIgMCAwMC0uMDcgMHoiIC8+PC9zdmc+) */
+
+/**![close](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIGZpbGwtcnVsZT0iZXZlbm9kZCIgdmlld0JveD0iNjQgNjQgODk2IDg5NiIgZm9jdXNhYmxlPSJmYWxzZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkPSJNNzk5Ljg2IDE2Ni4zMWMuMDIgMCAuMDQuMDIuMDguMDZsNTcuNjkgNTcuN2MuMDQuMDMuMDUuMDUuMDYuMDhhLjEyLjEyIDAgMDEwIC4wNmMwIC4wMy0uMDIuMDUtLjA2LjA5TDU2OS45MyA1MTJsMjg3LjcgMjg3LjdjLjA0LjA0LjA1LjA2LjA2LjA5YS4xMi4xMiAwIDAxMCAuMDdjMCAuMDItLjAyLjA0LS4wNi4wOGwtNTcuNyA1Ny42OWMtLjAzLjA0LS4wNS4wNS0uMDcuMDZhLjEyLjEyIDAgMDEtLjA3IDBjLS4wMyAwLS4wNS0uMDItLjA5LS4wNkw1MTIgNTY5LjkzbC0yODcuNyAyODcuN2MtLjA0LjA0LS4wNi4wNS0uMDkuMDZhLjEyLjEyIDAgMDEtLjA3IDBjLS4wMiAwLS4wNC0uMDItLjA4LS4wNmwtNTcuNjktNTcuN2MtLjA0LS4wMy0uMDUtLjA1LS4wNi0uMDdhLjEyLjEyIDAgMDEwLS4wN2MwLS4wMy4wMi0uMDUuMDYtLjA5TDQ1NC4wNyA1MTJsLTI4Ny43LTI4Ny43Yy0uMDQtLjA0LS4wNS0uMDYtLjA2LS4wOWEuMTIuMTIgMCAwMTAtLjA3YzAtLjAyLjAyLS4wNC4wNi0uMDhsNTcuNy01Ny42OWMuMDMtLjA0LjA1LS4wNS4wNy0uMDZhLjEyLjEyIDAgMDEuMDcgMGMuMDMgMCAuMDUuMDIuMDkuMDZMNTEyIDQ1NC4wN2wyODcuNy0yODcuN2MuMDQtLjA0LjA2LS4wNS4wOS0uMDZhLjEyLjEyIDAgMDEuMDcgMHoiIC8+PC9zdmc+) */
+
+/**![copy](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTgzMiA2NEgyOTZjLTQuNCAwLTggMy42LTggOHY1NmMwIDQuNCAzLjYgOCA4IDhoNDk2djY4OGMwIDQuNCAzLjYgOCA4IDhoNTZjNC40IDAgOC0zLjYgOC04Vjk2YzAtMTcuNy0xNC4zLTMyLTMyLTMyek03MDQgMTkySDE5MmMtMTcuNyAwLTMyIDE0LjMtMzIgMzJ2NTMwLjdjMCA4LjUgMy40IDE2LjYgOS40IDIyLjZsMTczLjMgMTczLjNjMi4yIDIuMiA0LjcgNCA3LjQgNS41djEuOWg0LjJjMy41IDEuMyA3LjIgMiAxMSAySDcwNGMxNy43IDAgMzItMTQuMyAzMi0zMlYyMjRjMC0xNy43LTE0LjMtMzItMzItMzJ6TTM1MCA4NTYuMkwyNjMuOSA3NzBIMzUwdjg2LjJ6TTY2NCA4ODhINDE0Vjc0NmMwLTIyLjEtMTcuOS00MC00MC00MEgyMzJWMjY0aDQzMnY2MjR6IiAvPjwvc3ZnPg==) */
+
+/**![delete](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTM2MCAxODRoLThjNC40IDAgOC0zLjYgOC04djhoMzA0di04YzAgNC40IDMuNiA4IDggOGgtOHY3Mmg3MnYtODBjMC0zNS4zLTI4LjctNjQtNjQtNjRIMzUyYy0zNS4zIDAtNjQgMjguNy02NCA2NHY4MGg3MnYtNzJ6bTUwNCA3MkgxNjBjLTE3LjcgMC0zMiAxNC4zLTMyIDMydjMyYzAgNC40IDMuNiA4IDggOGg2MC40bDI0LjcgNTIzYzEuNiAzNC4xIDI5LjggNjEgNjMuOSA2MWg0NTRjMzQuMiAwIDYyLjMtMjYuOCA2My45LTYxbDI0LjctNTIzSDg4OGM0LjQgMCA4LTMuNiA4LTh2LTMyYzAtMTcuNy0xNC4zLTMyLTMyLTMyek03MzEuMyA4NDBIMjkyLjdsLTI0LjItNTEyaDQ4N2wtMjQuMiA1MTJ6IiAvPjwvc3ZnPg==) */
+
+/**![double-left](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTI3Mi45IDUxMmwyNjUuNC0zMzkuMWM0LjEtNS4yLjQtMTIuOS02LjMtMTIuOWgtNzcuM2MtNC45IDAtOS42IDIuMy0xMi42IDYuMUwxODYuOCA0OTIuM2EzMS45OSAzMS45OSAwIDAwMCAzOS41bDI1NS4zIDMyNi4xYzMgMy45IDcuNyA2LjEgMTIuNiA2LjFINTMyYzYuNyAwIDEwLjQtNy43IDYuMy0xMi45TDI3Mi45IDUxMnptMzA0IDBsMjY1LjQtMzM5LjFjNC4xLTUuMi40LTEyLjktNi4zLTEyLjloLTc3LjNjLTQuOSAwLTkuNiAyLjMtMTIuNiA2LjFMNDkwLjggNDkyLjNhMzEuOTkgMzEuOTkgMCAwMDAgMzkuNWwyNTUuMyAzMjYuMWMzIDMuOSA3LjcgNi4xIDEyLjYgNi4xSDgzNmM2LjcgMCAxMC40LTcuNyA2LjMtMTIuOUw1NzYuOSA1MTJ6IiAvPjwvc3ZnPg==) */
+
+/**![double-right](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUzMy4yIDQ5Mi4zTDI3Ny45IDE2Ni4xYy0zLTMuOS03LjctNi4xLTEyLjYtNi4xSDE4OGMtNi43IDAtMTAuNCA3LjctNi4zIDEyLjlMNDQ3LjEgNTEyIDE4MS43IDg1MS4xQTcuOTggNy45OCAwIDAwMTg4IDg2NGg3Ny4zYzQuOSAwIDkuNi0yLjMgMTIuNi02LjFsMjU1LjMtMzI2LjFjOS4xLTExLjcgOS4xLTI3LjkgMC0zOS41em0zMDQgMEw1ODEuOSAxNjYuMWMtMy0zLjktNy43LTYuMS0xMi42LTYuMUg0OTJjLTYuNyAwLTEwLjQgNy43LTYuMyAxMi45TDc1MS4xIDUxMiA0ODUuNyA4NTEuMUE3Ljk4IDcuOTggMCAwMDQ5MiA4NjRoNzcuM2M0LjkgMCA5LjYtMi4zIDEyLjYtNi4xbDI1NS4zLTMyNi4xYzkuMS0xMS43IDkuMS0yNy45IDAtMzkuNXoiIC8+PC9zdmc+) */
+
+/**![down](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg4NCAyNTZoLTc1Yy01LjEgMC05LjkgMi41LTEyLjkgNi42TDUxMiA2NTQuMiAyMjcuOSAyNjIuNmMtMy00LjEtNy44LTYuNi0xMi45LTYuNmgtNzVjLTYuNSAwLTEwLjMgNy40LTYuNSAxMi43bDM1Mi42IDQ4Ni4xYzEyLjggMTcuNiAzOSAxNy42IDUxLjcgMGwzNTIuNi00ODYuMWMzLjktNS4zLjEtMTIuNy02LjQtMTIuN3oiIC8+PC9zdmc+) */
+
+/**![download](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUwNS43IDY2MWE4IDggMCAwMDEyLjYgMGwxMTItMTQxLjdjNC4xLTUuMi40LTEyLjktNi4zLTEyLjloLTc0LjFWMTY4YzAtNC40LTMuNi04LTgtOGgtNjBjLTQuNCAwLTggMy42LTggOHYzMzguM0g0MDBjLTYuNyAwLTEwLjQgNy43LTYuMyAxMi45bDExMiAxNDEuOHpNODc4IDYyNmgtNjBjLTQuNCAwLTggMy42LTggOHYxNTRIMjE0VjYzNGMwLTQuNC0zLjYtOC04LThoLTYwYy00LjQgMC04IDMuNi04IDh2MTk4YzAgMTcuNyAxNC4zIDMyIDMyIDMyaDY4NGMxNy43IDAgMzItMTQuMyAzMi0zMlY2MzRjMC00LjQtMy42LTgtOC04eiIgLz48L3N2Zz4=) */
+
+/**![drag](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkwOS4zIDUwNi4zTDc4MS43IDQwNS42YTcuMjMgNy4yMyAwIDAwLTExLjcgNS43VjQ3Nkg1NDhWMjU0aDY0LjhjNiAwIDkuNC03IDUuNy0xMS43TDUxNy43IDExNC43YTcuMTQgNy4xNCAwIDAwLTExLjMgMEw0MDUuNiAyNDIuM2E3LjIzIDcuMjMgMCAwMDUuNyAxMS43SDQ3NnYyMjJIMjU0di02NC44YzAtNi03LTkuNC0xMS43LTUuN0wxMTQuNyA1MDYuM2E3LjE0IDcuMTQgMCAwMDAgMTEuM2wxMjcuNSAxMDAuOGM0LjcgMy43IDExLjcuNCAxMS43LTUuN1Y1NDhoMjIydjIyMmgtNjQuOGMtNiAwLTkuNCA3LTUuNyAxMS43bDEwMC44IDEyNy41YzIuOSAzLjcgOC41IDMuNyAxMS4zIDBsMTAwLjgtMTI3LjVjMy43LTQuNy40LTExLjctNS43LTExLjdINTQ4VjU0OGgyMjJ2NjQuOGMwIDYgNyA5LjQgMTEuNyA1LjdsMTI3LjUtMTAwLjhhNy4zIDcuMyAwIDAwLjEtMTEuNHoiIC8+PC9zdmc+) */
+
+/**![edit](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTI1Ny43IDc1MmMyIDAgNC0uMiA2LS41TDQzMS45IDcyMmMyLS40IDMuOS0xLjMgNS4zLTIuOGw0MjMuOS00MjMuOWE5Ljk2IDkuOTYgMCAwMDAtMTQuMUw2OTQuOSAxMTQuOWMtMS45LTEuOS00LjQtMi45LTcuMS0yLjlzLTUuMiAxLTcuMSAyLjlMMjU2LjggNTM4LjhjLTEuNSAxLjUtMi40IDMuMy0yLjggNS4zbC0yOS41IDE2OC4yYTMzLjUgMzMuNSAwIDAwOS40IDI5LjhjNi42IDYuNCAxNC45IDkuOSAyMy44IDkuOXptNjcuNC0xNzQuNEw2ODcuOCAyMTVsNzMuMyA3My4zLTM2Mi43IDM2Mi42LTg4LjkgMTUuNyAxNS42LTg5ek04ODAgODM2SDE0NGMtMTcuNyAwLTMyIDE0LjMtMzIgMzJ2MzZjMCA0LjQgMy42IDggOCA4aDc4NGM0LjQgMCA4LTMuNiA4LTh2LTM2YzAtMTcuNy0xNC4zLTMyLTMyLTMyeiIgLz48L3N2Zz4=) */
+
+/**![ellipsis](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTE3NiA1MTFhNTYgNTYgMCAxMDExMiAwIDU2IDU2IDAgMTAtMTEyIDB6bTI4MCAwYTU2IDU2IDAgMTAxMTIgMCA1NiA1NiAwIDEwLTExMiAwem0yODAgMGE1NiA1NiAwIDEwMTEyIDAgNTYgNTYgMCAxMC0xMTIgMHoiIC8+PC9zdmc+) */
+
+/**![enter](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg2NCAxNzBoLTYwYy00LjQgMC04IDMuNi04IDh2NTE4SDMxMHYtNzNjMC02LjctNy44LTEwLjUtMTMtNi4zbC0xNDEuOSAxMTJhOCA4IDAgMDAwIDEyLjZsMTQxLjkgMTEyYzUuMyA0LjIgMTMgLjQgMTMtNi4zdi03NWg0OThjMzUuMyAwIDY0LTI4LjcgNjQtNjRWMTc4YzAtNC40LTMuNi04LTgtOHoiIC8+PC9zdmc+) */
+
+/**![environment](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg1NC42IDI4OS4xYTM2Mi40OSAzNjIuNDkgMCAwMC03OS45LTExNS43IDM3MC44MyAzNzAuODMgMCAwMC0xMTguMi03Ny44QzYxMC43IDc2LjYgNTYyLjEgNjcgNTEyIDY3Yy01MC4xIDAtOTguNyA5LjYtMTQ0LjUgMjguNS00NC4zIDE4LjMtODQgNDQuNS0xMTguMiA3Ny44QTM2My42IDM2My42IDAgMDAxNjkuNCAyODljLTE5LjUgNDUtMjkuNCA5Mi44LTI5LjQgMTQyIDAgNzAuNiAxNi45IDE0MC45IDUwLjEgMjA4LjcgMjYuNyA1NC41IDY0IDEwNy42IDExMSAxNTguMSA4MC4zIDg2LjIgMTY0LjUgMTM4LjkgMTg4LjQgMTUzYTQzLjkgNDMuOSAwIDAwMjIuNCA2LjFjNy44IDAgMTUuNS0yIDIyLjQtNi4xIDIzLjktMTQuMSAxMDguMS02Ni44IDE4OC40LTE1MyA0Ny01MC40IDg0LjMtMTAzLjYgMTExLTE1OC4xQzg2Ny4xIDU3MiA4ODQgNTAxLjggODg0IDQzMS4xYzAtNDkuMi05LjktOTctMjkuNC0xNDJ6TTUxMiA4ODAuMmMtNjUuOS00MS45LTMwMC0yMDcuOC0zMDAtNDQ5LjEgMC03Ny45IDMxLjEtMTUxLjEgODcuNi0yMDYuM0MzNTYuMyAxNjkuNSA0MzEuNyAxMzkgNTEyIDEzOXMxNTUuNyAzMC41IDIxMi40IDg1LjlDNzgwLjkgMjgwIDgxMiAzNTMuMiA4MTIgNDMxLjFjMCAyNDEuMy0yMzQuMSA0MDcuMi0zMDAgNDQ5LjF6bTAtNjE3LjJjLTk3LjIgMC0xNzYgNzguOC0xNzYgMTc2czc4LjggMTc2IDE3NiAxNzYgMTc2LTc4LjggMTc2LTE3Ni03OC44LTE3Ni0xNzYtMTc2em03OS4yIDI1NS4yQTExMS42IDExMS42IDAgMDE1MTIgNTUxYy0yOS45IDAtNTgtMTEuNy03OS4yLTMyLjhBMTExLjYgMTExLjYgMCAwMTQwMCA0MzljMC0yOS45IDExLjctNTggMzIuOC03OS4yQzQ1NCAzMzguNiA0ODIuMSAzMjcgNTEyIDMyN2MyOS45IDAgNTggMTEuNiA3OS4yIDMyLjhDNjEyLjQgMzgxIDYyNCA0MDkuMSA2MjQgNDM5YzAgMjkuOS0xMS42IDU4LTMyLjggNzkuMnoiIC8+PC9zdmc+) */
+
+/**![exclamation-circle](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUxMiA2NEMyNjQuNiA2NCA2NCAyNjQuNiA2NCA1MTJzMjAwLjYgNDQ4IDQ0OCA0NDggNDQ4LTIwMC42IDQ0OC00NDhTNzU5LjQgNjQgNTEyIDY0em0tMzIgMjMyYzAtNC40IDMuNi04IDgtOGg0OGM0LjQgMCA4IDMuNiA4IDh2MjcyYzAgNC40LTMuNiA4LTggOGgtNDhjLTQuNCAwLTgtMy42LTgtOFYyOTZ6bTMyIDQ0MGE0OC4wMSA0OC4wMSAwIDAxMC05NiA0OC4wMSA0OC4wMSAwIDAxMCA5NnoiIC8+PC9zdmc+) */
+
+/**![eye-invisible](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTk0Mi4yIDQ4Ni4yUTg4OS40NyAzNzUuMTEgODE2LjcgMzA1bC01MC44OCA1MC44OEM4MDcuMzEgMzk1LjUzIDg0My40NSA0NDcuNCA4NzQuNyA1MTIgNzkxLjUgNjg0LjIgNjczLjQgNzY2IDUxMiA3NjZxLTcyLjY3IDAtMTMzLjg3LTIyLjM4TDMyMyA3OTguNzVRNDA4IDgzOCA1MTIgODM4cTI4OC4zIDAgNDMwLjItMzAwLjNhNjAuMjkgNjAuMjkgMCAwMDAtNTEuNXptLTYzLjU3LTMyMC42NEw4MzYgMTIyLjg4YTggOCAwIDAwLTExLjMyIDBMNzE1LjMxIDIzMi4yUTYyNC44NiAxODYgNTEyIDE4NnEtMjg4LjMgMC00MzAuMiAzMDAuM2E2MC4zIDYwLjMgMCAwMDAgNTEuNXE1Ni42OSAxMTkuNCAxMzYuNSAxOTEuNDFMMTEyLjQ4IDgzNWE4IDggMCAwMDAgMTEuMzFMMTU1LjE3IDg4OWE4IDggMCAwMDExLjMxIDBsNzEyLjE1LTcxMi4xMmE4IDggMCAwMDAtMTEuMzJ6TTE0OS4zIDUxMkMyMzIuNiAzMzkuOCAzNTAuNyAyNTggNTEyIDI1OGM1NC41NCAwIDEwNC4xMyA5LjM2IDE0OS4xMiAyOC4zOWwtNzAuMyA3MC4zYTE3NiAxNzYgMCAwMC0yMzguMTMgMjM4LjEzbC04My40MiA4My40MkMyMjMuMSA2MzcuNDkgMTgzLjMgNTgyLjI4IDE0OS4zIDUxMnptMjQ2LjcgMGExMTIuMTEgMTEyLjExIDAgMDExNDYuMi0xMDYuNjlMNDAxLjMxIDU0Ni4yQTExMiAxMTIgMCAwMTM5NiA1MTJ6IiAvPjxwYXRoIGQ9Ik01MDggNjI0Yy0zLjQ2IDAtNi44Ny0uMTYtMTAuMjUtLjQ3bC01Mi44MiA1Mi44MmExNzYuMDkgMTc2LjA5IDAgMDAyMjcuNDItMjI3LjQybC01Mi44MiA1Mi44MmMuMzEgMy4zOC40NyA2Ljc5LjQ3IDEwLjI1YTExMS45NCAxMTEuOTQgMCAwMS0xMTIgMTEyeiIgLz48L3N2Zz4=) */
+
+/**![eye](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTk0Mi4yIDQ4Ni4yQzg0Ny40IDI4Ni41IDcwNC4xIDE4NiA1MTIgMTg2Yy0xOTIuMiAwLTMzNS40IDEwMC41LTQzMC4yIDMwMC4zYTYwLjMgNjAuMyAwIDAwMCA1MS41QzE3Ni42IDczNy41IDMxOS45IDgzOCA1MTIgODM4YzE5Mi4yIDAgMzM1LjQtMTAwLjUgNDMwLjItMzAwLjMgNy43LTE2LjIgNy43LTM1IDAtNTEuNXpNNTEyIDc2NmMtMTYxLjMgMC0yNzkuNC04MS44LTM2Mi43LTI1NEMyMzIuNiAzMzkuOCAzNTAuNyAyNTggNTEyIDI1OGMxNjEuMyAwIDI3OS40IDgxLjggMzYyLjcgMjU0Qzc5MS41IDY4NC4yIDY3My40IDc2NiA1MTIgNzY2em0tNC00MzBjLTk3LjIgMC0xNzYgNzguOC0xNzYgMTc2czc4LjggMTc2IDE3NiAxNzYgMTc2LTc4LjggMTc2LTE3Ni03OC44LTE3Ni0xNzYtMTc2em0wIDI4OGMtNjEuOSAwLTExMi01MC4xLTExMi0xMTJzNTAuMS0xMTIgMTEyLTExMiAxMTIgNTAuMSAxMTIgMTEyLTUwLjEgMTEyLTExMiAxMTJ6IiAvPjwvc3ZnPg==) */
+
+/**![file-add](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg1NC42IDI4OC42TDYzOS40IDczLjRjLTYtNi0xNC4xLTkuNC0yMi42LTkuNEgxOTJjLTE3LjcgMC0zMiAxNC4zLTMyIDMydjgzMmMwIDE3LjcgMTQuMyAzMiAzMiAzMmg2NDBjMTcuNyAwIDMyLTE0LjMgMzItMzJWMzExLjNjMC04LjUtMy40LTE2LjctOS40LTIyLjd6TTc5MC4yIDMyNkg2MDJWMTM3LjhMNzkwLjIgMzI2em0xLjggNTYySDIzMlYxMzZoMzAydjIxNmE0MiA0MiAwIDAwNDIgNDJoMjE2djQ5NHpNNTQ0IDQ3MmMwLTQuNC0zLjYtOC04LThoLTQ4Yy00LjQgMC04IDMuNi04IDh2MTA4SDM3MmMtNC40IDAtOCAzLjYtOCA4djQ4YzAgNC40IDMuNiA4IDggOGgxMDh2MTA4YzAgNC40IDMuNiA4IDggOGg0OGM0LjQgMCA4LTMuNiA4LThWNjQ0aDEwOGM0LjQgMCA4LTMuNiA4LTh2LTQ4YzAtNC40LTMuNi04LTgtOEg1NDRWNDcyeiIgLz48L3N2Zz4=) */
+
+/**![folder-open](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkyOCA0NDRIODIwVjMzMC40YzAtMTcuNy0xNC4zLTMyLTMyLTMySDQ3M0wzNTUuNyAxODYuMmE4LjE1IDguMTUgMCAwMC01LjUtMi4ySDk2Yy0xNy43IDAtMzIgMTQuMy0zMiAzMnY1OTJjMCAxNy43IDE0LjMgMzIgMzIgMzJoNjk4YzEzIDAgMjQuOC03LjkgMjkuNy0yMGwxMzQtMzMyYzEuNS0zLjggMi4zLTcuOSAyLjMtMTIgMC0xNy43LTE0LjMtMzItMzItMzJ6TTEzNiAyNTZoMTg4LjVsMTE5LjYgMTE0LjRINzQ4VjQ0NEgyMzhjLTEzIDAtMjQuOCA3LjktMjkuNyAyMEwxMzYgNjQzLjJWMjU2em02MzUuMyA1MTJIMTU5bDEwMy4zLTI1Nmg2MTIuNEw3NzEuMyA3Njh6IiAvPjwvc3ZnPg==) */
+
+/**![global](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg1NC40IDgwMC45Yy4yLS4zLjUtLjYuNy0uOUM5MjAuNiA3MjIuMSA5NjAgNjIxLjcgOTYwIDUxMnMtMzkuNC0yMTAuMS0xMDQuOC0yODhjLS4yLS4zLS41LS41LS43LS44LTEuMS0xLjMtMi4xLTIuNS0zLjItMy43LS40LS41LS44LS45LTEuMi0xLjRsLTQuMS00LjctLjEtLjFjLTEuNS0xLjctMy4xLTMuNC00LjYtNS4xbC0uMS0uMWMtMy4yLTMuNC02LjQtNi44LTkuNy0xMC4xbC0uMS0uMS00LjgtNC44LS4zLS4zYy0xLjUtMS41LTMtMi45LTQuNS00LjMtLjUtLjUtMS0xLTEuNi0xLjUtMS0xLTItMS45LTMtMi44LS4zLS4zLS43LS42LTEtMUM3MzYuNCAxMDkuMiA2MjkuNSA2NCA1MTIgNjRzLTIyNC40IDQ1LjItMzA0LjMgMTE5LjJjLS4zLjMtLjcuNi0xIDEtMSAuOS0yIDEuOS0zIDIuOS0uNS41LTEgMS0xLjYgMS41LTEuNSAxLjQtMyAyLjktNC41IDQuM2wtLjMuMy00LjggNC44LS4xLjFjLTMuMyAzLjMtNi41IDYuNy05LjcgMTAuMWwtLjEuMWMtMS42IDEuNy0zLjEgMy40LTQuNiA1LjFsLS4xLjFjLTEuNCAxLjUtMi44IDMuMS00LjEgNC43LS40LjUtLjguOS0xLjIgMS40LTEuMSAxLjItMi4xIDIuNS0zLjIgMy43LS4yLjMtLjUuNS0uNy44QzEwMy40IDMwMS45IDY0IDQwMi4zIDY0IDUxMnMzOS40IDIxMC4xIDEwNC44IDI4OGMuMi4zLjUuNi43LjlsMy4xIDMuN2MuNC41LjguOSAxLjIgMS40bDQuMSA0LjdjMCAuMS4xLjEuMS4yIDEuNSAxLjcgMyAzLjQgNC42IDVsLjEuMWMzLjIgMy40IDYuNCA2LjggOS42IDEwLjFsLjEuMWMxLjYgMS42IDMuMSAzLjIgNC43IDQuN2wuMy4zYzMuMyAzLjMgNi43IDYuNSAxMC4xIDkuNiA4MC4xIDc0IDE4NyAxMTkuMiAzMDQuNSAxMTkuMnMyMjQuNC00NS4yIDMwNC4zLTExOS4yYTMwMCAzMDAgMCAwMDEwLTkuNmwuMy0uM2MxLjYtMS42IDMuMi0zLjEgNC43LTQuN2wuMS0uMWMzLjMtMy4zIDYuNS02LjcgOS42LTEwLjFsLjEtLjFjMS41LTEuNyAzLjEtMy4zIDQuNi01IDAtLjEuMS0uMS4xLS4yIDEuNC0xLjUgMi44LTMuMSA0LjEtNC43LjQtLjUuOC0uOSAxLjItMS40YTk5IDk5IDAgMDAzLjMtMy43em00LjEtMTQyLjZjLTEzLjggMzIuNi0zMiA2Mi44LTU0LjIgOTAuMmE0NDQuMDcgNDQ0LjA3IDAgMDAtODEuNS01NS45YzExLjYtNDYuOSAxOC44LTk4LjQgMjAuNy0xNTIuNkg4ODdjLTMgNDAuOS0xMi42IDgwLjYtMjguNSAxMTguM3pNODg3IDQ4NEg3NDMuNWMtMS45LTU0LjItOS4xLTEwNS43LTIwLjctMTUyLjYgMjkuMy0xNS42IDU2LjYtMzQuNCA4MS41LTU1LjlBMzczLjg2IDM3My44NiAwIDAxODg3IDQ4NHpNNjU4LjMgMTY1LjVjMzkuNyAxNi44IDc1LjggNDAgMTA3LjYgNjkuMmEzOTQuNzIgMzk0LjcyIDAgMDEtNTkuNCA0MS44Yy0xNS43LTQ1LTM1LjgtODQuMS01OS4yLTExNS40IDMuNyAxLjQgNy40IDIuOSAxMSA0LjR6bS05MC42IDcwMC42Yy05LjIgNy4yLTE4LjQgMTIuNy0yNy43IDE2LjRWNjk3YTM4OS4xIDM4OS4xIDAgMDExMTUuNyAyNi4yYy04LjMgMjQuNi0xNy45IDQ3LjMtMjkgNjcuOC0xNy40IDMyLjQtMzcuOCA1OC4zLTU5IDc1LjF6bTU5LTYzMy4xYzExIDIwLjYgMjAuNyA0My4zIDI5IDY3LjhBMzg5LjEgMzg5LjEgMCAwMTU0MCAzMjdWMTQxLjZjOS4yIDMuNyAxOC41IDkuMSAyNy43IDE2LjQgMjEuMiAxNi43IDQxLjYgNDIuNiA1OSA3NXpNNTQwIDY0MC45VjU0MGgxNDcuNWMtMS42IDQ0LjItNy4xIDg3LjEtMTYuMyAxMjcuOGwtLjMgMS4yQTQ0NS4wMiA0NDUuMDIgMCAwMDU0MCA2NDAuOXptMC0xNTYuOVYzODMuMWM0NS44LTIuOCA4OS44LTEyLjUgMTMwLjktMjguMWwuMyAxLjJjOS4yIDQwLjcgMTQuNyA4My41IDE2LjMgMTI3LjhINTQwem0tNTYgNTZ2MTAwLjljLTQ1LjggMi44LTg5LjggMTIuNS0xMzAuOSAyOC4xbC0uMy0xLjJjLTkuMi00MC43LTE0LjctODMuNS0xNi4zLTEyNy44SDQ4NHptLTE0Ny41LTU2YzEuNi00NC4yIDcuMS04Ny4xIDE2LjMtMTI3LjhsLjMtMS4yYzQxLjEgMTUuNiA4NSAyNS4zIDEzMC45IDI4LjFWNDg0SDMzNi41ek00ODQgNjk3djE4NS40Yy05LjItMy43LTE4LjUtOS4xLTI3LjctMTYuNC0yMS4yLTE2LjctNDEuNy00Mi43LTU5LjEtNzUuMS0xMS0yMC42LTIwLjctNDMuMy0yOS02Ny44IDM3LjItMTQuNiA3NS45LTIzLjMgMTE1LjgtMjYuMXptMC0zNzBhMzg5LjEgMzg5LjEgMCAwMS0xMTUuNy0yNi4yYzguMy0yNC42IDE3LjktNDcuMyAyOS02Ny44IDE3LjQtMzIuNCAzNy44LTU4LjQgNTkuMS03NS4xIDkuMi03LjIgMTguNC0xMi43IDI3LjctMTYuNFYzMjd6TTM2NS43IDE2NS41YzMuNy0xLjUgNy4zLTMgMTEtNC40LTIzLjQgMzEuMy00My41IDcwLjQtNTkuMiAxMTUuNC0yMS0xMi00MC45LTI2LTU5LjQtNDEuOCAzMS44LTI5LjIgNjcuOS01Mi40IDEwNy42LTY5LjJ6TTE2NS41IDM2NS43YzEzLjgtMzIuNiAzMi02Mi44IDU0LjItOTAuMiAyNC45IDIxLjUgNTIuMiA0MC4zIDgxLjUgNTUuOS0xMS42IDQ2LjktMTguOCA5OC40LTIwLjcgMTUyLjZIMTM3YzMtNDAuOSAxMi42LTgwLjYgMjguNS0xMTguM3pNMTM3IDU0MGgxNDMuNWMxLjkgNTQuMiA5LjEgMTA1LjcgMjAuNyAxNTIuNmE0NDQuMDcgNDQ0LjA3IDAgMDAtODEuNSA1NS45QTM3My44NiAzNzMuODYgMCAwMTEzNyA1NDB6bTIyOC43IDMxOC41Yy0zOS43LTE2LjgtNzUuOC00MC0xMDcuNi02OS4yIDE4LjUtMTUuOCAzOC40LTI5LjcgNTkuNC00MS44IDE1LjcgNDUgMzUuOCA4NC4xIDU5LjIgMTE1LjQtMy43LTEuNC03LjQtMi45LTExLTQuNHptMjkyLjYgMGMtMy43IDEuNS03LjMgMy0xMSA0LjQgMjMuNC0zMS4zIDQzLjUtNzAuNCA1OS4yLTExNS40IDIxIDEyIDQwLjkgMjYgNTkuNCA0MS44YTM3My44MSAzNzMuODEgMCAwMS0xMDcuNiA2OS4yeiIgLz48L3N2Zz4=) */
+
+/**![info-circle](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUxMiA2NEMyNjQuNiA2NCA2NCAyNjQuNiA2NCA1MTJzMjAwLjYgNDQ4IDQ0OCA0NDggNDQ4LTIwMC42IDQ0OC00NDhTNzU5LjQgNjQgNTEyIDY0em0wIDgyMGMtMjA1LjQgMC0zNzItMTY2LjYtMzcyLTM3MnMxNjYuNi0zNzIgMzcyLTM3MiAzNzIgMTY2LjYgMzcyIDM3Mi0xNjYuNiAzNzItMzcyIDM3MnoiIC8+PHBhdGggZD0iTTQ2NCAzMzZhNDggNDggMCAxMDk2IDAgNDggNDggMCAxMC05NiAwem03MiAxMTJoLTQ4Yy00LjQgMC04IDMuNi04IDh2MjcyYzAgNC40IDMuNiA4IDggOGg0OGM0LjQgMCA4LTMuNiA4LThWNDU2YzAtNC40LTMuNi04LTgtOHoiIC8+PC9zdmc+) */
+
+/**![info-circle](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUxMiA2NEMyNjQuNiA2NCA2NCAyNjQuNiA2NCA1MTJzMjAwLjYgNDQ4IDQ0OCA0NDggNDQ4LTIwMC42IDQ0OC00NDhTNzU5LjQgNjQgNTEyIDY0em0zMiA2NjRjMCA0LjQtMy42IDgtOCA4aC00OGMtNC40IDAtOC0zLjYtOC04VjQ1NmMwLTQuNCAzLjYtOCA4LThoNDhjNC40IDAgOCAzLjYgOCA4djI3MnptLTMyLTM0NGE0OC4wMSA0OC4wMSAwIDAxMC05NiA0OC4wMSA0OC4wMSAwIDAxMCA5NnoiIC8+PC9zdmc+) */
+
+/**![left](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTcyNCAyMTguM1YxNDFjMC02LjctNy43LTEwLjQtMTIuOS02LjNMMjYwLjMgNDg2LjhhMzEuODYgMzEuODYgMCAwMDAgNTAuM2w0NTAuOCAzNTIuMWM1LjMgNC4xIDEyLjkuNCAxMi45LTYuM3YtNzcuM2MwLTQuOS0yLjMtOS42LTYuMS0xMi42bC0zNjAtMjgxIDM2MC0yODEuMWMzLjgtMyA2LjEtNy43IDYuMS0xMi42eiIgLz48L3N2Zz4=) */
+
+/**![line](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkwNCA0NzZIMTIwYy00LjQgMC04IDMuNi04IDh2NTZjMCA0LjQgMy42IDggOCA4aDc4NGM0LjQgMCA4LTMuNiA4LTh2LTU2YzAtNC40LTMuNi04LTgtOHoiIC8+PC9zdmc+) */
+
+/**![loading](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjAgMCAxMDI0IDEwMjQiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTk4OCA1NDhjLTE5LjkgMC0zNi0xNi4xLTM2LTM2IDAtNTkuNC0xMS42LTExNy0zNC42LTE3MS4zYTQ0MC40NSA0NDAuNDUgMCAwMC05NC4zLTEzOS45IDQzNy43MSA0MzcuNzEgMCAwMC0xMzkuOS05NC4zQzYyOSA4My42IDU3MS40IDcyIDUxMiA3MmMtMTkuOSAwLTM2LTE2LjEtMzYtMzZzMTYuMS0zNiAzNi0zNmM2OS4xIDAgMTM2LjIgMTMuNSAxOTkuMyA0MC4zQzc3Mi4zIDY2IDgyNyAxMDMgODc0IDE1MGM0NyA0NyA4My45IDEwMS44IDEwOS43IDE2Mi43IDI2LjcgNjMuMSA0MC4yIDEzMC4yIDQwLjIgMTk5LjMuMSAxOS45LTE2IDM2LTM1LjkgMzZ6IiAvPjwvc3ZnPg==) */
+
+/**![lock](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTgzMiA0NjRoLTY4VjI0MGMwLTcwLjctNTcuMy0xMjgtMTI4LTEyOEgzODhjLTcwLjcgMC0xMjggNTcuMy0xMjggMTI4djIyNGgtNjhjLTE3LjcgMC0zMiAxNC4zLTMyIDMydjM4NGMwIDE3LjcgMTQuMyAzMiAzMiAzMmg2NDBjMTcuNyAwIDMyLTE0LjMgMzItMzJWNDk2YzAtMTcuNy0xNC4zLTMyLTMyLTMyek0zMzIgMjQwYzAtMzAuOSAyNS4xLTU2IDU2LTU2aDI0OGMzMC45IDAgNTYgMjUuMSA1NiA1NnYyMjRIMzMyVjI0MHptNDYwIDYwMEgyMzJWNTM2aDU2MHYzMDR6TTQ4NCA3MDF2NTNjMCA0LjQgMy42IDggOCA4aDQwYzQuNCAwIDgtMy42IDgtOHYtNTNhNDguMDEgNDguMDEgMCAxMC01NiAweiIgLz48L3N2Zz4=) */
+
+/**![logout](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg2OCA3MzJoLTcwLjNjLTQuOCAwLTkuMyAyLjEtMTIuMyA1LjgtNyA4LjUtMTQuNSAxNi43LTIyLjQgMjQuNWEzNTMuODQgMzUzLjg0IDAgMDEtMTEyLjcgNzUuOUEzNTIuOCAzNTIuOCAwIDAxNTEyLjQgODY2Yy00Ny45IDAtOTQuMy05LjQtMTM3LjktMjcuOGEzNTMuODQgMzUzLjg0IDAgMDEtMTEyLjctNzUuOSAzNTMuMjggMzUzLjI4IDAgMDEtNzYtMTEyLjVDMTY3LjMgNjA2LjIgMTU4IDU1OS45IDE1OCA1MTJzOS40LTk0LjIgMjcuOC0xMzcuOGMxNy44LTQyLjEgNDMuNC04MCA3Ni0xMTIuNXM3MC41LTU4LjEgMTEyLjctNzUuOWM0My42LTE4LjQgOTAtMjcuOCAxMzcuOS0yNy44IDQ3LjkgMCA5NC4zIDkuMyAxMzcuOSAyNy44IDQyLjIgMTcuOCA4MC4xIDQzLjQgMTEyLjcgNzUuOSA3LjkgNy45IDE1LjMgMTYuMSAyMi40IDI0LjUgMyAzLjcgNy42IDUuOCAxMi4zIDUuOEg4NjhjNi4zIDAgMTAuMi03IDYuNy0xMi4zQzc5OCAxNjAuNSA2NjMuOCA4MS42IDUxMS4zIDgyIDI3MS43IDgyLjYgNzkuNiAyNzcuMSA4MiA1MTYuNCA4NC40IDc1MS45IDI3Ni4yIDk0MiA1MTIuNCA5NDJjMTUyLjEgMCAyODUuNy03OC44IDM2Mi4zLTE5Ny43IDMuNC01LjMtLjQtMTIuMy02LjctMTIuM3ptODguOS0yMjYuM0w4MTUgMzkzLjdjLTUuMy00LjItMTMtLjQtMTMgNi4zdjc2SDQ4OGMtNC40IDAtOCAzLjYtOCA4djU2YzAgNC40IDMuNiA4IDggOGgzMTR2NzZjMCA2LjcgNy44IDEwLjUgMTMgNi4zbDE0MS45LTExMmE4IDggMCAwMDAtMTIuNnoiIC8+PC9zdmc+) */
+
+/**![mail](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkyOCAxNjBIOTZjLTE3LjcgMC0zMiAxNC4zLTMyIDMydjY0MGMwIDE3LjcgMTQuMyAzMiAzMiAzMmg4MzJjMTcuNyAwIDMyLTE0LjMgMzItMzJWMTkyYzAtMTcuNy0xNC4zLTMyLTMyLTMyem0tNDAgMTEwLjhWNzkySDEzNlYyNzAuOGwtMjcuNi0yMS41IDM5LjMtNTAuNSA0Mi44IDMzLjNoNjQzLjFsNDIuOC0zMy4zIDM5LjMgNTAuNS0yNy43IDIxLjV6TTgzMy42IDIzMkw1MTIgNDgyIDE5MC40IDIzMmwtNDIuOC0zMy4zLTM5LjMgNTAuNSAyNy42IDIxLjUgMzQxLjYgMjY1LjZhNTUuOTkgNTUuOTkgMCAwMDY4LjcgMEw4ODggMjcwLjhsMjcuNi0yMS41LTM5LjMtNTAuNS00Mi43IDMzLjJ6IiAvPjwvc3ZnPg==) */
+
+/**![menu](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkwNCAxNjBIMTIwYy00LjQgMC04IDMuNi04IDh2NjRjMCA0LjQgMy42IDggOCA4aDc4NGM0LjQgMCA4LTMuNiA4LTh2LTY0YzAtNC40LTMuNi04LTgtOHptMCA2MjRIMTIwYy00LjQgMC04IDMuNi04IDh2NjRjMCA0LjQgMy42IDggOCA4aDc4NGM0LjQgMCA4LTMuNiA4LTh2LTY0YzAtNC40LTMuNi04LTgtOHptMC0zMTJIMTIwYy00LjQgMC04IDMuNi04IDh2NjRjMCA0LjQgMy42IDggOCA4aDc4NGM0LjQgMCA4LTMuNiA4LTh2LTY0YzAtNC40LTMuNi04LTgtOHoiIC8+PC9zdmc+) */
+
+/**![more](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTQ1NiAyMzFhNTYgNTYgMCAxMDExMiAwIDU2IDU2IDAgMTAtMTEyIDB6bTAgMjgwYTU2IDU2IDAgMTAxMTIgMCA1NiA1NiAwIDEwLTExMiAwem0wIDI4MGE1NiA1NiAwIDEwMTEyIDAgNTYgNTYgMCAxMC0xMTIgMHoiIC8+PC9zdmc+) */
+
+/**![node-index](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHN0eWxlIC8+PC9kZWZzPjxwYXRoIGQ9Ik04NDMuNSA3MzcuNGMtMTIuNC03NS4yLTc5LjItMTI5LjEtMTU1LjMtMTI1LjRTNTUwLjkgNjc2IDU0NiA3NTJjLTE1My41LTQuOC0yMDgtNDAuNy0xOTkuMS0xMTMuNyAzLjMtMjcuMyAxOS44LTQxLjkgNTAuMS00OSAxOC40LTQuMyAzOC44LTQuOSA1Ny4zLTMuMiAxLjcuMiAzLjUuMyA1LjIuNSAxMS4zIDIuNyAyMi44IDUgMzQuMyA2LjggMzQuMSA1LjYgNjguOCA4LjQgMTAxLjggNi42IDkyLjgtNSAxNTYtNDUuOSAxNTkuMi0xMzIuNyAzLjEtODQuMS01NC43LTE0My43LTE0Ny45LTE4My42LTI5LjktMTIuOC02MS42LTIyLjctOTMuMy0zMC4yLTE0LjMtMy40LTI2LjMtNS43LTM1LjItNy4yLTcuOS03NS45LTcxLjUtMTMzLjgtMTQ3LjgtMTM0LjQtNzYuMy0uNi0xNDAuOSA1Ni4xLTE1MC4xIDEzMS45czQwIDE0Ni4zIDExNC4yIDE2My45Yzc0LjIgMTcuNiAxNDkuOS0yMy4zIDE3NS43LTk1LjEgOS40IDEuNyAxOC43IDMuNiAyOCA1LjggMjguMiA2LjYgNTYuNCAxNS40IDgyLjQgMjYuNiA3MC43IDMwLjIgMTA5LjMgNzAuMSAxMDcuNSAxMTkuOS0xLjYgNDQuNi0zMy42IDY1LjItOTYuMiA2OC42LTI3LjUgMS41LTU3LjYtLjktODcuMy01LjgtOC4zLTEuNC0xNS45LTIuOC0yMi42LTQuMy0zLjktLjgtNi42LTEuNS03LjgtMS44bC0zLjEtLjZjLTIuMi0uMy01LjktLjgtMTAuNy0xLjMtMjUtMi4zLTUyLjEtMS41LTc4LjUgNC42LTU1LjIgMTIuOS05My45IDQ3LjItMTAxLjEgMTA1LjgtMTUuNyAxMjYuMiA3OC42IDE4NC43IDI3NiAxODguOSAyOS4xIDcwLjQgMTA2LjQgMTA3LjkgMTc5LjYgODcgNzMuMy0yMC45IDExOS4zLTkzLjQgMTA2LjktMTY4LjZ6TTMyOS4xIDM0NS4yYTgzLjMgODMuMyAwIDExLjAxLTE2Ni42MSA4My4zIDgzLjMgMCAwMS0uMDEgMTY2LjYxek02OTUuNiA4NDVhODMuMyA4My4zIDAgMTEuMDEtMTY2LjYxQTgzLjMgODMuMyAwIDAxNjk1LjYgODQ1eiIgLz48L3N2Zz4=) */
+
+/**![picture](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkyOCAxNjBIOTZjLTE3LjcgMC0zMiAxNC4zLTMyIDMydjY0MGMwIDE3LjcgMTQuMyAzMiAzMiAzMmg4MzJjMTcuNyAwIDMyLTE0LjMgMzItMzJWMTkyYzAtMTcuNy0xNC4zLTMyLTMyLTMyem0tNDAgNjMySDEzNnYtMzkuOWwxMzguNS0xNjQuMyAxNTAuMSAxNzhMNjU4LjEgNDg5IDg4OCA3NjEuNlY3OTJ6bTAtMTI5LjhMNjY0LjIgMzk2LjhjLTMuMi0zLjgtOS0zLjgtMTIuMiAwTDQyNC42IDY2Ni40bC0xNDQtMTcwLjdjLTMuMi0zLjgtOS0zLjgtMTIuMiAwTDEzNiA2NTIuN1YyMzJoNzUydjQzMC4yek0zMDQgNDU2YTg4IDg4IDAgMTAwLTE3NiA4OCA4OCAwIDAwMCAxNzZ6bTAtMTE2YzE1LjUgMCAyOCAxMi41IDI4IDI4cy0xMi41IDI4LTI4IDI4LTI4LTEyLjUtMjgtMjggMTIuNS0yOCAyOC0yOHoiIC8+PC9zdmc+) */
+
+/**![plus](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTQ4MiAxNTJoNjBxOCAwIDggOHY3MDRxMCA4LTggOGgtNjBxLTggMC04LThWMTYwcTAtOCA4LTh6IiAvPjxwYXRoIGQ9Ik0xOTIgNDc0aDY3MnE4IDAgOCA4djYwcTAgOC04IDhIMTYwcS04IDAtOC04di02MHEwLTggOC04eiIgLz48L3N2Zz4=) */
+
+/**![question-circle](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUxMiA2NEMyNjQuNiA2NCA2NCAyNjQuNiA2NCA1MTJzMjAwLjYgNDQ4IDQ0OCA0NDggNDQ4LTIwMC42IDQ0OC00NDhTNzU5LjQgNjQgNTEyIDY0em0wIDgyMGMtMjA1LjQgMC0zNzItMTY2LjYtMzcyLTM3MnMxNjYuNi0zNzIgMzcyLTM3MiAzNzIgMTY2LjYgMzcyIDM3Mi0xNjYuNiAzNzItMzcyIDM3MnoiIC8+PHBhdGggZD0iTTYyMy42IDMxNi43QzU5My42IDI5MC40IDU1NCAyNzYgNTEyIDI3NnMtODEuNiAxNC41LTExMS42IDQwLjdDMzY5LjIgMzQ0IDM1MiAzODAuNyAzNTIgNDIwdjcuNmMwIDQuNCAzLjYgOCA4IDhoNDhjNC40IDAgOC0zLjYgOC04VjQyMGMwLTQ0LjEgNDMuMS04MCA5Ni04MHM5NiAzNS45IDk2IDgwYzAgMzEuMS0yMiA1OS42LTU2LjEgNzIuNy0yMS4yIDguMS0zOS4yIDIyLjMtNTIuMSA0MC45LTEzLjEgMTktMTkuOSA0MS44LTE5LjkgNjQuOVY2MjBjMCA0LjQgMy42IDggOCA4aDQ4YzQuNCAwIDgtMy42IDgtOHYtMjIuN2E0OC4zIDQ4LjMgMCAwMTMwLjktNDQuOGM1OS0yMi43IDk3LjEtNzQuNyA5Ny4xLTEzMi41LjEtMzkuMy0xNy4xLTc2LTQ4LjMtMTAzLjN6TTQ3MiA3MzJhNDAgNDAgMCAxMDgwIDAgNDAgNDAgMCAxMC04MCAweiIgLz48L3N2Zz4=) */
+
+/**![redo](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTc1OC4yIDgzOS4xQzg1MS44IDc2NS45IDkxMiA2NTEuOSA5MTIgNTIzLjkgOTEyIDMwMyA3MzMuNSAxMjQuMyA1MTIuNiAxMjQgMjkxLjQgMTIzLjcgMTEyIDMwMi44IDExMiA1MjMuOWMwIDEyNS4yIDU3LjUgMjM2LjkgMTQ3LjYgMzEwLjIgMy41IDIuOCA4LjYgMi4yIDExLjQtMS4zbDM5LjQtNTAuNWMyLjctMy40IDIuMS04LjMtMS4yLTExLjEtOC4xLTYuNi0xNS45LTEzLjctMjMuNC0yMS4yYTMxOC42NCAzMTguNjQgMCAwMS02OC42LTEwMS43QzIwMC40IDYwOSAxOTIgNTY3LjEgMTkyIDUyMy45czguNC04NS4xIDI1LjEtMTI0LjVjMTYuMS0zOC4xIDM5LjItNzIuMyA2OC42LTEwMS43IDI5LjQtMjkuNCA2My42LTUyLjUgMTAxLjctNjguNkM0MjYuOSAyMTIuNCA0NjguOCAyMDQgNTEyIDIwNHM4NS4xIDguNCAxMjQuNSAyNS4xYzM4LjEgMTYuMSA3Mi4zIDM5LjIgMTAxLjcgNjguNiAyOS40IDI5LjQgNTIuNSA2My42IDY4LjYgMTAxLjcgMTYuNyAzOS40IDI1LjEgODEuMyAyNS4xIDEyNC41cy04LjQgODUuMS0yNS4xIDEyNC41YTMxOC42NCAzMTguNjQgMCAwMS02OC42IDEwMS43Yy05LjMgOS4zLTE5LjEgMTgtMjkuMyAyNkw2NjguMiA3MjRhOCA4IDAgMDAtMTQuMSAzbC0zOS42IDE2Mi4yYy0xLjIgNSAyLjYgOS45IDcuNyA5LjlsMTY3IC44YzYuNyAwIDEwLjUtNy43IDYuMy0xMi45bC0zNy4zLTQ3Ljl6IiAvPjwvc3ZnPg==) */
+
+/**![reload](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkwOS4xIDIwOS4zbC01Ni40IDQ0LjFDNzc1LjggMTU1LjEgNjU2LjIgOTIgNTIxLjkgOTIgMjkwIDkyIDEwMi4zIDI3OS41IDEwMiA1MTEuNSAxMDEuNyA3NDMuNyAyODkuOCA5MzIgNTIxLjkgOTMyYzE4MS4zIDAgMzM1LjgtMTE1IDM5NC42LTI3Ni4xIDEuNS00LjItLjctOC45LTQuOS0xMC4zbC01Ni43LTE5LjVhOCA4IDAgMDAtMTAuMSA0LjhjLTEuOCA1LTMuOCAxMC01LjkgMTQuOS0xNy4zIDQxLTQyLjEgNzcuOC03My43IDEwOS40QTM0NC43NyAzNDQuNzcgMCAwMTY1NS45IDgyOWMtNDIuMyAxNy45LTg3LjQgMjctMTMzLjggMjctNDYuNSAwLTkxLjUtOS4xLTEzMy44LTI3QTM0MS41IDM0MS41IDAgMDEyNzkgNzU1LjJhMzQyLjE2IDM0Mi4xNiAwIDAxLTczLjctMTA5LjRjLTE3LjktNDIuNC0yNy04Ny40LTI3LTEzMy45czkuMS05MS41IDI3LTEzMy45YzE3LjMtNDEgNDIuMS03Ny44IDczLjctMTA5LjQgMzEuNi0zMS42IDY4LjQtNTYuNCAxMDkuMy03My44IDQyLjMtMTcuOSA4Ny40LTI3IDEzMy44LTI3IDQ2LjUgMCA5MS41IDkuMSAxMzMuOCAyN2EzNDEuNSAzNDEuNSAwIDAxMTA5LjMgNzMuOGM5LjkgOS45IDE5LjIgMjAuNCAyNy44IDMxLjRsLTYwLjIgNDdhOCA4IDAgMDAzIDE0LjFsMTc1LjYgNDNjNSAxLjIgOS45LTIuNiA5LjktNy43bC44LTE4MC45Yy0uMS02LjYtNy44LTEwLjMtMTMtNi4yeiIgLz48L3N2Zz4=) */
+
+/**![right](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTc2NS43IDQ4Ni44TDMxNC45IDEzNC43QTcuOTcgNy45NyAwIDAwMzAyIDE0MXY3Ny4zYzAgNC45IDIuMyA5LjYgNi4xIDEyLjZsMzYwIDI4MS4xLTM2MCAyODEuMWMtMy45IDMtNi4xIDcuNy02LjEgMTIuNlY4ODNjMCA2LjcgNy43IDEwLjQgMTIuOSA2LjNsNDUwLjgtMzUyLjFhMzEuOTYgMzEuOTYgMCAwMDAtNTAuNHoiIC8+PC9zdmc+) */
+
+/**![save](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg5My4zIDI5My4zTDczMC43IDEzMC43Yy03LjUtNy41LTE2LjctMTMtMjYuNy0xNlYxMTJIMTQ0Yy0xNy43IDAtMzIgMTQuMy0zMiAzMnY3MzZjMCAxNy43IDE0LjMgMzIgMzIgMzJoNzM2YzE3LjcgMCAzMi0xNC4zIDMyLTMyVjMzOC41YzAtMTctNi43LTMzLjItMTguNy00NS4yek0zODQgMTg0aDI1NnYxMDRIMzg0VjE4NHptNDU2IDY1NkgxODRWMTg0aDEzNnYxMzZjMCAxNy43IDE0LjMgMzIgMzIgMzJoMzIwYzE3LjcgMCAzMi0xNC4zIDMyLTMyVjIwNS44bDEzNiAxMzZWODQwek01MTIgNDQyYy03OS41IDAtMTQ0IDY0LjUtMTQ0IDE0NHM2NC41IDE0NCAxNDQgMTQ0IDE0NC02NC41IDE0NC0xNDQtNjQuNS0xNDQtMTQ0LTE0NHptMCAyMjRjLTQ0LjIgMC04MC0zNS44LTgwLTgwczM1LjgtODAgODAtODAgODAgMzUuOCA4MCA4MC0zNS44IDgwLTgwIDgweiIgLz48L3N2Zz4=) */
+
+/**![search](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkwOS42IDg1NC41TDY0OS45IDU5NC44QzY5MC4yIDU0Mi43IDcxMiA0NzkgNzEyIDQxMmMwLTgwLjItMzEuMy0xNTUuNC04Ny45LTIxMi4xLTU2LjYtNTYuNy0xMzItODcuOS0yMTIuMS04Ny45cy0xNTUuNSAzMS4zLTIxMi4xIDg3LjlDMTQzLjIgMjU2LjUgMTEyIDMzMS44IDExMiA0MTJjMCA4MC4xIDMxLjMgMTU1LjUgODcuOSAyMTIuMUMyNTYuNSA2ODAuOCAzMzEuOCA3MTIgNDEyIDcxMmM2NyAwIDEzMC42LTIxLjggMTgyLjctNjJsMjU5LjcgMjU5LjZhOC4yIDguMiAwIDAwMTEuNiAwbDQzLjYtNDMuNWE4LjIgOC4yIDAgMDAwLTExLjZ6TTU3MC40IDU3MC40QzUyOCA2MTIuNyA0NzEuOCA2MzYgNDEyIDYzNnMtMTE2LTIzLjMtMTU4LjQtNjUuNkMyMTEuMyA1MjggMTg4IDQ3MS44IDE4OCA0MTJzMjMuMy0xMTYuMSA2NS42LTE1OC40QzI5NiAyMTEuMyAzNTIuMiAxODggNDEyIDE4OHMxMTYuMSAyMy4yIDE1OC40IDY1LjZTNjM2IDM1Mi4yIDYzNiA0MTJzLTIzLjMgMTE2LjEtNjUuNiAxNTguNHoiIC8+PC9zdmc+) */
+
+/**![select](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg4MCAxMTJIMTQ0Yy0xNy43IDAtMzIgMTQuMy0zMiAzMnY3MzZjMCAxNy43IDE0LjMgMzIgMzIgMzJoMzYwYzQuNCAwIDgtMy42IDgtOHYtNTZjMC00LjQtMy42LTgtOC04SDE4NFYxODRoNjU2djMyMGMwIDQuNCAzLjYgOCA4IDhoNTZjNC40IDAgOC0zLjYgOC04VjE0NGMwLTE3LjctMTQuMy0zMi0zMi0zMnpNNjUzLjMgNTk5LjRsNTIuMi01Mi4yYTguMDEgOC4wMSAwIDAwLTQuNy0xMy42bC0xNzkuNC0yMWMtNS4xLS42LTkuNSAzLjctOC45IDguOWwyMSAxNzkuNGMuOCA2LjYgOC45IDkuNCAxMy42IDQuN2w1Mi40LTUyLjQgMjU2LjIgMjU2LjJjMy4xIDMuMSA4LjIgMy4xIDExLjMgMGw0Mi40LTQyLjRjMy4xLTMuMSAzLjEtOC4yIDAtMTEuM0w2NTMuMyA1OTkuNHoiIC8+PC9zdmc+) */
+
+/**![send](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHN0eWxlIC8+PC9kZWZzPjxwYXRoIGQ9Ik05MzEuNCA0OTguOUw5NC45IDc5LjVjLTMuNC0xLjctNy4zLTIuMS0xMS0xLjJhMTUuOTkgMTUuOTkgMCAwMC0xMS43IDE5LjNsODYuMiAzNTIuMmMxLjMgNS4zIDUuMiA5LjYgMTAuNCAxMS4zbDE0Ny43IDUwLjctMTQ3LjYgNTAuN2MtNS4yIDEuOC05LjEgNi0xMC4zIDExLjNMNzIuMiA5MjYuNWMtLjkgMy43LS41IDcuNiAxLjIgMTAuOSAzLjkgNy45IDEzLjUgMTEuMSAyMS41IDcuMmw4MzYuNS00MTdjMy4xLTEuNSA1LjYtNC4xIDcuMi03LjEgMy45LTggLjctMTcuNi03LjItMjEuNnpNMTcwLjggODI2LjNsNTAuMy0yMDUuNiAyOTUuMi0xMDEuM2MyLjMtLjggNC4yLTIuNiA1LTUgMS40LTQuMi0uOC04LjctNS0xMC4yTDIyMS4xIDQwMyAxNzEgMTk4LjJsNjI4IDMxNC45LTYyOC4yIDMxMy4yeiIgLz48L3N2Zz4=) */
+
+/**![setting](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkyNC44IDYyNS43bC02NS41LTU2YzMuMS0xOSA0LjctMzguNCA0LjctNTcuOHMtMS42LTM4LjgtNC43LTU3LjhsNjUuNS01NmEzMi4wMyAzMi4wMyAwIDAwOS4zLTM1LjJsLS45LTIuNmE0NDMuNzQgNDQzLjc0IDAgMDAtNzkuNy0xMzcuOWwtMS44LTIuMWEzMi4xMiAzMi4xMiAwIDAwLTM1LjEtOS41bC04MS4zIDI4LjljLTMwLTI0LjYtNjMuNS00NC05OS43LTU3LjZsLTE1LjctODVhMzIuMDUgMzIuMDUgMCAwMC0yNS44LTI1LjdsLTIuNy0uNWMtNTIuMS05LjQtMTA2LjktOS40LTE1OSAwbC0yLjcuNWEzMi4wNSAzMi4wNSAwIDAwLTI1LjggMjUuN2wtMTUuOCA4NS40YTM1MS44NiAzNTEuODYgMCAwMC05OSA1Ny40bC04MS45LTI5LjFhMzIgMzIgMCAwMC0zNS4xIDkuNWwtMS44IDIuMWE0NDYuMDIgNDQ2LjAyIDAgMDAtNzkuNyAxMzcuOWwtLjkgMi42Yy00LjUgMTIuNS0uOCAyNi41IDkuMyAzNS4ybDY2LjMgNTYuNmMtMy4xIDE4LjgtNC42IDM4LTQuNiA1Ny4xIDAgMTkuMiAxLjUgMzguNCA0LjYgNTcuMUw5OSA2MjUuNWEzMi4wMyAzMi4wMyAwIDAwLTkuMyAzNS4ybC45IDIuNmMxOC4xIDUwLjQgNDQuOSA5Ni45IDc5LjcgMTM3LjlsMS44IDIuMWEzMi4xMiAzMi4xMiAwIDAwMzUuMSA5LjVsODEuOS0yOS4xYzI5LjggMjQuNSA2My4xIDQzLjkgOTkgNTcuNGwxNS44IDg1LjRhMzIuMDUgMzIuMDUgMCAwMDI1LjggMjUuN2wyLjcuNWE0NDkuNCA0NDkuNCAwIDAwMTU5IDBsMi43LS41YTMyLjA1IDMyLjA1IDAgMDAyNS44LTI1LjdsMTUuNy04NWEzNTAgMzUwIDAgMDA5OS43LTU3LjZsODEuMyAyOC45YTMyIDMyIDAgMDAzNS4xLTkuNWwxLjgtMi4xYzM0LjgtNDEuMSA2MS42LTg3LjUgNzkuNy0xMzcuOWwuOS0yLjZjNC41LTEyLjMuOC0yNi4zLTkuMy0zNXpNNzg4LjMgNDY1LjljMi41IDE1LjEgMy44IDMwLjYgMy44IDQ2LjFzLTEuMyAzMS0zLjggNDYuMWwtNi42IDQwLjEgNzQuNyA2My45YTM3MC4wMyAzNzAuMDMgMCAwMS00Mi42IDczLjZMNzIxIDcwMi44bC0zMS40IDI1LjhjLTIzLjkgMTkuNi01MC41IDM1LTc5LjMgNDUuOGwtMzguMSAxNC4zLTE3LjkgOTdhMzc3LjUgMzc3LjUgMCAwMS04NSAwbC0xNy45LTk3LjItMzcuOC0xNC41Yy0yOC41LTEwLjgtNTUtMjYuMi03OC43LTQ1LjdsLTMxLjQtMjUuOS05My40IDMzLjJjLTE3LTIyLjktMzEuMi00Ny42LTQyLjYtNzMuNmw3NS41LTY0LjUtNi41LTQwYy0yLjQtMTQuOS0zLjctMzAuMy0zLjctNDUuNSAwLTE1LjMgMS4yLTMwLjYgMy43LTQ1LjVsNi41LTQwLTc1LjUtNjQuNWMxMS4zLTI2LjEgMjUuNi01MC43IDQyLjYtNzMuNmw5My40IDMzLjIgMzEuNC0yNS45YzIzLjctMTkuNSA1MC4yLTM0LjkgNzguNy00NS43bDM3LjktMTQuMyAxNy45LTk3LjJjMjguMS0zLjIgNTYuOC0zLjIgODUgMGwxNy45IDk3IDM4LjEgMTQuM2MyOC43IDEwLjggNTUuNCAyNi4yIDc5LjMgNDUuOGwzMS40IDI1LjggOTIuOC0zMi45YzE3IDIyLjkgMzEuMiA0Ny42IDQyLjYgNzMuNkw3ODEuOCA0MjZsNi41IDM5Ljl6TTUxMiAzMjZjLTk3LjIgMC0xNzYgNzguOC0xNzYgMTc2czc4LjggMTc2IDE3NiAxNzYgMTc2LTc4LjggMTc2LTE3Ni03OC44LTE3Ni0xNzYtMTc2em03OS4yIDI1NS4yQTExMS42IDExMS42IDAgMDE1MTIgNjE0Yy0yOS45IDAtNTgtMTEuNy03OS4yLTMyLjhBMTExLjYgMTExLjYgMCAwMTQwMCA1MDJjMC0yOS45IDExLjctNTggMzIuOC03OS4yQzQ1NCA0MDEuNiA0ODIuMSAzOTAgNTEyIDM5MGMyOS45IDAgNTggMTEuNiA3OS4yIDMyLjhBMTExLjYgMTExLjYgMCAwMTYyNCA1MDJjMCAyOS45LTExLjcgNTgtMzIuOCA3OS4yeiIgLz48L3N2Zz4=) */
+
+/**![swap](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg0Ny45IDU5MkgxNTJjLTQuNCAwLTggMy42LTggOHY2MGMwIDQuNCAzLjYgOCA4IDhoNjA1LjJMNjEyLjkgODUxYy00LjEgNS4yLS40IDEzIDYuMyAxM2g3Mi41YzQuOSAwIDkuNS0yLjIgMTIuNi02LjFsMTY4LjgtMjE0LjFjMTYuNS0yMSAxLjYtNTEuOC0yNS4yLTUxLjh6TTg3MiAzNTZIMjY2LjhsMTQ0LjMtMTgzYzQuMS01LjIuNC0xMy02LjMtMTNoLTcyLjVjLTQuOSAwLTkuNSAyLjItMTIuNiA2LjFMMTUwLjkgMzgwLjJjLTE2LjUgMjEtMS42IDUxLjggMjUuMSA1MS44aDY5NmM0LjQgMCA4LTMuNiA4LTh2LTYwYzAtNC40LTMuNi04LTgtOHoiIC8+PC9zdmc+) */
+
+/**![thunderbolt](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg0OCAzNTkuM0g2MjcuN0w4MjUuOCAxMDljNC4xLTUuMy40LTEzLTYuMy0xM0g0MzZjLTIuOCAwLTUuNSAxLjUtNi45IDRMMTcwIDU0Ny41Yy0zLjEgNS4zLjcgMTIgNi45IDEyaDE3NC40bC04OS40IDM1Ny42Yy0xLjkgNy44IDcuNSAxMy4zIDEzLjMgNy43TDg1My41IDM3M2M1LjItNC45IDEuNy0xMy43LTUuNS0xMy43ek0zNzguMiA3MzIuNWw2MC4zLTI0MUgyODEuMWwxODkuNi0zMjcuNGgyMjQuNkw0ODcgNDI3LjRoMjExTDM3OC4yIDczMi41eiIgLz48L3N2Zz4=) */
+
+/**![translation](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHN0eWxlIC8+PC9kZWZzPjxwYXRoIGQ9Ik0xNDAgMTg4aDU4NHYxNjRoNzZWMTQ0YzAtMTcuNy0xNC4zLTMyLTMyLTMySDk2Yy0xNy43IDAtMzIgMTQuMy0zMiAzMnY3MzZjMCAxNy43IDE0LjMgMzIgMzIgMzJoNTQ0di03NkgxNDBWMTg4eiIgLz48cGF0aCBkPSJNNDE0LjMgMjU2aC02MC42Yy0zLjQgMC02LjQgMi4yLTcuNiA1LjRMMjE5IDYyOS40Yy0uMy44LS40IDEuNy0uNCAyLjYgMCA0LjQgMy42IDggOCA4aDU1LjFjMy40IDAgNi40LTIuMiA3LjYtNS40TDMyMiA1NDBoMTk2LjJMNDIyIDI2MS40YTguNDIgOC40MiAwIDAwLTcuNy01LjR6bTEyLjQgMjI4aC04NS41TDM4NCAzNjAuMiA0MjYuNyA0ODR6TTkzNiA1MjhIODAwdi05M2MwLTQuNC0zLjYtOC04LThoLTU2Yy00LjQgMC04IDMuNi04IDh2OTNINTkyYy0xMy4zIDAtMjQgMTAuNy0yNCAyNHYxNzZjMCAxMy4zIDEwLjcgMjQgMjQgMjRoMTM2djE1MmMwIDQuNCAzLjYgOCA4IDhoNTZjNC40IDAgOC0zLjYgOC04Vjc1MmgxMzZjMTMuMyAwIDI0LTEwLjcgMjQtMjRWNTUyYzAtMTMuMy0xMC43LTI0LTI0LTI0ek03MjggNjgwaC04OHYtODBoODh2ODB6bTE2MCAwaC04OHYtODBoODh2ODB6IiAvPjwvc3ZnPg==) */
+
+/**![undo](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTUxMS40IDEyNEMyOTAuNSAxMjQuMyAxMTIgMzAzIDExMiA1MjMuOWMwIDEyOCA2MC4yIDI0MiAxNTMuOCAzMTUuMmwtMzcuNSA0OGMtNC4xIDUuMy0uMyAxMyA2LjMgMTIuOWwxNjctLjhjNS4yIDAgOS00LjkgNy43LTkuOUwzNjkuOCA3MjdhOCA4IDAgMDAtMTQuMS0zTDMxNSA3NzYuMWMtMTAuMi04LTIwLTE2LjctMjkuMy0yNmEzMTguNjQgMzE4LjY0IDAgMDEtNjguNi0xMDEuN0MyMDAuNCA2MDkgMTkyIDU2Ny4xIDE5MiA1MjMuOXM4LjQtODUuMSAyNS4xLTEyNC41YzE2LjEtMzguMSAzOS4yLTcyLjMgNjguNi0xMDEuNyAyOS40LTI5LjQgNjMuNi01Mi41IDEwMS43LTY4LjZDNDI2LjkgMjEyLjQgNDY4LjggMjA0IDUxMiAyMDRzODUuMSA4LjQgMTI0LjUgMjUuMWMzOC4xIDE2LjEgNzIuMyAzOS4yIDEwMS43IDY4LjYgMjkuNCAyOS40IDUyLjUgNjMuNiA2OC42IDEwMS43IDE2LjcgMzkuNCAyNS4xIDgxLjMgMjUuMSAxMjQuNXMtOC40IDg1LjEtMjUuMSAxMjQuNWEzMTguNjQgMzE4LjY0IDAgMDEtNjguNiAxMDEuN2MtNy41IDcuNS0xNS4zIDE0LjUtMjMuNCAyMS4yYTcuOTMgNy45MyAwIDAwLTEuMiAxMS4xbDM5LjQgNTAuNWMyLjggMy41IDcuOSA0LjEgMTEuNCAxLjNDODU0LjUgNzYwLjggOTEyIDY0OS4xIDkxMiA1MjMuOWMwLTIyMS4xLTE3OS40LTQwMC4yLTQwMC42LTM5OS45eiIgLz48L3N2Zz4=) */
+
+/**![up](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg5MC41IDc1NS4zTDUzNy45IDI2OS4yYy0xMi44LTE3LjYtMzktMTcuNi01MS43IDBMMTMzLjUgNzU1LjNBOCA4IDAgMDAxNDAgNzY4aDc1YzUuMSAwIDkuOS0yLjUgMTIuOS02LjZMNTEyIDM2OS44bDI4NC4xIDM5MS42YzMgNC4xIDcuOCA2LjYgMTIuOSA2LjZoNzVjNi41IDAgMTAuMy03LjQgNi41LTEyLjd6IiAvPjwvc3ZnPg==) */
+
+/**![user](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTg1OC41IDc2My42YTM3NCAzNzQgMCAwMC04MC42LTExOS41IDM3NS42MyAzNzUuNjMgMCAwMC0xMTkuNS04MC42Yy0uNC0uMi0uOC0uMy0xLjItLjVDNzE5LjUgNTE4IDc2MCA0NDQuNyA3NjAgMzYyYzAtMTM3LTExMS0yNDgtMjQ4LTI0OFMyNjQgMjI1IDI2NCAzNjJjMCA4Mi43IDQwLjUgMTU2IDEwMi44IDIwMS4xLS40LjItLjguMy0xLjIuNS00NC44IDE4LjktODUgNDYtMTE5LjUgODAuNmEzNzUuNjMgMzc1LjYzIDAgMDAtODAuNiAxMTkuNUEzNzEuNyAzNzEuNyAwIDAwMTM2IDkwMS44YTggOCAwIDAwOCA4LjJoNjBjNC40IDAgNy45LTMuNSA4LTcuOCAyLTc3LjIgMzMtMTQ5LjUgODcuOC0yMDQuMyA1Ni43LTU2LjcgMTMyLTg3LjkgMjEyLjItODcuOXMxNTUuNSAzMS4yIDIxMi4yIDg3LjlDNzc5IDc1Mi43IDgxMCA4MjUgODEyIDkwMi4yYy4xIDQuNCAzLjYgNy44IDggNy44aDYwYTggOCAwIDAwOC04LjJjLTEtNDcuOC0xMC45LTk0LjMtMjkuNS0xMzguMnpNNTEyIDUzNGMtNDUuOSAwLTg5LjEtMTcuOS0xMjEuNi01MC40UzM0MCA0MDcuOSAzNDAgMzYyYzAtNDUuOSAxNy45LTg5LjEgNTAuNC0xMjEuNlM0NjYuMSAxOTAgNTEyIDE5MHM4OS4xIDE3LjkgMTIxLjYgNTAuNFM2ODQgMzE2LjEgNjg0IDM2MmMwIDQ1LjktMTcuOSA4OS4xLTUwLjQgMTIxLjZTNTU3LjkgNTM0IDUxMiA1MzR6IiAvPjwvc3ZnPg==) */
+
+/**![video-camera](data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNTAiIGhlaWdodD0iNTAiIGZpbGw9IiNjYWNhY2EiIHZpZXdCb3g9IjY0IDY0IDg5NiA4OTYiIGZvY3VzYWJsZT0iZmFsc2UiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTkxMiAzMDIuM0w3ODQgMzc2VjIyNGMwLTM1LjMtMjguNy02NC02NC02NEgxMjhjLTM1LjMgMC02NCAyOC43LTY0IDY0djU3NmMwIDM1LjMgMjguNyA2NCA2NCA2NGg1OTJjMzUuMyAwIDY0LTI4LjcgNjQtNjRWNjQ4bDEyOCA3My43YzIxLjMgMTIuMyA0OC0zLjEgNDgtMjcuNlYzMzBjMC0yNC42LTI2LjctNDAtNDgtMjcuN3pNNzEyIDc5MkgxMzZWMjMyaDU3NnY1NjB6bTE3Ni0xNjdsLTEwNC01OS44VjQ1OC45TDg4OCAzOTl2MjI2ek0yMDggMzYwaDExMmM0LjQgMCA4LTMuNiA4LTh2LTQ4YzAtNC40LTMuNi04LTgtOEgyMDhjLTQuNCAwLTggMy42LTggOHY0OGMwIDQuNCAzLjYgOCA4IDh6IiAvPjwvc3ZnPg==) */
+
+
+Windows client: Electron — https://www.electronjs.org/docs/latest/tutorial/acknowledgements
+Android client: AndroidX WebKit — Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0

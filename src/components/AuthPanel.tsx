@@ -583,6 +583,10 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
                 正在为你登录…
               </Paragraph>
             )}
+            <nav className="auth-policy-links" aria-label="产品说明">
+              <a href="/privacy.html" target="_blank" rel="noopener noreferrer">隐私与数据说明</a>
+              <a href="/terms.html" target="_blank" rel="noopener noreferrer">用户协议与作品说明</a>
+            </nav>
           </div>
         </section>
       </div>

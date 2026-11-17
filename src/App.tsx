@@ -24,7 +24,9 @@ import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
 import AIAssistantModal from './components/AIAssistantModal';
-import { BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
+import { AmapStyle, BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
+import BaseMapPicker from './components/BaseMapPicker';
+import AboutPanel from './components/AboutPanel';
 import { exportVideoFromStage } from './lib/exportVideo';
 import { VideoExportProgress } from './lib/recordVideo';
 import { deleteStationFromGraph } from './lib/graphOps';
@@ -312,6 +314,7 @@ const App: React.FC = () => {
   const [duplicatingMapId, setDuplicatingMapId] = useState<string | null>(null);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [aboutVisible, setAboutVisible] = useState(false);
+  const [baseMapPickerStyle, setBaseMapPickerStyle] = useState<AmapStyle | null>(null);
   const [language, setLanguage] = useState<AppLanguage>(getInitialLanguage);
   const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
@@ -893,6 +896,7 @@ const App: React.FC = () => {
     setProfileVisible(false);
     setSettingsVisible(false);
     setAboutVisible(false);
+    setBaseMapPickerStyle(null);
     setVideoModalOpen(false);
     setMapName('');
     resetHistory();
@@ -938,6 +942,16 @@ const App: React.FC = () => {
 
   const handleBaseMapModeChange = (nextMode: BaseMapMode) => {
     if (nextMode === mapSettings.baseMap.mode) return;
+
+    if (nextMode === 'amap') {
+      let style = mapSettings.baseMap.amap?.style || 'normal';
+      try {
+        const remembered = localStorage.getItem('metro_amap_style');
+        if (remembered === 'normal' || remembered === 'dark' || remembered === 'grey' || remembered === 'fresh') style = remembered;
+      } catch { /* Default style remains available when local storage is disabled. */ }
+      setBaseMapPickerStyle(style);
+      return;
+    }
 
     const applyModeChange = () => {
       pushHistory();
@@ -2384,15 +2398,20 @@ const App: React.FC = () => {
           />
         </DraggableModal>
 
-        <DraggableModal
-          title={language === 'en-US' ? 'About Metro Designer' : '关于 Metro Designer'}
-          open={aboutVisible}
-          onCancel={() => setAboutVisible(false)}
-          width={420}
-          footer={<Button type="primary" onClick={() => setAboutVisible(false)}>{text.close}</Button>}
-        >
-          <p>{language === 'en-US' ? 'More about Metro Designer is coming soon.' : '关于 Metro Designer 的更多信息，敬请期待。'}</p>
-        </DraggableModal>
+        {baseMapPickerStyle !== null && <BaseMapPicker initialStyle={baseMapPickerStyle} language={language} hasContent={stations.length > 0 || sections.length > 0}
+          onCancel={() => setBaseMapPickerStyle(null)} onConfirm={(style) => {
+            pushHistory();
+            setCurrentLineId(null);
+            setMapSettings(prev => normalizeMapSettings({ ...prev, baseMap: {
+              ...prev.baseMap, mode: 'amap', amap: { ...(prev.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!), style }
+            } }));
+            try { localStorage.setItem('metro_amap_style', style); } catch { /* The selected map still works for this session. */ }
+            setBaseMapPickerStyle(null);
+            setSettingsVisible(false);
+          }} />}
+
+        {aboutVisible && <AboutPanel language={language} onClose={() => setAboutVisible(false)}
+          onOpenProfile={() => { setAboutVisible(false); setProfileVisible(true); }} />}
 
         <DraggableModal title={text.settings} open={settingsVisible} onCancel={() => setSettingsVisible(false)} footer={null} width={640}>
           {/* 三个 tab：通用（语言/界面主题）、外观（画布主题/地图样式/城市风格/线名标签）、地图（底图/AMap 样式/站名标签三件套）
@@ -2611,6 +2630,7 @@ const App: React.FC = () => {
                                 }
                               })
                             );
+                            try { localStorage.setItem('metro_amap_style', event.target.value); } catch { /* Keep the selection in the current map. */ }
                           }}
                           optionType="button"
                           buttonStyle="solid"
@@ -2851,6 +2871,9 @@ const App: React.FC = () => {
               </Form.Item>
             </div>
 
+            <p className="metro-about__foot">{language === 'en-US' ? 'For account deletion or data requests, contact us using your registered email: ' : '账号注销、数据导出或删除申请，请通过注册邮箱联系：'}
+              <a href="mailto:3855166698@qq.com?subject=Metro%20Designer%20账号与数据申请">3855166698@qq.com</a>
+            </p>
             <div className="metro-profile-actions">
               <Button onClick={() => setProfileVisible(false)}>{text.profileCancel}</Button>
               <Button type="primary" htmlType="submit">

@@ -530,6 +530,38 @@ body {
 .metro-canvas-start__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px 16px; margin-top: 28px; }
 .metro-canvas-start__actions .ant-btn { min-width: 156px; height: 44px; padding: 0 24px; border-radius: 8px; font-size: 16px; }
 .metro-canvas-start__actions .ant-btn-default { min-width: 188px; border-color: #bfd3f7; background: #ffffff; color: #2563eb; }
+.metro-basemap-intro { margin: 0 0 18px; color: var(--color-text-soft); font-size: 15px; line-height: 1.7; }
+.metro-basemap-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.metro-basemap-option { display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--color-border); border-radius: 12px; cursor: pointer; background: var(--color-surface); }
+.metro-basemap-option img { width: 100%; height: auto; aspect-ratio: 400 / 256; object-fit: contain; background: var(--color-surface-muted); }
+.metro-basemap-option.is-selected { border-color: var(--color-primary-600); box-shadow: 0 0 0 1px var(--color-primary-600); }
+.metro-basemap-option:focus-within { outline: 2px solid var(--color-primary-600); outline-offset: 3px; }
+.metro-basemap-option__label { display: flex; align-items: center; gap: 8px; padding: 10px 12px 4px; color: var(--color-text); font-size: 15px; font-weight: 600; }
+.metro-basemap-option input { margin: 0; accent-color: #2563eb; width: 16px; height: 16px; }
+.metro-basemap-option__hint { padding: 0 12px 12px; color: var(--color-text-soft); font-size: 13px; line-height: 1.5; }
+.metro-basemap-credit { margin: 12px 0 0; font-size: 12px; color: var(--color-text-muted); }
+.metro-about__brand { display: flex; gap: 14px; align-items: center; margin-bottom: 16px; }
+.metro-about .ant-modal-content { display: flex; flex-direction: column; max-height: calc(100dvh - 140px); }
+.metro-about .ant-modal-body { min-height: 0; overflow-y: auto; }
+.metro-about .ant-modal-header, .metro-about .ant-modal-footer { flex-shrink: 0; }
+.metro-about__brand h2 { margin: 0 0 6px; color: var(--color-text); font-size: 24px; line-height: 1.3; }
+.metro-about__brand p, .metro-about__intro { margin: 0; color: var(--color-text-soft); font-size: 14px; line-height: 1.7; }
+.metro-about__versions { margin: 20px 0; }
+.metro-about__versions div { display: flex; justify-content: space-between; gap: 16px; padding: 5px 0; }
+.metro-about__versions dt { color: var(--color-text-soft); }
+.metro-about__versions dd { margin: 0; color: var(--color-text); }
+.metro-about__changes { border-block: 1px solid var(--color-border); padding: 13px 0; font-size: 14px; }
+.metro-about__changes summary { cursor: pointer; color: var(--color-text); }
+.metro-about__changes ul { margin: 12px 0 0; padding-left: 20px; color: var(--color-text-soft); line-height: 1.8; }
+.metro-about__links { display: flex; flex-direction: column; margin: 8px 0; }
+.metro-about__links a, .metro-about__links button { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 10px 0; border: 0; background: transparent; color: var(--color-text); text-align: left; font: inherit; font-size: 14px; cursor: pointer; text-decoration: none; }
+.metro-about__links a:hover, .metro-about__links button:hover { color: var(--color-primary-600); }
+.metro-about__links :is(a,button):focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: 3px; }
+.metro-about__contact { display: flex; gap: 8px; align-items: center; margin-top: 12px; color: var(--color-text-soft); font-size: 14px; flex-wrap: wrap; }
+.metro-about__contact a { overflow-wrap: anywhere; }
+.metro-about__foot { margin: 14px 0 0; color: var(--color-text-muted); font-size: 13px; }
+.auth-policy-links { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 20px; margin-top: 24px; font-size: 13px; }
+.auth-policy-links a { color: var(--color-text-soft); text-underline-offset: 3px; }
 .is-canvas-dark .metro-canvas-start h1 { color: #f8fafc; }
 .is-canvas-dark .metro-canvas-start p { color: #b8c9e0; }
 .is-canvas-dark .metro-canvas-start__actions .ant-btn-default { border-color: #50698e; background: #172033; color: #93c5fd; }
@@ -3806,6 +3838,14 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-modal-root .ant-input, .metro-modal-root .ant-input-affix-wrapper { font-size: 16px; }
   .metro-modal-root .ant-modal-body { max-height: calc(100dvh - 180px); overflow-y: auto; overscroll-behavior: contain; }
   .metro-modal-root .ant-modal-footer .ant-btn { min-height: 44px; }
+  .metro-basemap-wrap { display: flex; align-items: flex-end; }
+  .metro-basemap-wrap .metro-basemap-picker { top: auto; margin: 0; padding-bottom: 0; width: 100% !important; max-width: 100%; }
+  .metro-basemap-picker .ant-modal-content { border-radius: 20px 20px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+  .metro-basemap-picker .ant-modal-body { max-height: calc(100dvh - 164px); }
+  .metro-about { top: 20px; padding-bottom: 20px; }
+  .metro-about .ant-modal-content { max-height: calc(100dvh - 40px); }
+  .metro-about .ant-modal-body { max-height: none; }
+  .metro-basemap-options { gap: 12px; }
 }
 @media (max-width: 360px) {
   .metro-canvas-start__actions { flex-direction: column; align-items: center; }
@@ -3815,6 +3855,11 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 @media (max-width: 1024px) and (max-height: 500px) {
+  .metro-basemap-options { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .metro-basemap-option img { max-height: 90px; }
+  .metro-basemap-picker .metro-basemap-intro { margin-bottom: 10px; }
+  .metro-basemap-credit { margin-top: 8px; }
+  .metro-basemap-picker .ant-modal-body { max-height: calc(100dvh - 140px); }
   .metro-canvas-start { inset: 80px 16px 70px; }
   .metro-canvas-start__art { width: 104px; height: 46px; margin-bottom: 8px; }
   .metro-canvas-start h1 { font-size: 22px; }
