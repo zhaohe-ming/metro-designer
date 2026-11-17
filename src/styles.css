@@ -3700,6 +3700,10 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  .metro-canvas-start__art { opacity: 0; }
+  .metro-canvas-start__art.is-ready {
+    animation: auth-brand-rise 800ms cubic-bezier(0.22, 1, 0.36, 1) 120ms both;
+  }
   .auth-brand-badge,
   .auth-brand-title,
   .auth-brand-palette,
