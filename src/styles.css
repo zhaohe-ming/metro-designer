@@ -3814,7 +3814,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     width: var(--phone-tool-size); height: 52px; border-radius: 20px;
     background: linear-gradient(145deg, #3688ff, #0862f0);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 7px rgba(18, 93, 223, 0.22);
-    transform: translateX(calc(var(--phone-tool-index, 1) * (var(--phone-tool-size) + 2px)));
+    transform: translateX(var(--phone-tool-position, calc(var(--phone-tool-index, 1) * (var(--phone-tool-size) + 2px))))
+      scale(var(--phone-lens-sx, 1), var(--phone-lens-sy, 1));
     pointer-events: none;
   }
   .metro-app-shell .metro-canvas-tools .metro-tool-button {
@@ -3824,6 +3825,16 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-app-shell .metro-canvas-tools .metro-tool-button.is-active { background: transparent !important; color: #fff !important; }
   .metro-canvas-tools .metro-tool-button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
   .metro-canvas-tools .metro-tool-button.is-active:focus-visible { outline-color: #fff; }
+  .metro-canvas-tools .metro-tool-group[data-elastic-ready] {
+    touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+    transform: translateX(var(--phone-shell-x, 0px)) scale(var(--phone-shell-sx, 1), var(--phone-shell-sy, 1));
+  }
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index] .metro-tool-button { color: var(--color-text-soft) !important; }
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"],
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="3"] .metro-tool-button[data-tool-index="3"],
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="4"] .metro-tool-button[data-tool-index="4"] { color: #fff !important; }
   .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group {
     --phone-tools-solid: #172033; --phone-tools-surface: rgba(17, 24, 39, 0.9);
     --phone-tools-edge: rgba(153, 182, 222, 0.28);
@@ -3839,6 +3850,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   }
   @media (prefers-reduced-motion: no-preference) {
     .metro-canvas-tools .metro-tool-group::before { transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .metro-canvas-tools .metro-tool-group[data-elastic-ready]::before { transition: none; }
     .metro-canvas-tools .metro-tool-button { transition: color 140ms ease, transform 90ms ease; }
     .metro-canvas-tools .metro-tool-button:active { transform: scale(0.96); }
   }

@@ -22,6 +22,7 @@ import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
 import CanvasStartPrompt from './CanvasStartPrompt';
 import { TouchViewportGesture, TouchPoint } from '../lib/touchViewport';
+import { useElasticToolbar } from '../lib/useElasticToolbar';
 
 // 性能诊断开关。用户在 DevTools Console 输入：
 //   localStorage.setItem('metro_perf', '1'); location.reload();
@@ -120,6 +121,7 @@ const DEFAULT_AMAP_SETTINGS = {
 };
 
 type CanvasTool = 'select' | 'station' | 'line' | 'section' | 'pan';
+const CANVAS_TOOL_ORDER: CanvasTool[] = ['select', 'station', 'line', 'section', 'pan'];
 
 interface CanvasProps {
   currentLineId: string | null;
@@ -327,6 +329,8 @@ const Canvas: React.FC<CanvasProps> = ({
   };
   
   // 缩放相关状态
+  const toolGroupRef = useElasticToolbar(CANVAS_TOOL_ORDER.indexOf(activeTool), CANVAS_TOOL_ORDER.length, isCompact,
+    index => setCanvasTool(CANVAS_TOOL_ORDER[index]));
   const [scale, setScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -2554,7 +2558,7 @@ const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
       <div className="metro-canvas-tools">
-        <div className="metro-tool-group" data-active-tool={activeTool} role="toolbar" aria-label="Canvas tools">
+        <div ref={toolGroupRef} className="metro-tool-group" data-active-tool={activeTool} role="toolbar" aria-label="Canvas tools">
           {/* 工具组：5 个按钮 = icon + label。
               激活态在 label 前显式插一个小蓝点，比单靠背景色更直观；
               hint 不再常驻一行长文案，改成每个按钮 hover 时的 Tooltip */}
@@ -2572,13 +2576,14 @@ const Canvas: React.FC<CanvasProps> = ({
             },
             { key: 'section' as CanvasTool, label: text.tools.section, icon: <LineOutlined />, hint: text.hints.section },
             { key: 'pan' as CanvasTool, label: text.tools.pan, icon: <DragOutlined />, hint: text.hints.pan }
-          ].map((tool) => {
+          ].map((tool, index) => {
             const active = activeTool === tool.key;
             return (
               <Tooltip key={tool.key} title={isCompact ? null : tool.hint} placement="bottom" mouseEnterDelay={0.2}>
                 <button
                   type="button"
                   className={`metro-tool-button ${active ? 'is-active' : ''}`}
+                  data-tool-index={index}
                   onClick={() => setCanvasTool(tool.key)}
                   aria-label={tool.label}
                   aria-pressed={active}
