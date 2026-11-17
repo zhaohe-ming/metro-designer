@@ -24,7 +24,7 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
     let lastFrame = 0;
     let suppressClickUntil = 0;
     let canceledPointerId: number | null = null;
-    let pointer: { id: number; x: number; y: number; origin: number; pitch: number; moved: boolean; raw: number } | null = null;
+    let pointer: { id: number; x: number; origin: number; pitch: number; moved: boolean } | null = null;
 
     const paint = () => {
       const pressure = reduced ? 0 : clamp(press, 0, 1.1);
@@ -99,7 +99,7 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
       if (pointerPitch <= 0) return;
       const origin = first.left + first.width / 2;
       const raw = (event.clientX - origin) / pointerPitch;
-      pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, origin, pitch: pointerPitch, moved: false, raw };
+      pointer = { id: event.pointerId, x: event.clientX, origin, pitch: pointerPitch, moved: false };
       target = clamp(Math.round(raw), 0, count - 1);
       element.setPointerCapture(event.pointerId);
       animate();
@@ -108,15 +108,13 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
       if (!pointer || event.pointerId !== pointer.id) return;
       event.stopPropagation();
       const dx = event.clientX - pointer.x;
-      const dy = event.clientY - pointer.y;
-      if (!pointer.moved && Math.abs(dy) > 14 && Math.abs(dx) < 7) { cancel(); return; }
       if (!pointer.moved && Math.abs(dx) < 6) return;
       pointer.moved = true;
       event.preventDefault();
       element.dataset.dragging = 'true';
-      pointer.raw = (event.clientX - pointer.origin) / pointer.pitch;
-      const inside = clamp(pointer.raw, 0, count - 1);
-      const outside = pointer.raw - inside;
+      const raw = (event.clientX - pointer.origin) / pointer.pitch;
+      const inside = clamp(raw, 0, count - 1);
+      const outside = raw - inside;
       target = inside + Math.sign(outside) * 0.25 * (1 - Math.exp(-Math.abs(outside)));
       animate();
     };
@@ -130,8 +128,8 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
       pointer = null;
       suppressClickUntil = performance.now() + 600;
       delete element.dataset.dragging;
-      target = Math.abs(event.clientY - previous.y) > 96 ? latest.current.selectedIndex
-        : clamp(Math.round(previous.raw), 0, count - 1);
+      // Capture keeps the gesture alive outside the bar; only the release X chooses the tool.
+      target = clamp(Math.round((event.clientX - previous.origin) / previous.pitch), 0, count - 1);
       releaseCapture(previous.id);
       animate();
       if (target !== latest.current.selectedIndex) latest.current.onSelect(target);

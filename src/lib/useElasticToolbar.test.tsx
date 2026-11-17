@@ -84,13 +84,27 @@ test('窄屏尺寸变化取消手势，按新宽度对齐；键盘激活继续�
   act(() => { group().children[0].dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });
   expect(click).toHaveBeenCalledTimes(1);
 });
-test('纵向滑开后长时间按住，松手仍保留工具且吞掉 click', () => {
-  pointer('pointerdown', 96); pointer('pointermove', 97, 60); settle();
-  pointer('pointerup', 97, 60);
-  act(() => { group().children[1].dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+test.each([-300, 400])('纵向离开栏体至 y=%s 后仍按 X 预览和确认', y => {
+  pointer('pointerdown', 270); pointer('pointermove', 270, y);
+  pointer('pointermove', 96, y); settle();
   expect(select).not.toHaveBeenCalled();
+  expect(group().dataset.previewIndex).toBe('1');
+  pointer('pointerup', 96, y);
+  act(() => { group().children[1].dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+  expect(select.mock.calls).toEqual([[1]]);
   expect(click).not.toHaveBeenCalled();
-  expect(group().dataset.previewIndex).toBe('4');
+});
+test('释放位置更新到最后的 X，快速抬手无需等待滑块追上', () => {
+  pointer('pointerdown', 270); pointer('pointermove', 212, 200);
+  pointer('pointerup', 96, 400);
+  expect(select.mock.calls).toEqual([[1]]);
+  settle();
+  expect(group().style.getPropertyValue('--phone-tool-position')).toBe('58px');
+});
+test.each([[-400, 0], [800, 4]])('在栏体外 x=%s 释放时吸附到端点 %s', (x, expected) => {
+  act(() => root.render(<Harness active={2} />)); settle();
+  pointer('pointerdown', 154); pointer('pointermove', x, 400); pointer('pointerup', x, 400);
+  expect(select.mock.calls).toEqual([[expected]]);
 });
 test('减少动态效果时保留拖动，壳体静止且松手直接对齐', () => {
   reduced = true;
