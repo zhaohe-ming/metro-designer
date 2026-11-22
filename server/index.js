@@ -920,7 +920,7 @@ setInterval(() => {
 }, 30 * 60 * 1000).unref();
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { guestDraftImport: true } });
+  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { guestDraftImport: true, amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY) } });
 });
 
 app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res) => {
@@ -933,6 +933,8 @@ app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res)
   const zoom = Math.max(1, Math.min(17, Math.round(Number(req.query.zoom) || DEFAULT_MAP_SETTINGS.baseMap.amap.zoom)));
   const width = Number(req.query.width || 960);
   const height = Number(req.query.height || 540);
+  const scale = req.query.scale === undefined ? 1 : Number(req.query.scale);
+  if (scale !== 1 && scale !== 2) return res.status(400).json({ message: '高德静态地图清晰度参数无效' });
 
   if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -85.05112878 || lat > 85.05112878) {
     return res.status(400).json({ message: '高德静态地图中心点无效' });
@@ -943,10 +945,10 @@ app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res)
     return res.status(400).json({ message: '高德静态地图尺寸需为 1–1024 的整数' });
   }
   const query = new URLSearchParams({
-    location: `${lng},${lat}`,
+    location: `${lng.toFixed(6)},${lat.toFixed(6)}`,
     zoom: String(zoom),
     size: `${width}*${height}`,
-    scale: '1',
+    scale: String(scale),
     key: AMAP_WEB_SERVICE_KEY
   });
   const controller = new AbortController();
@@ -958,8 +960,23 @@ app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res)
     const contentType = upstream.headers.get('content-type') || '';
     if (!upstream.ok || !contentType.startsWith('image/')) {
       const text = await upstream.text().catch(() => '');
-      console.error('AMap static map failed:', upstream.status, text.slice(0, 300));
-      return res.status(502).json({ message: '高德静态地图获取失败，请检查 Web Service Key 和配额' });
+      let code = ''; let info = '';
+      try {
+        const failure = JSON.parse(text);
+        code = /^\d{5}$/.test(String(failure.infocode)) ? String(failure.infocode) : '';
+        info = /^[A-Z_]{1,80}$/.test(failure.info) ? failure.info : '';
+      } catch { /* 非 JSON 响应只返回通用错误，不回传上游原文或 Key。 */ }
+      const hints = {
+        '10001': '请检查高德 Key 是否有效',
+        '10002': '请检查高德静态地图服务权限',
+        '10003': '高德今日调用配额已用完',
+        '10004': '高德请求过于频繁，请稍后重试',
+        '10005': '请检查高德 Key 的服务器 IP 白名单',
+        '10009': '请使用 Web服务 类型的高德 Key',
+        '20000': '高德地图请求参数无效'
+      };
+      console.error('AMap static map failed:', upstream.status, code || 'unknown', info);
+      return res.status(502).json({ message: `高德静态地图获取失败${code ? `（${code}${info ? ` / ${info}` : ''}）` : ''}：${hints[code] || '请检查 Web Service Key、服务权限和配额'}` });
     }
 
     const arrayBuffer = await upstream.arrayBuffer();

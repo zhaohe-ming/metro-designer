@@ -3072,7 +3072,7 @@ const App: React.FC = () => {
         <DraggableModal title="导出动态视频" open={isExporting} footer={null} closable={false} maskClosable={false} keyboard={false} centered>
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
             <div aria-live="polite">
-              {videoProgress.phase === 'preparing' ? '正在准备线路与底图…' :
+              {videoProgress.phase === 'preparing' ? (videoProgress.detail || '正在准备线路与底图…') :
                 videoProgress.phase === 'paused' ? '录制已暂停，返回此页面后自动继续' :
                 videoProgress.phase === 'finalizing' ? '正在保存视频…' : '正在录制线路开通过程…'}
             </div>

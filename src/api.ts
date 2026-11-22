@@ -302,6 +302,7 @@ export const api = {
     width: number;
     height: number;
     style?: string;
+    scale?: 1 | 2;
     signal?: AbortSignal;
   }) => {
     const query = new URLSearchParams({
@@ -310,7 +311,8 @@ export const api = {
       zoom: String(params.zoom),
       width: String(params.width),
       height: String(params.height),
-      style: params.style || 'normal'
+      style: params.style || 'normal',
+      scale: String(params.scale || 1)
     });
     return requestBlob(`/api/amap/static-map?${query.toString()}`, { signal: params.signal }, true);
   }

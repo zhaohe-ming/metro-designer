@@ -6,6 +6,7 @@ export interface VideoExportProgress {
   percent: number;
   elapsedSec: number;
   totalSec: number;
+  detail?: string;
 }
 
 export function checkVideoRecordingSupport() {

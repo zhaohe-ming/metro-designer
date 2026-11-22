@@ -2,11 +2,12 @@
 // 通过 MediaRecorder + canvas.captureStream 录成 WebM 并返回 Blob。
 // 路径与时间轴由 videoModel 管理；录制、暂停与资源释放由 recordVideo 管理。
 
-import { Line, MapSettings, Section, Station, Waypoint, DEFAULT_MAP_SETTINGS } from '../types';
+import { Line, MapSettings, Section, Station, Waypoint } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, degToRad, fillCurvedArrowCanvas2d } from './interchange';
 import { activeVideoStationLines, buildVideoRouteGeometry, easeVideoProgress, getVideoSectionPoints,
-  mercatorProject, resolveVideoRoute, staticMapViewport, videoArrivalProgress, VideoSegmentInput } from './videoModel';
+  mercatorProject, resolveVideoRoute, videoArrivalProgress, VideoSegmentInput } from './videoModel';
+import { amapVideoFilter, hasVideoGeoPoint, planAmapVideoMap } from './amapVideo';
 import { checkVideoRecordingSupport, recordVideoCanvas, throwIfVideoAborted, VideoExportProgress } from './recordVideo';
 
 export interface ExportVideoOptions {
@@ -28,6 +29,7 @@ export interface ExportVideoOptions {
     width: number;
     height: number;
     style?: string;
+    scale?: 1 | 2;
     signal?: AbortSignal;
   }) => Promise<Blob>;
   onWarn?: (message: string) => void;
@@ -39,22 +41,22 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const {
     stage,
     segments,
-    lines: allLines,
-    stations: allStations,
-    sections: allSections,
+    lines: inputLines,
+    stations: inputStations,
+    sections: inputSections,
     settings,
     title: rawTitle,
     subtitle: rawSubtitle,
     titleDurationSec: rawTitleDurationSec,
     fetchAmapStaticMap,
-    onWarn, signal, onProgress
+    signal, onProgress
   } = opts;
   const titleText = (rawTitle || '').trim() || '城市轨道线网历程';
   const subtitleText = (rawSubtitle || '').trim();
   const titleDurationSec = Math.max(1, Math.min(8, rawTitleDurationSec || 3));
 
   if (!segments.length) throw new Error('请至少填写一个开通区间');
-  if (!allStations.length) throw new Error('请先创建站点后再导出视频');
+  if (!inputStations.length) throw new Error('请先创建站点后再导出视频');
   checkVideoRecordingSupport();
   throwIfVideoAborted(signal);
   onProgress?.({ phase: 'preparing', percent: 0, elapsedSec: 0, totalSec: 0 });
@@ -78,14 +80,20 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const sortedSegments = [...segments].sort((a, b) => a.openDate.localeCompare(b.openDate));
   const preset = getCityStylePreset(settings);
   const isDarkCanvas = settings.canvasTheme === 'dark';
-  const hasGeoPoint = (point: Station | Waypoint) => Number.isFinite(point.lng) && Number.isFinite(point.lat);
-  const wantsAmapVideo = settings.baseMap.mode === 'amap';
-  const isAmapVideo = wantsAmapVideo && allStations.every(hasGeoPoint) &&
-    allSections.every(section => (section.waypoints || []).every(hasGeoPoint));
-  if (wantsAmapVideo && !isAmapVideo) onWarn?.('部分站点或折点缺少经纬度，视频将使用完整示意图，避免线路和高德底图错位');
+  const isAmapVideo = settings.baseMap.mode === 'amap';
+  const animationSegments = sortedSegments.map(segment => resolveVideoRoute(segment, inputLines, inputStations, inputSections));
+  const routeStationIds = new Set(animationSegments.flatMap(route => route.stationIds));
+  const routeSectionIds = new Set(animationSegments.flatMap(route => route.edges.map(edge => edge.section.id)));
+  const requiredGeoPoints = [...inputStations.filter(station => routeStationIds.has(station.id)),
+    ...inputSections.filter(section => routeSectionIds.has(section.id)).flatMap(section => section.waypoints || [])];
+  // 所选区间必须有完整地理位置；其余有坐标的线网保留作背景，无坐标草稿跳过。
+  const allStations = isAmapVideo ? inputStations.filter(hasVideoGeoPoint) : inputStations;
+  const geographicStationIds = new Set(allStations.map(station => station.id));
+  const allSections = isAmapVideo ? inputSections.filter(section => geographicStationIds.has(section.startStationId) &&
+    geographicStationIds.has(section.endStationId) && (section.waypoints || []).every(hasVideoGeoPoint)) : inputSections;
+  const allLines = inputLines;
   const amapStyle = settings.baseMap.amap?.style || 'normal';
-  // 静态地图 API 使用标准样式，不能照搬 JS API 的深色样式参数。
-  const usesDarkVideoSurface = !isAmapVideo && isDarkCanvas;
+  const usesDarkVideoSurface = isAmapVideo ? amapStyle === 'dark' : isDarkCanvas;
   const mutedLineColor = usesDarkVideoSurface ? 'rgba(148, 163, 184, 0.46)' : 'rgba(100, 116, 139, 0.28)';
   const mutedStationFill = usesDarkVideoSurface ? '#0f172a' : '#ffffff';
   const mutedStationStroke = usesDarkVideoSurface ? '#94a3b8' : '#cbd5e1';
@@ -107,7 +115,6 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     return result;
   }, {});
 
-  const animationSegments = sortedSegments.map(segment => resolveVideoRoute(segment, allLines, allStations, allSections));
   const allGeometryPoints = [...allStations, ...allSections.flatMap(section => section.waypoints || [])];
   const minX = Math.min(...allGeometryPoints.map(point => point.x));
   const minY = Math.min(...allGeometryPoints.map(point => point.y));
@@ -118,9 +125,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   const mapHeight = Math.max(1, maxY - minY);
   const plainMapScale = Math.min((width - padding * 2) / mapWidth, (height - padding * 2) / mapHeight, 2.2);
   const mapScale = isAmapVideo ? Math.max(0.72, Math.min(1.35, Math.min(width, height) / 720)) : plainMapScale;
-  const amapOptions = settings.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!;
-  const amapViewport = staticMapViewport(width, height, amapOptions.zoom);
-  const amapCenterPoint = mercatorProject(amapOptions.center[0], amapOptions.center[1], amapViewport.zoom);
+  const amapPlan = isAmapVideo ? planAmapVideoMap(requiredGeoPoints, width, height) : null;
 
   // ── Phase 2 相机模型 ───────────────────────────────────────────────────
   // 把"画布坐标"拆成两步：
@@ -133,17 +138,16 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   // 完成段落跟随的平移效果。
   const stationWorld = (station: Station | Waypoint) => {
     if (isAmapVideo && typeof station.lng === 'number' && typeof station.lat === 'number') {
-      const p = mercatorProject(station.lng, station.lat, amapViewport.zoom);
-      return { x: p.x - amapCenterPoint.x, y: p.y - amapCenterPoint.y };
+      return mercatorProject(station.lng, station.lat, amapPlan!.zoom);
     }
     return { x: station.x, y: station.y };
   };
 
   const defaultCamera = isAmapVideo
-    ? { x: 0, y: 0, scale: amapViewport.scale }
+    ? amapPlan!.camera
     : { x: (minX + maxX) / 2, y: (minY + maxY) / 2, scale: plainMapScale };
 
-  // 当前相机：可变；初始化为 default。AMap 模式下保持静态（不参与相机动画）。
+  // 底图、线路、站点共用世界坐标与相机。录制前加载全部底图，途中不发网络请求。
   const camera = { x: defaultCamera.x, y: defaultCamera.y, scale: defaultCamera.scale };
 
   const worldToCanvas = (p: { x: number; y: number }) => ({
@@ -206,59 +210,79 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     throw new Error('浏览器不支持导出视频');
   }
 
-  const loadImageFromBlob = (blob: Blob) =>
+  const mapResources: Array<HTMLImageElement | HTMLCanvasElement> = [];
+  const releaseMaps = () => mapResources.forEach(image => {
+    if (image instanceof HTMLImageElement) image.src = '';
+    else { image.width = 0; image.height = 0; }
+  });
+  const loadImageFromBlob = (blob: Blob, imageSignal: AbortSignal) =>
     new Promise<HTMLImageElement>((resolve, reject) => {
-      throwIfVideoAborted(signal);
+      throwIfVideoAborted(imageSignal);
       const url = URL.createObjectURL(blob);
       const image = new Image();
       const cleanup = () => {
         URL.revokeObjectURL(url);
-        signal?.removeEventListener('abort', abort);
+        imageSignal.removeEventListener('abort', abort);
         image.onload = null;
         image.onerror = null;
       };
-      const abort = () => {
-        cleanup();
-        image.src = '';
-        reject(new DOMException('已取消视频导出', 'AbortError'));
-      };
-      image.onload = () => {
-        cleanup();
-        resolve(image);
-      };
-      image.onerror = () => {
-        cleanup();
-        reject(new Error('高德静态地图图片加载失败'));
-      };
-      signal?.addEventListener('abort', abort, { once: true });
+      const abort = () => { cleanup(); image.src = ''; reject(new DOMException('已取消视频导出', 'AbortError')); };
+      image.onload = () => { cleanup(); resolve(image); };
+      image.onerror = () => { cleanup(); reject(new Error('高德静态地图图片加载失败')); };
+      imageSignal.addEventListener('abort', abort, { once: true });
       image.src = url;
     });
 
-  // 高德静态地图：服务端要单独配 AMAP_WEB_SERVICE_KEY，不少自部署用户只配了浏览器 JS API key
-  // 没配 / 配额超 / 网络不通时不再让整个视频导出失败，软退化到画布渐变背景 + 警告
-  let amapBackgroundImage: HTMLImageElement | null = null;
-  if (isAmapVideo) {
+  const amapImages: Array<{ patch: NonNullable<typeof amapPlan>['patches'][number]; image: CanvasImageSource }> = [];
+  if (amapPlan) {
+    const mapController = new AbortController();
+    const abortMaps = () => mapController.abort();
+    signal?.addEventListener('abort', abortMaps, { once: true });
+    let nextPatch = 0;
+    let loaded = 0;
+    let mapError: unknown;
+    const loadPatches = async () => {
+      try {
+        while (nextPatch < amapPlan.patches.length) {
+          throwIfVideoAborted(mapController.signal);
+          const patch = amapPlan.patches[nextPatch++];
+          const blob = await fetchAmapStaticMap({ center: patch.center, zoom: patch.zoom,
+            width: patch.width, height: patch.height, scale: 2, style: 'normal', signal: mapController.signal });
+          const image = await loadImageFromBlob(blob, mapController.signal);
+          mapResources.push(image);
+          if (image.naturalWidth !== patch.imageWidth || image.naturalHeight !== patch.imageHeight) {
+            throw new Error('高德高清底图返回尺寸与请求不一致，请重试');
+          }
+          let surface: CanvasImageSource = image;
+          const filter = amapVideoFilter(amapStyle);
+          if (filter !== 'none') {
+            const styled = document.createElement('canvas');
+            styled.width = patch.imageWidth; styled.height = patch.imageHeight;
+            const styledContext = styled.getContext('2d');
+            if (!styledContext) throw new Error('浏览器无法创建底图画布');
+            styledContext.filter = filter;
+            styledContext.drawImage(image, 0, 0);
+            styledContext.filter = 'none';
+            surface = styled; mapResources.push(styled); image.src = '';
+          }
+          amapImages.push({ patch, image: surface });
+          loaded += 1;
+          onProgress?.({ phase: 'preparing', percent: Math.round(loaded / amapPlan.patches.length * 100),
+            elapsedSec: 0, totalSec: 0, detail: `正在加载高清底图 ${loaded} / ${amapPlan.patches.length}` });
+        }
+      } catch (error) { if (!mapError) mapError = error; mapController.abort(); }
+    };
     try {
-      const blob = await fetchAmapStaticMap({
-        center: amapOptions.center,
-        zoom: amapViewport.zoom,
-        width: amapViewport.width,
-        height: amapViewport.height,
-        style: 'normal', signal
-      });
-      amapBackgroundImage = await loadImageFromBlob(blob);
-      if (amapBackgroundImage.naturalWidth !== amapViewport.width ||
-        amapBackgroundImage.naturalHeight !== amapViewport.height) {
-        throw new Error('底图返回尺寸与请求不一致');
-      }
-      if (amapStyle !== 'normal') onWarn?.('视频中的高德静态底图使用标准样式');
-    } catch (error: any) {
       throwIfVideoAborted(signal);
-      onWarn?.(
-        `无法加载高德静态地图作为视频底图${error?.message ? `（${error.message}）` : ''}，将使用纯色背景导出。如需带地图背景，请在服务端配置 AMAP_WEB_SERVICE_KEY。`
-      );
-      amapBackgroundImage = null;
-    }
+      // 两个并发请求，控制配额和内存峰值；任一失败时取消其余任务。
+      await Promise.all([loadPatches(), loadPatches()]);
+      throwIfVideoAborted(signal);
+      if (mapError) throw mapError;
+    } catch (error) {
+      releaseMaps();
+      throwIfVideoAborted(signal);
+      throw new Error(`高德底图加载失败，已停止导出：${error instanceof Error ? error.message : '请检查网络后重试'}`);
+    } finally { signal?.removeEventListener('abort', abortMaps); }
   }
   throwIfVideoAborted(signal);
 
@@ -695,17 +719,10 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   // Phase 2 相机控制：每帧调用一次。
   // 没有当前段落时 → 回到全图视角；
   // 有当前段落时 → 把相机 ease 到"当前动画头位置 + 1.6× 放大"。
-  // AMap 模式相机保持静态。
+  // 高德与纯画布使用同一套缓动，底图覆盖范围已在录制前准备好。
   let cameraInitialized = false;
   let cameraFrameDelta = 1;
   const updateCameraForFrame = (currentPlan?: SegmentPlan, currentDistance = 0) => {
-    if (isAmapVideo) {
-      camera.x = defaultCamera.x;
-      camera.y = defaultCamera.y;
-      camera.scale = defaultCamera.scale;
-      cameraInitialized = true;
-      return;
-    }
     let targetX = defaultCamera.x;
     let targetY = defaultCamera.y;
     let targetScale = defaultCamera.scale;
@@ -738,12 +755,21 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     // Phase 2：每帧先 ease 相机 → 后续所有绘制都用最新相机
     updateCameraForFrame(currentPlan, currentDistance);
     ctx.clearRect(0, 0, width, height);
-    if (amapBackgroundImage) {
-      ctx.drawImage(amapBackgroundImage, 0, 0, width, height);
-    } else {
-      ctx.fillStyle = canvasThemeGradient(ctx);
-      ctx.fillRect(0, 0, width, height);
-    }
+    ctx.fillStyle = canvasThemeGradient(ctx);
+    ctx.fillRect(0, 0, width, height);
+    amapImages.forEach(({ patch, image }) => {
+      const topLeft = worldToCanvas({ x: patch.x, y: patch.y });
+      const patchWidth = patch.coreWidth * camera.scale;
+      const patchHeight = patch.coreHeight * camera.scale;
+      if (topLeft.x > width || topLeft.y > height || topLeft.x + patchWidth < 0 || topLeft.y + patchHeight < 0) return;
+      const origin = worldToCanvas({ x: patch.imageX, y: patch.imageY });
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(topLeft.x, topLeft.y, patchWidth + 0.3, patchHeight + 0.3);
+      ctx.clip();
+      ctx.drawImage(image, origin.x, origin.y, patch.imageWidth * camera.scale, patch.imageHeight * camera.scale);
+      ctx.restore();
+    });
 
     allSections.forEach(section => {
       drawLinePath(sectionPoints.get(section.id) || [], mutedLineColor, 1, 0.8, preset.lineWidth);
@@ -897,8 +923,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
       return false;
     });
     if (segmentIndex < 0) {
-      // 片尾直接回到完整线网，留足三秒查看结果。
-      Object.assign(camera, defaultCamera);
+      // 沿用相机缓动回到全景，避免片尾突然跳回。
       drawBaseMap(segmentPlans.length);
       const openedLines = new Set(segmentPlans.map(plan => plan.line.id)).size;
       const openedStations = new Set(segmentPlans.flatMap(plan => plan.stationIds)).size;
@@ -923,7 +948,17 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
   };
 
   const totalFrames = titleFrames + segmentPlans.reduce((sum, item) => sum + item.durationFrames + item.holdFrames, 0) + outroFrames;
-  return recordVideoCanvas({
-    canvas, fps, totalFrames, drawFrame, signal, onProgress
-  });
+  try {
+    return await recordVideoCanvas({ canvas, fps, totalFrames, drawFrame: frame => {
+      drawFrame(frame);
+      if (isAmapVideo) {
+        ctx.save();
+        ctx.font = '14px "Microsoft YaHei", Arial'; ctx.textAlign = 'right';
+        ctx.lineWidth = 4; ctx.strokeStyle = textHalo; ctx.fillStyle = primaryText;
+        ctx.strokeText('© 高德地图 · 静态底图', width - 20, height - 12);
+        ctx.fillText('© 高德地图 · 静态底图', width - 20, height - 12);
+        ctx.restore();
+      }
+    }, signal, onProgress });
+  } finally { releaseMaps(); }
 }
