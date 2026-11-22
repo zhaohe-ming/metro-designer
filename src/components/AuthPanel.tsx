@@ -31,6 +31,8 @@ type Mode =
   | 'verify_done';      // 验证成功后展示，自动登录后由父组件移除
 
 interface AuthPanelProps {
+  onPreview?: () => void;
+  embedded?: boolean;
   // 验证邮箱 / 重置密码成功后父组件接管：保存 token + user 并卸载 AuthPanel
   onAuthenticated: (payload: { token: string; user: UserDto }) => void | Promise<void>;
 }
@@ -49,7 +51,7 @@ function readTokenFromUrl(): { kind: 'verify' | 'reset' | null; token: string } 
   return { kind: null, token: '' };
 }
 
-const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
+const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embedded = false }) => {
   const initialTokenInUrl = useMemo(readTokenFromUrl, []);
   const [mode, setMode] = useState<Mode>(() => {
     if (initialTokenInUrl.kind === 'verify') return 'verifying_url';
@@ -68,17 +70,20 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
   const onAuthenticatedRef = useRef(onAuthenticated);
   onAuthenticatedRef.current = onAuthenticated;
 
+  const verificationRequestRef = useRef<ReturnType<typeof api.verifyEmail> | null>(null);
+
   // 一进页面就消费 URL 中的 verify token；用户体验上不让他多点一次
   useEffect(() => {
     if (initialTokenInUrl.kind !== 'verify') return;
     let cancelled = false;
     (async () => {
       try {
-        const result = await api.verifyEmail(initialTokenInUrl.token);
+        verificationRequestRef.current ||= api.verifyEmail(initialTokenInUrl.token);
+        const result = await verificationRequestRef.current;
         if (cancelled) return;
         // 验证成功 → 把 URL 清掉，避免刷新页面重复消费
         window.history.replaceState({}, '', '/');
-        await onAuthenticated({ token: result.token, user: result.user });
+        await onAuthenticatedRef.current({ token: result.token, user: result.user });
       } catch (e: any) {
         if (cancelled) return;
         setMode('login');
@@ -89,7 +94,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
     return () => {
       cancelled = true;
     };
-  }, [initialTokenInUrl, onAuthenticated]);
+  }, [initialTokenInUrl]);
 
   // 跨设备验证轮询：处于 verify_pending 状态且有 pollKey 时，每 5 秒静默 ping 后端。
   // 用户在另一设备点完邮件链接的瞬间，下一次 poll 会拿到主 JWT → 自动 onAuthenticated。
@@ -131,7 +136,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
     try {
       const result: LoginResult = await api.login(values);
       if (result.status === 'ok') {
-        await onAuthenticated({ token: result.token, user: result.user });
+        await onAuthenticatedRef.current({ token: result.token, user: result.user });
         return;
       }
       if (result.status === 'verify_required') {
@@ -215,7 +220,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
         password: values.password
       });
       window.history.replaceState({}, '', '/');
-      await onAuthenticated({ token: result.token, user: result.user });
+      await onAuthenticatedRef.current({ token: result.token, user: result.user });
     } catch (e: any) {
       setErrorBanner(e?.message || '重置失败，请重新申请');
     } finally {
@@ -265,17 +270,17 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
   })();
 
   return (
-    <div className={`auth-card auth-card--${mode}`}>
+    <div className={`auth-card auth-card--${mode}${embedded ? " auth-card--embedded" : ""}${onPreview ? " auth-card--preview-entry" : ""}`}>
       <div className="auth-card__inner">
-        <section className="auth-card__info">
+        {!embedded && <section className="auth-card__info">
           <AuthBrandPanel />
-        </section>
+        </section>}
 
         <section className="auth-card__form">
           <div className="auth-form-shell">
             <Title className="auth-form-title">{title}</Title>
             <Text className="auth-form-subtitle">{subtitle}</Text>
-            <AndroidDownloadLink />
+            {!embedded && <AndroidDownloadLink />}
 
             {(mode === 'login' || mode === 'register') && (
               <div className="auth-switcher">
@@ -582,6 +587,11 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated }) => {
               <Paragraph type="secondary" style={{ marginTop: 12 }}>
                 正在为你登录…
               </Paragraph>
+            )}
+            {onPreview && (mode === 'login' || mode === 'register') && (
+              <Button className="auth-preview-btn" block size="large" onClick={onPreview}>
+                免登录预览 <ArrowRightOutlined />
+              </Button>
             )}
             <nav className="auth-policy-links" aria-label="产品说明">
               <a href="/privacy.html" target="_blank" rel="noopener noreferrer">隐私与数据说明</a>

@@ -17,6 +17,8 @@ import {
 import { api, clearToken, getToken, setToken, AIOperation } from './api';
 import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
+import { GuestDraft, createGuestDraft, readGuestDraft, writeGuestDraft, deleteGuestDraft, hasGuestSession, setGuestSession } from './lib/guestDraft';
+import GuestAnimationPreview from './components/GuestAnimationPreview';
 import DesktopUpdateNotice from './components/DesktopUpdateNotice';
 import Canvas from './components/Canvas';
 import DraggableModal from './components/DraggableModal';
@@ -40,6 +42,8 @@ import { compressImageDataUrl } from './utils/imageCompress';
 // 后端 PUT /api/me 给的硬上限是 200_000；这里取 60KB 作为"还能再瘦一点"的软阈值。
 const AVATAR_COMPRESS_THRESHOLD = 60_000;
 
+const isAuthCallbackURL = () => /^\/(verify-email|reset-password)/.test(window.location.pathname) &&
+  !!new URLSearchParams(window.location.search).get('token');
 const MAX_HISTORY = 50;
 const LAST_MAP_KEY = 'metro_last_map_id';
 // 全局"上次用过的"标签密度，记忆用户偏好；新建空白方案、加载没有该字段的老方案时用这个兜底
@@ -281,6 +285,28 @@ const App: React.FC = () => {
   const [stations, setStations] = useState<Station[]>([]);
   const [currentLineId, setCurrentLineId] = useState<string | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [previewMode, setPreviewMode] = useState(() => !isAuthCallbackURL() && (new URLSearchParams(window.location.search).get('preview') === '1' || hasGuestSession()));
+  const [guestReady, setGuestReady] = useState(false);
+  const [guestDraftId, setGuestDraftId] = useState<string | null>(null);
+  const guestDraftIdRef = useRef<string | null>(null);
+  const guestSavedRevisionRef = useRef<number | null>(null);
+  const [guestStatus, setGuestStatus] = useState('正在读取本机草稿…');
+  const [guestStorageError, setGuestStorageError] = useState(false);
+  const guestReadFailedRef = useRef(false);
+  const [guestNotice, setGuestNotice] = useState(false);
+  const [guestAnimationOpen, setGuestAnimationOpen] = useState(false);
+  const [guestRestored, setGuestRestored] = useState(false);
+  const [guestInitialViewport, setGuestInitialViewport] = useState<GuestDraft['viewport']>();
+  const [guestViewport, setGuestViewport] = useState<GuestDraft['viewport']>();
+  const [authVisible, setAuthVisible] = useState(false);
+  const [authAction, setAuthAction] = useState<'save' | 'maps' | 'ai' | 'video' | 'profile' | null>(null);
+  const guestBootRef = useRef(false);
+  const guestPreviewRequestedRef = useRef(previewMode || hasGuestSession());
+  const guestRestorePromiseRef = useRef<Promise<void> | null>(null);
+  const requestGuestAuth = (action: typeof authAction) => {
+    setAuthAction(action);
+    setAuthVisible(true);
+  };
   const [profileVisible, setProfileVisible] = useState(false);
   const [saveMapVisible, setSaveMapVisible] = useState(false);
   const [mapsVisible, setMapsVisible] = useState(false);
@@ -352,6 +378,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (!dirtyRef.current) return;
+      if (guestDraftIdRef.current && guestSavedRevisionRef.current === documentSessionRef.current.capture().revision) return;
       e.preventDefault();
       e.returnValue = '';
     };
@@ -552,6 +579,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const boot = async () => {
+      if (isAuthCallbackURL()) return;
       const token = getToken();
       if (!token) return;
       const restoreTicket = documentSessionRef.current.beginLoad();
@@ -563,7 +591,7 @@ const App: React.FC = () => {
         // 自动恢复上次编辑的方案。任何一步失败就清掉指针并保持空白工作台。
         let lastMapId: string | null = null;
         try { lastMapId = localStorage.getItem(LAST_MAP_KEY); } catch { /* ignore */ }
-        if (lastMapId) {
+        if (lastMapId && !guestPreviewRequestedRef.current && !hasGuestSession()) {
           try {
             const { map } = await api.getMap(lastMapId);
             if (getToken() === token && documentSessionRef.current.canApplyLoad(restoreTicket)) applyLoadedMap(map);
@@ -873,16 +901,147 @@ const App: React.FC = () => {
     message.success('线路顺序已更新');
   };
 
+  const applyGuestDraft = (draft: GuestDraft, restored: boolean) => {
+    guestDraftIdRef.current = draft.id;
+    guestSavedRevisionRef.current = null;
+    setGuestDraftId(draft.id);
+    setLines(draft.lines);
+    setStations(draft.stations);
+    setSections(draft.sections);
+    setMapSettings(draft.mapSettings);
+    setCurrentLineId(draft.currentLineId);
+    setMapName(draft.name);
+    setGuestInitialViewport(draft.viewport);
+    setGuestViewport(draft.viewport);
+    setCurrentMap(null);
+    resetHistory();
+    setGuestNotice(!restored);
+    setGuestRestored(restored);
+    setGuestReady(true);
+  };
+
+  const startGuestPreview = async () => {
+    guestPreviewRequestedRef.current = true;
+    setGuestSession(true);
+    setGuestStatus('正在读取本机草稿…');
+    if (!isAuthCallbackURL()) {
+      setPreviewMode(true);
+      const params = new URLSearchParams(window.location.search);
+      params.set('preview', '1');
+      window.history.replaceState({}, '', `/?${params}`);
+    }
+    if (guestDraftIdRef.current) { setGuestReady(true); return; }
+    try {
+      const stored = await readGuestDraft();
+      const draft = stored || createGuestDraft();
+      applyGuestDraft(draft, !!stored);
+      setGuestStatus('正在保存本机草稿…');
+    } catch (error) {
+      guestReadFailedRef.current = true;
+      // Retain a readable in-memory document if storage is unavailable; offer a backup.
+      if (!guestDraftIdRef.current) applyGuestDraft(createGuestDraft(), false);
+      setGuestStorageError(true);
+      setGuestStatus('本机保存遇到问题，请下载备份');
+    }
+  };
+
+  const startGuestPreviewRef = useRef(startGuestPreview);
+  startGuestPreviewRef.current = startGuestPreview;
+  useEffect(() => {
+    if (guestPreviewRequestedRef.current && !guestBootRef.current) {
+      guestBootRef.current = true;
+      guestRestorePromiseRef.current = startGuestPreviewRef.current();
+    }
+  }, []);
+
+  const draftSnapshotRef = useRef<GuestDraft | null>(null);
+  useLayoutEffect(() => {
+    draftSnapshotRef.current = guestDraftId ? {
+      version: 1, id: guestDraftId, updatedAt: Date.now(), name: mapName,
+      lines, stations, sections, mapSettings, currentLineId, viewport: guestViewport
+    } : null;
+  }, [guestDraftId, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport]);
+
+  const persistGuestDraft = useCallback(async () => {
+    const snapshot = draftSnapshotRef.current;
+    if (!snapshot || snapshot.id !== guestDraftIdRef.current || guestReadFailedRef.current) return;
+    try {
+      const ticket = documentSessionRef.current.capture();
+      await writeGuestDraft(snapshot);
+      if (snapshot.id !== guestDraftIdRef.current) return;
+      guestSavedRevisionRef.current = ticket.revision;
+      setGuestStatus('草稿已保存在本机');
+      setGuestStorageError(false);
+    } catch {
+      setGuestStorageError(true);
+      setGuestStatus('本机保存遇到问题，请下载备份');
+    }
+  }, []);
+  useEffect(() => {
+    if (!guestDraftId || !guestReady || guestReadFailedRef.current) return;
+    setGuestStatus('正在保存本机草稿…');
+    const timer = window.setTimeout(() => { void persistGuestDraft(); }, 250);
+    return () => window.clearTimeout(timer);
+  }, [guestDraftId, guestReady, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport, persistGuestDraft]);
+  useEffect(() => {
+    const persist = () => { if (document.visibilityState === 'hidden') void persistGuestDraft(); };
+    document.addEventListener('visibilitychange', persist);
+    window.addEventListener('pagehide', persistGuestDraft);
+    return () => {
+      document.removeEventListener('visibilitychange', persist);
+      window.removeEventListener('pagehide', persistGuestDraft);
+    };
+  }, [persistGuestDraft]);
+
+  const retryGuestStorage = async () => {
+    if (guestReadFailedRef.current) {
+      try {
+        const stored = await readGuestDraft();
+        if (stored) {
+          Modal.confirm({ title: '恢复已保存的草稿？', content: '已重新读到本机草稿。恢复后将显示上次保存的版本；你也可以先下载当前画布备份。',
+            okText: '恢复草稿', cancelText: '保留当前画布', onOk: () => {
+              guestReadFailedRef.current = false;
+              setGuestStorageError(false);
+              applyGuestDraft(stored, true);
+            } });
+          return;
+        }
+        guestReadFailedRef.current = false;
+      } catch { message.error('本机存储仍未恢复，请先下载备份'); return; }
+    }
+    await persistGuestDraft();
+  };
+
+  const downloadGuestBackup = async () => {
+    if (!draftSnapshotRef.current) return;
+    const blob = new Blob([JSON.stringify(draftSnapshotRef.current, null, 2)], { type: 'application/json' });
+    const filename = 'metro-designer-草稿备份.json';
+    if (isAndroidClient) { await saveAndroidExport(blob, filename); return; }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a'); link.href = url; link.download = filename;
+    link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
   // AuthPanel 走完整的登录 / 注册 / 验证 / 重置流程后，统一通过 onAuthenticated 回调
   // 交付 { token, user } —— 我们只关心持久化和切到工作台。
   const handleAuthenticated = async ({ token, user }: { token: string; user: UserProfile }) => {
+    await guestRestorePromiseRef.current;
     setToken(token);
     setUserProfile({ ...user, password: '' });
+    setAuthVisible(false);
     refreshSavedMaps(false);
     message.success('登录成功');
   };
 
   const handleLogout = () => {
+    guestDraftIdRef.current = null;
+    setGuestDraftId(null);
+    setGuestSession(false);
+    setPreviewMode(false);
+    setGuestReady(false);
+    setAuthAction(null);
+    setAuthVisible(false);
+    window.history.replaceState({}, '', '/');
     revokeBlobUrl(userProfile?.avatar);
     clearToken();
     try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
@@ -914,6 +1073,14 @@ const App: React.FC = () => {
       // 用户当前的 labelDensity 选择会带到新方案里，不被默认值覆盖
       // (跨 session 也用 localStorage 兜底，所以 readLabelDensity 也能 fallback)
       const stickyLabelDensity = mapSettingsRef.current.labelDensity || readLabelDensity();
+      if (guestDraftIdRef.current) {
+        guestReadFailedRef.current = false;
+        const draft = createGuestDraft(true);
+        draft.mapSettings.labelDensity = stickyLabelDensity;
+        applyGuestDraft(draft, false);
+        setGuestNotice(false);
+        return;
+      }
       setLines([]);
       setSections([]);
       setStations([]);
@@ -992,7 +1159,7 @@ const App: React.FC = () => {
       const nextPassword =
         values.password && values.confirm && values.password === values.confirm ? values.password : undefined;
       const payload = {
-        username: values.username || userProfile.username,
+        username: values.username || userProfile?.username,
         password: nextPassword
       };
 
@@ -1038,19 +1205,23 @@ const App: React.FC = () => {
   };
 
   const handleOpenMapList = async () => {
+    if (!userProfile) { requestGuestAuth('maps'); return; }
     setMapsVisible(true);
     if (mapsLoading) return;
     refreshSavedMaps(true);
   };
 
   const handleOpenSaveMap = () => {
+    if (!userProfile) { void persistGuestDraft(); requestGuestAuth('save'); return; }
     if (saveMapSaving) return;
-    setMapName(currentMap?.name || '');
+    setMapName(currentMap?.name || (guestDraftIdRef.current ? mapName : ''));
     setSaveMapVisible(true);
   };
 
   const handleSaveMap = async () => {
+    if (!userProfile) { requestGuestAuth('save'); return; }
     if (saveMapInFlightRef.current) return;
+    const savingGuestId = guestDraftIdRef.current;
     const trimmed = mapName.trim();
     const fallbackName = currentMap?.name || `我的地图 ${new Date().toLocaleString()}`;
     const name = trimmed || fallbackName;
@@ -1073,7 +1244,7 @@ const App: React.FC = () => {
     try {
       const { map } = targetMapId
         ? await api.updateMap(targetMapId, { name, ...snapshot })
-        : await api.createMap({ name, ...snapshot });
+        : await api.createMap({ name, ...snapshot, clientDraftId: savingGuestId || undefined });
       if (getToken() !== requestToken) {
         message.destroy('save-map');
         return;
@@ -1081,6 +1252,14 @@ const App: React.FC = () => {
       upsertSavedMap({ ...map, ...counts });
       if (documentSessionRef.current.isSameDocument(ticket)) {
         setCurrentMap({ ...map, ...counts });
+        if (savingGuestId && guestDraftIdRef.current === savingGuestId) {
+          guestDraftIdRef.current = null;
+          setGuestDraftId(null);
+          setGuestSession(false);
+          setPreviewMode(false);
+          window.history.replaceState({}, '', '/');
+          void deleteGuestDraft().catch(() => { /* Cloud save is already confirmed. */ });
+        }
         setMapName('');
         try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
         if (documentSessionRef.current.isUnchanged(ticket)) {
@@ -1103,8 +1282,25 @@ const App: React.FC = () => {
     }
   };
 
+  const resumeAuthActionRef = useRef({ save: handleOpenSaveMap, maps: handleOpenMapList });
+  resumeAuthActionRef.current = { save: handleOpenSaveMap, maps: handleOpenMapList };
+  useEffect(() => {
+    if (!userProfile || !authAction) return;
+    setAuthAction(null);
+    if (authAction === 'save') resumeAuthActionRef.current.save();
+    if (authAction === 'maps') void resumeAuthActionRef.current.maps();
+    if (authAction === 'ai') setAiModalOpen(true);
+    if (authAction === 'video') setVideoModalOpen(true);
+    if (authAction === 'profile') setProfileVisible(true);
+  }, [userProfile, authAction]);
+
   // 把服务端返回的 map 应用到本地状态，纯 setter 操作，便于复用（boot 自动加载也调它）
   const applyLoadedMap = (map: any) => {
+    guestDraftIdRef.current = null;
+    setGuestDraftId(null);
+    setGuestSession(false);
+    setPreviewMode(false);
+    window.history.replaceState({}, '', '/');
     const loadedLines = normalizeLoadedLines(map.lines || []);
     setLines(loadedLines);
     setSections(normalizeSections(map.sections));
@@ -1254,6 +1450,7 @@ const App: React.FC = () => {
   };
 
   const handleConfirmSegments = async (config: VideoExportConfig) => {
+    if (!userProfile) { requestGuestAuth('video'); return; }
     if (videoAbortRef.current) return;
     if (!stageRef.current) {
       message.error('画布尚未准备好');
@@ -1895,9 +2092,9 @@ const App: React.FC = () => {
     } catch (error: any) { message.error(error?.message || '图片保存失败，请重试'); }
   };
 
-  const displayName = userProfile?.username || text.defaultUserName;
+  const displayName = userProfile?.username || '访客预览';
   const displayInitial = (userProfile?.username || userProfile?.email || userProfile?.phone || 'M').charAt(0).toUpperCase();
-  const mapDisplayName = currentMap?.name || text.unnamedMap;
+  const mapDisplayName = currentMap?.name || (guestDraftId ? mapName : '') || text.unnamedMap;
 
   // 邮箱脱敏：dro****@example.com 这种，dropdown 展示用。
   // 没邮箱的 legacy 账号兜底展示已脱敏的手机号。
@@ -1929,12 +2126,14 @@ const App: React.FC = () => {
 
   // 右上角头像 dropdown 的菜单项。邮箱置顶展示（legacy 账号兜底脱敏手机号），三个常用入口 + 危险操作分隔。
   const userMenuItems = [
+    ...(!userProfile ? [{ key: 'login', icon: <UserOutlined />, label: '登录并保存', onClick: () => handleOpenSaveMap() },
+      { key: 'demo-animation', label: '观看动态示例', onClick: () => setGuestAnimationOpen(true) }] : []),
     {
       key: 'identity',
       disabled: true,
       label: (
         <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-meta)' }}>
-          {maskedEmail}
+          {maskedEmail || '访客预览 · 本机草稿'}
         </span>
       )
     },
@@ -1958,7 +2157,7 @@ const App: React.FC = () => {
       key: 'profile',
       icon: <UserOutlined />,
       label: '个人中心',
-      onClick: () => setProfileVisible(true)
+      onClick: () => userProfile ? setProfileVisible(true) : requestGuestAuth('profile')
     },
     {
       key: 'settings',
@@ -1981,9 +2180,9 @@ const App: React.FC = () => {
     {
       key: 'logout',
       icon: <LogoutOutlined />,
-      label: '退出登录',
-      danger: true,
-      onClick: handleLogout
+      label: userProfile ? '退出登录' : '返回登录页',
+      danger: !!userProfile,
+      onClick: () => { if (!userProfile) { void persistGuestDraft(); setPreviewMode(false); window.history.replaceState({}, '', '/'); } else handleLogout(); }
     }
   ];
 
@@ -2010,12 +2209,12 @@ const App: React.FC = () => {
     [resolvedInterfaceTheme]
   );
 
-  if (!userProfile) {
+  if (!userProfile && !previewMode) {
     return (
       <ConfigProvider theme={antdThemeConfig}>
         <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
           <div className="auth-layout" data-interface-theme={resolvedInterfaceTheme}>
-            <AuthPanel onAuthenticated={handleAuthenticated} />
+            <AuthPanel onAuthenticated={handleAuthenticated} onPreview={() => { guestRestorePromiseRef.current = startGuestPreview(); }} />
           </div>
           <DesktopUpdateNotice />
         </AntdApp>
@@ -2026,6 +2225,11 @@ const App: React.FC = () => {
   return (
     <ConfigProvider theme={antdThemeConfig}>
       <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
+    <GuestAnimationPreview open={guestAnimationOpen} onClose={() => setGuestAnimationOpen(false)} />
+    <Modal open={authVisible} onCancel={() => { setAuthVisible(false); setAuthAction(null); }}
+      footer={null} width={520} className="metro-guest-auth" destroyOnHidden title="登录后继续当前设计">
+      <AuthPanel embedded onAuthenticated={handleAuthenticated} />
+    </Modal>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
       <DesktopUpdateNotice />
       <Layout className="metro-workbench">
@@ -2065,7 +2269,7 @@ const App: React.FC = () => {
               <Toolbar
                 language={language}
                 onExportImage={handleExportImage}
-                onOpenVideoModal={() => setVideoModalOpen(true)}
+                onOpenVideoModal={() => userProfile ? setVideoModalOpen(true) : requestGuestAuth('video')}
                 onUndo={handleUndo}
                 onRedo={handleRedo}
                 canUndo={canUndo}
@@ -2081,7 +2285,7 @@ const App: React.FC = () => {
                   type="button"
                   className="metro-header-ai-btn"
                   aria-label="打开 AI 助手"
-                  onClick={() => setAiModalOpen(true)}
+                  onClick={() => userProfile ? setAiModalOpen(true) : requestGuestAuth('ai')}
                 >
                   <span className="metro-header-ai-btn__icon">
                     <ThunderboltOutlined />
@@ -2091,13 +2295,13 @@ const App: React.FC = () => {
               <Button
                 type="primary"
                 className="metro-header-save-btn"
-                aria-label={currentMap ? text.overwriteSave : text.saveMap}
+                aria-label={!userProfile ? '登录并保存' : currentMap ? text.overwriteSave : text.saveMap}
                 icon={<SaveOutlined />}
                 loading={saveMapSaving}
                 onClick={handleOpenSaveMap}
               >
                 <span className="metro-header-save-btn__label">
-                  {currentMap ? text.overwriteSave : text.saveMap}
+                  {!userProfile ? '登录并保存' : currentMap ? text.overwriteSave : text.saveMap}
                 </span>
                 {dirty ? (
                   <span
@@ -2117,8 +2321,8 @@ const App: React.FC = () => {
 
               <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
                 <button type="button" className="user-chip user-chip--trigger">
-                  <Avatar size={28} src={userProfile.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
-                    {userProfile.avatar ? null : displayInitial}
+                  <Avatar size={28} src={userProfile?.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
+                    {userProfile?.avatar ? null : displayInitial}
                   </Avatar>
                   <span className="user-chip__name">{displayName}</span>
                   <DownOutlined style={{ fontSize: 10, color: 'var(--color-text-muted)' }} />
@@ -2165,7 +2369,20 @@ const App: React.FC = () => {
           <Content className="metro-content">
             <div className="metro-canvas-stage">
 
-              <Canvas
+              {guestDraftId && <div className={`metro-guest-notice${guestStorageError ? ' has-error' : ''}`} role="status">
+                <span>{!userProfile ? '访客预览 · ' : ''}{guestStatus}</span>
+                {guestNotice && <><span>示例线网，可直接修改</span><button onClick={() => setGuestAnimationOpen(true)}>观看动态示例</button></>}
+                {guestRestored && <button onClick={() => setGuestRestored(false)}>继续上次草稿</button>}
+                {(guestNotice || guestRestored) && <button onClick={handleNewMap}>重新开始</button>}
+                {guestStorageError && <><button onClick={() => { void retryGuestStorage(); }}>重试</button><button onClick={() => { void downloadGuestBackup(); }}>下载备份</button></>}
+                {(guestNotice || guestRestored) && <button aria-label="收起预览提示" onClick={() => { setGuestNotice(false); setGuestRestored(false); }}>×</button>}
+              </div>}
+              {(!previewMode || guestReady) ? <Canvas
+                initialViewport={guestInitialViewport}
+                fitOnMount={!!guestDraftId && !guestInitialViewport}
+                onViewportChange={setGuestViewport}
+                onRequireAuth={() => requestGuestAuth('ai')}
+                isGuest={!userProfile}
                 onCreateLine={() => {
                   setIsMobileSidebarOpen(false);
                   setCreateLineRequest((request) => request + 1);
@@ -2197,6 +2414,7 @@ const App: React.FC = () => {
                 viewCommand={viewCmd}
                 mobileViewControlsHost={mobileViewControlsHost}
               />
+              : <div className="metro-guest-loading" role="status">正在打开本机草稿…</div>}
               <CommandBar onSubmit={runCommand} inputRef={commandInputRef} />
             </div>
           </Content>
@@ -2759,16 +2977,16 @@ const App: React.FC = () => {
           <div className="metro-profile-identity">
             <Avatar
               size={64}
-              src={userProfile.avatar}
+              src={userProfile?.avatar}
               className="metro-profile-identity__avatar"
               onClick={() => avatarInputRef.current?.click()}
             >
-              {userProfile.avatar ? null : displayInitial}
+              {userProfile?.avatar ? null : displayInitial}
             </Avatar>
             <div className="metro-profile-identity__main">
               <div className="metro-profile-identity__name">{displayName}</div>
               <div className="metro-profile-identity__phone">
-                {userProfile.email || (userProfile.phone ? `+86 ${userProfile.phone}` : '')}
+                {userProfile?.email || (userProfile?.phone ? `+86 ${userProfile?.phone}` : '')}
               </div>
               <button
                 type="button"
@@ -2784,7 +3002,7 @@ const App: React.FC = () => {
             layout="vertical"
             autoComplete="off"
             initialValues={{
-              username: userProfile.username,
+              username: userProfile?.username,
               password: '',
               confirm: ''
             }}
@@ -2804,25 +3022,25 @@ const App: React.FC = () => {
 
               {/* 邮箱：主标识，只读。带"已验证 / 未验证"badge。
                   legacy 用户没邮箱时这里展示手机号 + 提示去补邮箱（升级流程已在登录处理）。 */}
-              {userProfile.email ? (
+              {userProfile?.email ? (
                 <div className="metro-profile-field">
                   <div className="metro-profile-field__label">{text.email}</div>
                   <div className="metro-profile-field__value">
-                    <span>{userProfile.email}</span>
+                    <span>{userProfile?.email}</span>
                     <span
                       className="metro-profile-field__badge"
-                      style={userProfile.emailVerified ? undefined : { color: 'var(--color-warning, #d97706)' }}
+                      style={userProfile?.emailVerified ? undefined : { color: 'var(--color-warning, #d97706)' }}
                     >
                       <span className="metro-profile-field__badge-dot" />
-                      {userProfile.emailVerified ? text.emailVerified : text.emailUnverified}
+                      {userProfile?.emailVerified ? text.emailVerified : text.emailUnverified}
                     </span>
                   </div>
                 </div>
-              ) : userProfile.phone ? (
+              ) : userProfile?.phone ? (
                 <div className="metro-profile-field">
                   <div className="metro-profile-field__label">{text.phone}</div>
                   <div className="metro-profile-field__value">
-                    <span>+86 {userProfile.phone}</span>
+                    <span>+86 {userProfile?.phone}</span>
                     <span className="metro-profile-field__badge">
                       <span className="metro-profile-field__badge-dot" />
                       {text.profilePhoneBound}

@@ -153,6 +153,11 @@ interface CanvasProps {
   // Canvas 在 effect 里执行（Canvas 才持有 scale/position/amapRef）。seq 保证重复命令也能再触发。
   viewCommand?: { seq: number; action: AppAction } | null;
   mobileViewControlsHost?: HTMLDivElement | null;
+  isGuest?: boolean;
+  onRequireAuth?: () => void;
+  initialViewport?: { scale: number; x: number; y: number };
+  fitOnMount?: boolean;
+  onViewportChange?: (viewport: { scale: number; x: number; y: number }) => void;
 }
 
 const Canvas: React.FC<CanvasProps> = ({
@@ -177,7 +182,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onCreateLine,
   onStartWithAmap,
   viewCommand,
-  mobileViewControlsHost
+  mobileViewControlsHost, initialViewport, fitOnMount, onViewportChange, isGuest, onRequireAuth
 }) => {
   const text = language === 'en-US'
     ? {
@@ -335,8 +340,9 @@ const Canvas: React.FC<CanvasProps> = ({
   // 缩放相关状态
   const toolGroupRef = useElasticToolbar(CANVAS_TOOL_ORDER.indexOf(activeTool), CANVAS_TOOL_ORDER.length, isCompact,
     index => setCanvasTool(CANVAS_TOOL_ORDER[index]));
-  const [scale, setScale] = useState(1);
-  const [position, setPosition] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(initialViewport?.scale || 1);
+  const [position, setPosition] = useState({ x: initialViewport?.x || 0, y: initialViewport?.y || 0 });
+  useEffect(() => { onViewportChange?.({ scale, ...position }); }, [scale, position, onViewportChange]);
   const [isDragging, setIsDragging] = useState(false);
   // 历史遗留：以前用 useState 存上一次指针位置，每次 mousemove 触发一次额外的
   // setState；现在只读写 lastPointerPositionRef，省掉这一层重渲染。
@@ -377,6 +383,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const [translatingStation, setTranslatingStation] = useState(false);
 
   const handleTranslateStationName = async () => {
+    if (isGuest) { onRequireAuth?.(); return; }
     const raw = renameStationModal.name.trim();
     if (!raw) {
       message.warning('请先输入要翻译的站名');
@@ -1149,7 +1156,7 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   // 适应视图
-  const fitView = () => {
+  const fitView = (extraPadding = 0) => {
     if (stations.length === 0) return;
     if (isAmapMode && amapRef.current) {
       const lngLatStations = stations.filter(station => typeof station.lng === 'number' && typeof station.lat === 'number');
@@ -1175,8 +1182,8 @@ const Canvas: React.FC<CanvasProps> = ({
     const stageHeight = stageSize.height;
     
     const paddingX = isCompact ? 64 : 50;
-    const paddingTop = isCompact ? 132 : 50;
-    const paddingBottom = isCompact ? 156 : 50;
+    const paddingTop = (isCompact ? 132 : 50) + extraPadding;
+    const paddingBottom = (isCompact ? 156 : 50) + extraPadding / 2;
     const scaleX = Math.max(40, stageWidth - paddingX * 2) / Math.max(contentWidth, 1);
     const scaleY = Math.max(40, stageHeight - paddingTop - paddingBottom) / Math.max(contentHeight, 1);
     const newScale = Math.max(ZOOM_MIN, Math.min(scaleX, scaleY, 2));
@@ -1186,6 +1193,17 @@ const Canvas: React.FC<CanvasProps> = ({
       y: paddingTop + (stageHeight - paddingTop - paddingBottom - contentHeight * newScale) / 2 - minY * newScale
     });
   };
+
+  const initialFitRef = useRef(fitOnMount);
+  const initialFitViewRef = useRef(fitView);
+  initialFitViewRef.current = fitView;
+  useEffect(() => {
+    if (initialFitRef.current && stageSize.width > 0 && stageSize.height > 0 &&
+      Math.abs(stageSize.width - (containerRef.current?.clientWidth || 0)) < 2) {
+      initialFitRef.current = false;
+      initialFitViewRef.current(72);
+    }
+  }, [stageSize.width, stageSize.height]);
 
   // 居中到某站（命令 center）。纯画布按当前缩放把站点移到视口中心；高德走 setCenter。
   const centerOnStation = (stationId: string) => {
@@ -2677,7 +2695,7 @@ const Canvas: React.FC<CanvasProps> = ({
             ? (amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11).toFixed(1)
             : `${Math.round(scale * 100)}%`}
           onZoomOut={zoomOut} onZoomIn={zoomIn} onZoomPercent={setZoomPercent}
-          onFitView={fitView} onResetView={resetView} />,
+          onFitView={() => fitView()} onResetView={resetView} />,
         mobileViewControlsHost
       ) : !isCompact ? <div className="metro-canvas-hud">
         <Tooltip title={text.zoomOut}>
@@ -2709,7 +2727,7 @@ const Canvas: React.FC<CanvasProps> = ({
         </Tooltip>
         <span className="metro-canvas-hud__divider" />
         <Tooltip title={text.fitView}>
-          <button type="button" className="metro-canvas-hud__btn" onClick={fitView} aria-label={text.fitView}>□</button>
+          <button type="button" className="metro-canvas-hud__btn" onClick={() => fitView()} aria-label={text.fitView}>□</button>
         </Tooltip>
         <Tooltip title={text.resetView}>
           <button type="button" className="metro-canvas-hud__btn" onClick={resetView} aria-label={text.resetView}>⌂</button>

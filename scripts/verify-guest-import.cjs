@@ -7,12 +7,17 @@ const { spawn } = require('node:child_process');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const crypto = require('node:crypto');
+const net = require('node:net');
 
 async function main() {
   const dataDir = process.argv.includes('--serve') ? path.join(__dirname, '../outputs/guest-preview/fixture-data') : fs.mkdtempSync(path.join(os.tmpdir(), 'metro-guest-test-'));
   fs.mkdirSync(dataDir, { recursive: true });
   const secret = 'isolated-guest-test-secret';
-  const port = process.env.GUEST_TEST_PORT || '4013';
+  const port = process.env.GUEST_TEST_PORT || await new Promise((resolve, reject) => {
+    const socket = net.createServer();
+    socket.on('error', reject);
+    socket.listen(0, '127.0.0.1', () => { const port = socket.address().port; socket.close(() => resolve(port)); });
+  });
   const users = ['guest-test-a', 'guest-test-b'].map(id => ({ id, email: `${id}@example.test`,
     emailVerified: true, username: id, phone: '', passwordHash: bcrypt.hashSync('fixture-only-password', 4) }));
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({ users, maps: [], seq: { user: 3, map: 1 }, email_tokens: [{
