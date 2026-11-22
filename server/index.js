@@ -39,7 +39,7 @@ const JWT_SECRET = RAW_JWT_SECRET || crypto.randomBytes(48).toString('hex');
 const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || '';
 const DATABASE_URL = process.env.DATABASE_URL || '';
 const AMAP_WEB_SERVICE_KEY = process.env.AMAP_WEB_SERVICE_KEY || '';
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.METRO_DATA_DIR || path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 // 头像图片以 dataURL 形式落库，限一个合理上限避免拖慢用户列表/me 接口
 const MAX_AVATAR_LENGTH = 200_000; // ≈ 150KB 二进制
@@ -515,17 +515,25 @@ const storage = {
     return map ? { ...map, mapSettings: normalizeMapSettings(map.mapSettings) } : null;
   },
 
-  async createMap(userId, { name, lines, stations, sections, mapSettings }) {
+  async createMap(userId, { name, lines, stations, sections, mapSettings, clientDraftId }) {
     const now = new Date().toISOString();
     const normalizedMapSettings = normalizeMapSettings(mapSettings || DEFAULT_MAP_SETTINGS);
     const mapName = String(name).trim() || '未命名地图';
+    // A guest draft has one stable, account-scoped ID across retries and reloads.
+    const importId = clientDraftId
+      ? `guest_${crypto.createHash('sha256').update(`${userId}:${clientDraftId}`).digest('hex')}`
+      : null;
 
     if (pgPool) {
       await ensurePgSchema();
-      const id = generateId();
+      const id = importId || generateId();
       const { rows } = await pgPool.query(
         `INSERT INTO maps (id, user_id, name, lines, stations, sections, map_settings, created_at, updated_at)
          VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9)
+         ON CONFLICT (id) DO UPDATE SET
+           name = EXCLUDED.name, lines = EXCLUDED.lines, stations = EXCLUDED.stations,
+           sections = EXCLUDED.sections, map_settings = EXCLUDED.map_settings, updated_at = EXCLUDED.updated_at
+         WHERE maps.user_id = EXCLUDED.user_id
          RETURNING id, name, created_at, updated_at`,
         [
           id,
@@ -544,8 +552,14 @@ const storage = {
     }
 
     const db = readJsonDb();
+    const existing = importId ? db.maps.find(map => map.id === importId && map.userId === userId) : null;
+    if (existing) {
+      Object.assign(existing, { name: mapName, lines, stations, sections, mapSettings: normalizedMapSettings, updatedAt: now });
+      writeJsonDb(db);
+      return { id: existing.id, name: existing.name, createdAt: existing.createdAt, updatedAt: now };
+    }
     const map = {
-      id: String(db.seq.map++),
+      id: importId || String(db.seq.map++),
       userId,
       name: mapName,
       lines,
@@ -906,7 +920,7 @@ setInterval(() => {
 }, 30 * 60 * 1000).unref();
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json' });
+  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { guestDraftImport: true } });
 });
 
 app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res) => {
@@ -1647,11 +1661,14 @@ app.get('/api/maps/:id', auth, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/maps', auth, asyncHandler(async (req, res) => {
-  const { name, lines, stations, sections, mapSettings } = req.body || {};
+  const { name, lines, stations, sections, mapSettings, clientDraftId } = req.body || {};
+  if (clientDraftId !== undefined && (typeof clientDraftId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(clientDraftId))) {
+    return res.status(400).json({ message: '草稿标识格式无效' });
+  }
   if (!name || !Array.isArray(lines) || !Array.isArray(stations) || !Array.isArray(sections)) {
     return res.status(400).json({ message: '地图数据不完整' });
   }
-  const map = await storage.createMap(req.userId, { name, lines, stations, sections, mapSettings });
+  const map = await storage.createMap(req.userId, { name, lines, stations, sections, mapSettings, clientDraftId });
   res.json({ map });
 }));
 
