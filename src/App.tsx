@@ -12,7 +12,8 @@ import {
   SaveOutlined,
   DownloadOutlined,
   InfoCircleOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  PlaySquareOutlined
 } from '@ant-design/icons';
 import { api, clearToken, getToken, setToken, AIOperation } from './api';
 import { createId } from './utils/id';
@@ -290,12 +291,9 @@ const App: React.FC = () => {
   const [guestDraftId, setGuestDraftId] = useState<string | null>(null);
   const guestDraftIdRef = useRef<string | null>(null);
   const guestSavedRevisionRef = useRef<number | null>(null);
-  const [guestStatus, setGuestStatus] = useState('正在读取本机草稿…');
   const [guestStorageError, setGuestStorageError] = useState(false);
   const guestReadFailedRef = useRef(false);
-  const [guestNotice, setGuestNotice] = useState(false);
   const [guestAnimationOpen, setGuestAnimationOpen] = useState(false);
-  const [guestRestored, setGuestRestored] = useState(false);
   const [guestInitialViewport, setGuestInitialViewport] = useState<GuestDraft['viewport']>();
   const [guestViewport, setGuestViewport] = useState<GuestDraft['viewport']>();
   const [authVisible, setAuthVisible] = useState(false);
@@ -901,7 +899,7 @@ const App: React.FC = () => {
     message.success('线路顺序已更新');
   };
 
-  const applyGuestDraft = (draft: GuestDraft, restored: boolean) => {
+  const applyGuestDraft = (draft: GuestDraft) => {
     guestDraftIdRef.current = draft.id;
     guestSavedRevisionRef.current = null;
     setGuestDraftId(draft.id);
@@ -915,15 +913,12 @@ const App: React.FC = () => {
     setGuestViewport(draft.viewport);
     setCurrentMap(null);
     resetHistory();
-    setGuestNotice(!restored);
-    setGuestRestored(restored);
     setGuestReady(true);
   };
 
   const startGuestPreview = async () => {
     guestPreviewRequestedRef.current = true;
     setGuestSession(true);
-    setGuestStatus('正在读取本机草稿…');
     if (!isAuthCallbackURL()) {
       setPreviewMode(true);
       const params = new URLSearchParams(window.location.search);
@@ -934,14 +929,12 @@ const App: React.FC = () => {
     try {
       const stored = await readGuestDraft();
       const draft = stored || createGuestDraft();
-      applyGuestDraft(draft, !!stored);
-      setGuestStatus('正在保存本机草稿…');
+      applyGuestDraft(draft);
     } catch (error) {
       guestReadFailedRef.current = true;
       // Retain a readable in-memory document if storage is unavailable; offer a backup.
-      if (!guestDraftIdRef.current) applyGuestDraft(createGuestDraft(), false);
+      if (!guestDraftIdRef.current) applyGuestDraft(createGuestDraft());
       setGuestStorageError(true);
-      setGuestStatus('本机保存遇到问题，请下载备份');
     }
   };
 
@@ -970,16 +963,13 @@ const App: React.FC = () => {
       await writeGuestDraft(snapshot);
       if (snapshot.id !== guestDraftIdRef.current) return;
       guestSavedRevisionRef.current = ticket.revision;
-      setGuestStatus('草稿已保存在本机');
       setGuestStorageError(false);
     } catch {
       setGuestStorageError(true);
-      setGuestStatus('本机保存遇到问题，请下载备份');
     }
   }, []);
   useEffect(() => {
     if (!guestDraftId || !guestReady || guestReadFailedRef.current) return;
-    setGuestStatus('正在保存本机草稿…');
     const timer = window.setTimeout(() => { void persistGuestDraft(); }, 250);
     return () => window.clearTimeout(timer);
   }, [guestDraftId, guestReady, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport, persistGuestDraft]);
@@ -1002,7 +992,7 @@ const App: React.FC = () => {
             okText: '恢复草稿', cancelText: '保留当前画布', onOk: () => {
               guestReadFailedRef.current = false;
               setGuestStorageError(false);
-              applyGuestDraft(stored, true);
+              applyGuestDraft(stored);
             } });
           return;
         }
@@ -1077,8 +1067,7 @@ const App: React.FC = () => {
         guestReadFailedRef.current = false;
         const draft = createGuestDraft(true);
         draft.mapSettings.labelDensity = stickyLabelDensity;
-        applyGuestDraft(draft, false);
-        setGuestNotice(false);
+        applyGuestDraft(draft);
         return;
       }
       setLines([]);
@@ -2124,66 +2113,50 @@ const App: React.FC = () => {
     }
   };
 
-  // 右上角头像 dropdown 的菜单项。邮箱置顶展示（legacy 账号兜底脱敏手机号），三个常用入口 + 危险操作分隔。
-  const userMenuItems = [
-    ...(!userProfile ? [{ key: 'login', icon: <UserOutlined />, label: '登录并保存', onClick: () => handleOpenSaveMap() },
-      { key: 'demo-animation', label: '观看动态示例', onClick: () => setGuestAnimationOpen(true) }] : []),
-    {
-      key: 'identity',
-      disabled: true,
-      label: (
-        <span style={{ color: 'var(--color-text-muted)', fontSize: 'var(--font-size-meta)' }}>
-          {maskedEmail || '访客预览 · 本机草稿'}
-        </span>
-      )
-    },
+  const identityMenuItem = {
+    key: 'identity', disabled: true,
+    label: <span className="metro-user-menu__identity">{maskedEmail || '访客预览'}</span>
+  };
+  const newMapMenuItem = { key: 'new-map', icon: <FileAddOutlined />, label: '新建空白方案', onClick: handleNewMap };
+  const settingsMenuItems = [
+    { key: 'settings', icon: <SettingOutlined />, label: '设置', onClick: () => setSettingsVisible(true) },
+    ...(!isAndroidClient ? [{ key: 'download-client', icon: <DownloadOutlined />,
+      label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">下载客户端</a> }] : []),
+    { key: 'about', icon: <InfoCircleOutlined />, label: language === 'en-US' ? 'About us' : '关于我们', onClick: () => setAboutVisible(true) }
+  ];
+  const guestBackupMenuItems = guestStorageError ? [
     { type: 'divider' as const },
-    {
-      // 文件类：新建 + 打开。"新建空白方案"放最前面，因为这是"保存了之后想开个新的"最自然的入口
-      key: 'new-map',
-      icon: <FileAddOutlined />,
-      label: '新建空白方案',
-      onClick: handleNewMap
-    },
-    {
-      key: 'maps',
-      icon: <FolderOpenOutlined />,
-      label: '我的地图',
-      onClick: handleOpenMapList
-    },
+    { key: 'draft-error', disabled: true, label: '本机草稿保存遇到问题' },
+    { key: 'retry-draft', label: '重试保存草稿', onClick: () => { void retryGuestStorage(); } },
+    { key: 'backup-draft', label: '下载草稿备份', onClick: () => { void downloadGuestBackup(); } }
+  ] : [];
+  // 访客解锁入口只做认证；顶部“登录并保存”继续承担保存当前作品的动作。
+  const userMenuItems = userProfile ? [
+    identityMenuItem,
     { type: 'divider' as const },
-    {
-      // 账号类
-      key: 'profile',
-      icon: <UserOutlined />,
-      label: '个人中心',
-      onClick: () => userProfile ? setProfileVisible(true) : requestGuestAuth('profile')
-    },
-    {
-      key: 'settings',
-      icon: <SettingOutlined />,
-      label: '设置',
-      onClick: () => setSettingsVisible(true)
-    },
-    ...(!isAndroidClient ? [{
-      key: 'download-client',
-      icon: <DownloadOutlined />,
-      label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">下载客户端</a>
-    }] : []),
-    {
-      key: 'about',
-      icon: <InfoCircleOutlined />,
-      label: language === 'en-US' ? 'About us' : '关于我们',
-      onClick: () => setAboutVisible(true)
-    },
+    newMapMenuItem,
+    { key: 'maps', icon: <FolderOpenOutlined />, label: '我的地图', onClick: handleOpenMapList },
     { type: 'divider' as const },
-    {
-      key: 'logout',
-      icon: <LogoutOutlined />,
-      label: userProfile ? '退出登录' : '返回登录页',
-      danger: !!userProfile,
-      onClick: () => { if (!userProfile) { void persistGuestDraft(); setPreviewMode(false); window.history.replaceState({}, '', '/'); } else handleLogout(); }
-    }
+    { key: 'profile', icon: <UserOutlined />, label: '个人中心', onClick: () => setProfileVisible(true) },
+    ...settingsMenuItems,
+    { type: 'divider' as const },
+    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true, onClick: handleLogout }
+  ] : [
+    identityMenuItem,
+    { key: 'unlock', className: 'metro-user-menu__unlock',
+      label: <span className="metro-user-menu__unlock-content"><UserOutlined /><span className="metro-user-menu__unlock-label"><strong>登录解锁更多功能</strong>
+        <span>云端地图、AI 助手<br />视频导出、账号管理</span></span></span>,
+      onClick: () => requestGuestAuth(null) },
+    { type: 'divider' as const },
+    newMapMenuItem,
+    { key: 'demo-animation', icon: <PlaySquareOutlined />, label: '观看动态示例', onClick: () => setGuestAnimationOpen(true) },
+    { type: 'divider' as const },
+    ...settingsMenuItems,
+    ...guestBackupMenuItems,
+    { type: 'divider' as const },
+    { key: 'return-login', icon: <LogoutOutlined />, label: '返回登录页', onClick: () => {
+      void persistGuestDraft(); setPreviewMode(false); window.history.replaceState({}, '', '/');
+    } }
   ];
 
   const antdThemeConfig = useMemo(
@@ -2227,7 +2200,7 @@ const App: React.FC = () => {
       <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
     <GuestAnimationPreview open={guestAnimationOpen} onClose={() => setGuestAnimationOpen(false)} />
     <Modal open={authVisible} onCancel={() => { setAuthVisible(false); setAuthAction(null); }}
-      footer={null} width={520} className="metro-guest-auth" destroyOnHidden title="登录后继续当前设计">
+      footer={null} width={520} className="metro-guest-auth" destroyOnHidden aria-labelledby="metro-guest-auth-title">
       <AuthPanel embedded onAuthenticated={handleAuthenticated} />
     </Modal>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
@@ -2319,7 +2292,7 @@ const App: React.FC = () => {
                 ) : null}
               </Button>
 
-              <Dropdown menu={{ items: userMenuItems }} trigger={['click']} placement="bottomRight">
+              <Dropdown menu={{ items: userMenuItems }} overlayClassName={!userProfile ? 'metro-user-menu--guest' : undefined} trigger={['click']} placement="bottomRight">
                 <button type="button" className="user-chip user-chip--trigger">
                   <Avatar size={28} src={userProfile?.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
                     {userProfile?.avatar ? null : displayInitial}
@@ -2369,14 +2342,6 @@ const App: React.FC = () => {
           <Content className="metro-content">
             <div className="metro-canvas-stage">
 
-              {guestDraftId && <div className={`metro-guest-notice${guestStorageError ? ' has-error' : ''}`} role="status">
-                <span>{!userProfile ? '访客预览 · ' : ''}{guestStatus}</span>
-                {guestNotice && <><span>示例线网，可直接修改</span><button onClick={() => setGuestAnimationOpen(true)}>观看动态示例</button></>}
-                {guestRestored && <button onClick={() => setGuestRestored(false)}>继续上次草稿</button>}
-                {(guestNotice || guestRestored) && <button onClick={handleNewMap}>重新开始</button>}
-                {guestStorageError && <><button onClick={() => { void retryGuestStorage(); }}>重试</button><button onClick={() => { void downloadGuestBackup(); }}>下载备份</button></>}
-                {(guestNotice || guestRestored) && <button aria-label="收起预览提示" onClick={() => { setGuestNotice(false); setGuestRestored(false); }}>×</button>}
-              </div>}
               {(!previewMode || guestReady) ? <Canvas
                 initialViewport={guestInitialViewport}
                 fitOnMount={!!guestDraftId && !guestInitialViewport}

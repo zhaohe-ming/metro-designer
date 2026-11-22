@@ -250,7 +250,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embed
       case 'reset_sent': return '重置邮件已发送';
       case 'reset_form': return '设置新密码';
       case 'verifying_url': return '正在验证邮箱…';
-      default: return '欢迎回来';
+      default: return embedded ? '登录后继续' : '欢迎回来';
     }
   })();
 
@@ -278,8 +278,8 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embed
 
         <section className="auth-card__form">
           <div className="auth-form-shell">
-            <Title className="auth-form-title">{title}</Title>
-            <Text className="auth-form-subtitle">{subtitle}</Text>
+            <Title id={embedded ? 'metro-guest-auth-title' : undefined} className="auth-form-title">{title}</Title>
+            {!(embedded && mode === 'login') && <Text className="auth-form-subtitle">{subtitle}</Text>}
             {!embedded && <AndroidDownloadLink />}
 
             {(mode === 'login' || mode === 'register') && (
@@ -349,7 +349,7 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embed
                   </Button>
                 </div>
                 <Button className="auth-submit-btn" type="primary" htmlType="submit" block size="large" loading={loading}>
-                  登录并进入工作台
+                  {embedded ? '登录并继续' : '登录并进入工作台'}
                   <ArrowRightOutlined />
                 </Button>
               </Form>

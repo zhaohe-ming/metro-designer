@@ -1,3 +1,4 @@
+import { plainCanvasElementScale, liveElementScaleRatio } from '../lib/canvasZoom';
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Konva from 'konva';
@@ -410,6 +411,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const amapContainerRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<any>(null);
+  const syncZoomElementSizesRef = useRef<(viewportScale: number) => void>(() => {});
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
   const amapRef = useRef<any>(null);
@@ -867,6 +869,7 @@ const Canvas: React.FC<CanvasProps> = ({
     // scheduleCanvasInteractionEnd 的落停回调统一提交一次，与 pan 路径行为一致。
     stage.scale({ x: clampedScale, y: clampedScale });
     stage.position(newPos);
+    syncZoomElementSizesRef.current(clampedScale);
     stage.batchDraw();
   };
 
@@ -962,6 +965,7 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     stage.scale({ x: next.scale, y: next.scale });
     stage.position({ x: next.x, y: next.y });
+    syncZoomElementSizesRef.current(next.scale);
     stage.batchDraw();
   };
 
@@ -1102,6 +1106,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (stage) {
       stage.scale({ x: nextScale, y: nextScale });
       stage.position(nextPosition);
+      syncZoomElementSizesRef.current(nextScale);
       stage.batchDraw();
     }
     setScale(nextScale);
@@ -1923,9 +1928,23 @@ const Canvas: React.FC<CanvasProps> = ({
       const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
       return Math.max(0.85, Math.min(1.2, 1 + 0.05 * (zoom - AMAP_BASELINE_ZOOM)));
     }
-    // plain canvas adaptive：反向乘 1/scale，让屏幕看起来恒定；clamp 防止极端
-    return Math.max(0.7, Math.min(1.4, 1 / Math.max(scale, 0.0001)));
+    return plainCanvasElementScale(labelDensity, scale);
   }, [labelDensity, isAmapMode, scale, mapRenderTick, mapSettings.baseMap.amap?.zoom]);
+
+  // 手势直接写 Stage 时，同帧补偿站点/文字与线路宽度，避免松手后才改变字号。
+  // 仅遍历现有 Konva 节点，不触发整张线网的 React 更新或标签避让计算。
+  useLayoutEffect(() => {
+    const synchronize = (viewportScale: number) => {
+      const stage = stageRef.current;
+      if (!stage) return;
+      const ratio = isAmapMode ? 1 : liveElementScaleRatio(labelDensity, viewportScale, effectiveScale);
+      const elementScale = isAmapMode ? effectiveScale : plainCanvasElementScale(labelDensity, viewportScale);
+      stage.find('.zoom-sized-element').forEach((node: any) => node.scale({ x: ratio, y: ratio }));
+      stage.find('.zoom-sized-stroke').forEach((node: any) => node.strokeWidth(stylePreset.lineWidth * elementScale));
+    };
+    syncZoomElementSizesRef.current = synchronize;
+    synchronize(stageRef.current?.scaleX() || scale);
+  });
 
   // 把 stylePreset / dotLabelStyle 的"基准"数值乘上 effectiveScale 得到"实际渲染"用的数值。
   // 集中在这里算，下面 render 全引用 scaled* 即可，单个地方改起来不易漏。
@@ -2076,6 +2095,7 @@ const Canvas: React.FC<CanvasProps> = ({
         />,
         <Line
           key={`${seg.section.id}_${currentIndex}`}
+          name="zoom-sized-stroke"
           points={renderPoints}
           stroke={seg.line.color}
           strokeWidth={scaledLineWidth}
@@ -2769,7 +2789,7 @@ const Canvas: React.FC<CanvasProps> = ({
           {/* 渲染线路连接线 */}
           {renderLines()}
           {lineNamePlacements.map(label => (
-            <Group key={`line_label_${label.key}`} x={label.x} y={label.y} listening={false}>
+            <Group key={`line_label_${label.key}`} name="zoom-sized-element" x={label.x} y={label.y} listening={false}>
               <Rect
                 width={label.width}
                 height={label.height}
@@ -2887,7 +2907,7 @@ const Canvas: React.FC<CanvasProps> = ({
               <Group
                 key={station.id}
                 id={station.id}
-                name="touch-edit-node touch-station"
+                name="touch-edit-node touch-station zoom-sized-element"
                 dragDistance={isCompact ? 8 : 3}
                 x={stationPoint.x}
                 y={stationPoint.y}

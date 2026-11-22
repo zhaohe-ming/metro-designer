@@ -3983,30 +3983,36 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 .auth-card--embedded .auth-form-title { font-size: 30px !important; }
 .metro-guest-auth { top: 36px; padding-bottom: 36px; }
 .metro-guest-auth .ant-modal-body { max-height: calc(100dvh - 140px); overflow-y: auto; }
-.metro-guest-notice { position: absolute; z-index: 10; top: 64px; left: 50%; transform: translateX(-50%);
-  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px 12px;
-  width: max-content; max-width: calc(100% - 32px); padding: 8px 12px; border: 1px solid var(--color-border);
-  border-radius: 12px; background: var(--color-surface); color: var(--color-text-soft); font-size: 13px; box-shadow: 0 4px 16px rgba(15,23,42,.06); }
-.metro-guest-notice.has-error { border-color: #d97706; }
-.metro-guest-notice button { padding: 4px; border: 0; background: transparent; color: var(--color-primary-600);
-  font: inherit; cursor: pointer; min-height: 28px; }
-.metro-guest-notice button:focus-visible { outline: 2px solid var(--color-primary-600); border-radius: 4px; }
 .metro-guest-loading { display: grid; place-items: center; height: 100%; color: var(--color-text-soft); }
 @media (max-width: 768px) {
-  .metro-guest-notice { top: 132px; max-width: calc(100% - 24px); font-size: 13px; padding: 5px 10px; }
-  .metro-guest-notice button { min-height: 36px; }
   .metro-guest-auth { top: 16px; max-width: calc(100% - 24px); }
   .metro-guest-auth .ant-modal-content { padding: 20px; }
 }
 
-@media (max-width: 768px) {
-  .metro-guest-notice { gap: 2px 10px; padding: 8px 30px 8px 10px; }
-  .metro-guest-notice > span { flex-basis: 100%; text-align: center; }
-  .metro-guest-notice button[aria-label="收起预览提示"] { position: absolute; top: 3px; right: 4px; width: 28px; min-height: 28px; }
-}
 
 @media (min-width: 769px) and (max-width: 1100px) and (max-height: 800px) {
   .auth-card--preview-entry.auth-card--login .auth-card__form { padding: 24px !important; }
   .auth-card--preview-entry.auth-card--login .auth-switcher { margin-top: 24px; }
   .auth-card--preview-entry.auth-card--login .auth-policy-links { margin-top: 16px; }
 }
+
+/* Embedded authentication has one title and one surface. */
+.metro-guest-auth .auth-card--embedded,
+.metro-guest-auth .auth-card--embedded .auth-card__inner,
+.metro-guest-auth .auth-card--embedded .auth-card__form {
+  border: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important;
+}
+.metro-guest-auth .auth-card--embedded .auth-card__form { padding: 6px 0 0 !important; }
+.metro-guest-auth .auth-card--embedded .auth-form-title { padding-right: 32px; margin-top: 0; margin-bottom: 0; }
+.metro-guest-auth .auth-card--embedded .auth-switcher { margin-top: 24px; }
+.metro-user-menu__identity { color: var(--color-text-muted); font-size: 13px; }
+.metro-user-menu--guest .ant-dropdown-menu { width: 256px; max-width: calc(100vw - 24px); padding: 8px; }
+.metro-user-menu--guest .ant-dropdown-menu-item { min-height: 42px; padding: 8px 12px; }
+.metro-user-menu--guest .ant-dropdown-menu-item-disabled { min-height: 32px; padding-top: 4px; padding-bottom: 4px; }
+.metro-user-menu--guest .ant-dropdown-menu-item-divider { margin: 5px 0; }
+.metro-user-menu--guest .metro-user-menu__unlock { align-items: flex-start; padding-top: 10px; padding-bottom: 12px; }
+.metro-user-menu__unlock-content { display: flex; align-items: flex-start; gap: 10px; }
+.metro-user-menu__unlock-content > .anticon { flex: 0 0 16px; margin-top: 3px; color: var(--color-primary-600); font-size: 16px; }
+.metro-user-menu__unlock-label { display: flex; flex-direction: column; gap: 6px; white-space: normal; }
+.metro-user-menu__unlock-label strong { font-size: 15px; line-height: 22px; font-weight: 600; color: var(--color-primary-600); }
+.metro-user-menu__unlock-label > span { color: var(--color-text-muted); font-size: 13px; line-height: 1.65; }
