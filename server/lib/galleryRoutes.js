@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 const { fail, publication, artwork, summary } = require('./galleryDomain');
 const createStore = require('./galleryStore');
+const { resolveGalleryAdmins } = require('./galleryAccess');
 
 module.exports = function registerGallery(app, ctx) {
   const { auth, storage, JWT_SECRET, AMAP_WEB_SERVICE_KEY } = ctx;
@@ -14,7 +15,7 @@ module.exports = function registerGallery(app, ctx) {
   };
   const writeLimit=rateLimit({windowMs:60000,max:40,standardHeaders:true,legacyHeaders:false,message:{message:'操作较频繁，请稍后再试'}});
   const submitLimit=rateLimit({windowMs:3600000,max:20,standardHeaders:true,legacyHeaders:false,message:{message:'提交较频繁，请稍后再试'}});
-  const admins=new Set((process.env.GALLERY_ADMIN_EMAILS||'').split(',').map(s=>s.trim().toLowerCase()).filter(Boolean));
+  const admins=resolveGalleryAdmins(process.env.GALLERY_ADMIN_EMAILS);
   const verified=async req=>{const user=await storage.findUserById(req.userId);if(!user?.emailVerified)throw fail('请先完成邮箱验证',403);return user;};
   const admin=async req=>{const user=await verified(req);if(!admins.has(user.email.toLowerCase()))throw fail('此操作需要审核权限',403);return user;};
   const publicWork=async id=>{const work=await store.get(id);if(!work?.published||work.visibility!=='public')throw fail('作品暂未公开',404);return work;};

@@ -920,7 +920,7 @@ setInterval(() => {
 }, 30 * 60 * 1000).unref();
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { worksGallery: true, guestDraftImport: true, amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY) } });
+  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { galleryModeration: require('./lib/galleryAccess').resolveGalleryAdmins(process.env.GALLERY_ADMIN_EMAILS).size > 0, worksGallery: true, guestDraftImport: true, amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY) } });
 });
 
 app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res) => {
