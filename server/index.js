@@ -834,11 +834,34 @@ function signUpgradeToken(userId) {
 }
 
 // ── 拉黑检查 + 违规计数升级到 BAN ─────────────────────────────────────────
+// 进程内缓存封禁查询结果（TTL 30s），避免刷列表/封面图时每个 HTTP 请求都打一次数据库。
+const BAN_CACHE_TTL_MS = 30_000;
+const banLookupCache = new Map(); // key -> { ban, expiresAt }
+
 const clientKey = (req) => req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
+
+async function getCachedActiveBan(key) {
+  if (!key) return null;
+  const now = Date.now();
+  const cached = banLookupCache.get(key);
+  if (cached && cached.expiresAt > now) {
+    if (cached.ban && new Date(cached.ban.unbanAt).getTime() <= now) {
+      banLookupCache.delete(key);
+    } else {
+      return cached.ban;
+    }
+  }
+  const ban = await storage.findActiveBan(key);
+  if (banLookupCache.size > 5000) {
+    banLookupCache.delete(banLookupCache.keys().next().value);
+  }
+  banLookupCache.set(key, { ban, expiresAt: now + BAN_CACHE_TTL_MS });
+  return ban;
+}
 
 async function banCheck(req, res, next) {
   const key = clientKey(req);
-  const ban = await storage.findActiveBan(key);
+  const ban = await getCachedActiveBan(key);
   if (ban) {
     const retryAfterSec = Math.max(1, Math.ceil((new Date(ban.unbanAt).getTime() - Date.now()) / 1000));
     res.setHeader('Retry-After', String(retryAfterSec));
@@ -857,7 +880,8 @@ async function escalateViolation(scope, key, req) {
   if (count >= BAN_THRESHOLD) {
     const existing = await storage.findActiveBan(key);
     if (!existing) {
-      await storage.createBan(key, `${scope}_threshold_${count}_in_24h`, BAN_DURATION_MS);
+      const created = await storage.createBan(key, `${scope}_threshold_${count}_in_24h`, BAN_DURATION_MS);
+      if (created) banLookupCache.set(key, { ban: created, expiresAt: Date.now() + BAN_CACHE_TTL_MS });
       console.warn(`[rate] auto-ban key=${key} after ${count} violations (reqId=${req?.requestId || '-'})`);
     }
   }

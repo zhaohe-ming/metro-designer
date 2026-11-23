@@ -117,3 +117,27 @@ test('SDK 加载失败保留错误状态', async () => {
   (loadAmap as jest.Mock).mockRejectedValue(new Error('测试网络错误'));
   await render(); expect(result.ready).toBe(false); expect(result.error).toBe('测试网络错误');
 });
+
+test('真实高德场景：切换第 2、第 3 个存档及切换风格时不再二次触发 complete 也能立即就绪', async () => {
+  await render(); emit('complete'); expect(result.ready).toBe(true);
+  // 第二个存档（不同城市 + 不同缩放，且模拟高德墨卡托微小舍入与缩放限幅，不触发第二次 complete）
+  const second: AmapBaseMapSettings = { center: [121.473701, 31.230416], zoom: 2, style: 'normal' };
+  maps[0].setZoomAndCenter.mockImplementationOnce((_zoom: number, center: [number, number]) => {
+    maps[0].zoom = 3; // 模拟高德最小缩放限幅 2 -> 3
+    maps[0].center = [center[0] + 0.00012, center[1] - 0.00008];
+    maps[0].emit('movestart'); maps[0].emit('moveend');
+  });
+  await render({ documentKey: 'map-2', viewport: second });
+  expect(result.ready).toBe(false); // 首帧隐藏旧投影
+  act(() => jest.advanceTimersByTime(32));
+  expect(result.ready).toBe(true);
+  expect(result.error).toBe('');
+
+  // 第三个存档同时切换暗夜底图风格（setMapStyle 不触发任何高德事件）
+  const third: AmapBaseMapSettings = { center: [113.264385, 23.129112], zoom: 11.5, style: 'dark' };
+  await render({ documentKey: 'map-3', viewport: third });
+  expect(result.ready).toBe(false);
+  act(() => jest.advanceTimersByTime(32));
+  expect(result.ready).toBe(true);
+  expect(result.error).toBe('');
+});

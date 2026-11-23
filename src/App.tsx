@@ -426,8 +426,8 @@ const App: React.FC = () => {
     mapSettingsRef.current = mapSettings;
   }, [lines, sections, stations, mapSettings]);
   // 命令行：当前线路 ref（给命令上下文取最新值）；命令栏输入 ref（/ 聚焦）；视图命令通道
-  const currentLineIdRef = useRef<string | null>(null);
-  useEffect(() => { currentLineIdRef.current = currentLineId; }, [currentLineId]);
+  const currentLineIdRef = useRef<string | null>(currentLineId);
+  useLayoutEffect(() => { currentLineIdRef.current = currentLineId; }, [currentLineId]);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const [viewCmd, setViewCmd] = useState<{ seq: number; action: AppAction } | null>(null);
 
@@ -691,8 +691,8 @@ const App: React.FC = () => {
     );
   };
 
-  const handleAddLine = (name: string, color: string) => {
-    if (lines.some((line) => line.color === color)) {
+  const handleAddLine = useCallback((name: string, color: string) => {
+    if (linesRef.current.some((line) => line.color === color)) {
       message.error('该颜色已被其他线路占用，请选择其他颜色');
       return false;
     }
@@ -710,15 +710,22 @@ const App: React.FC = () => {
     setLines((prev) => [...prev, newLine]);
     setCurrentLineId(newLine.id);
     return true;
-  };
+  }, [pushHistory]);
 
-  const handleSelectLine = (id: string) => {
-    setCurrentLineId(id);
-  };
-
-  const handleDeselectLine = () => {
+  const handleDeselectLine = useCallback(() => {
     setCurrentLineId(null);
-  };
+  }, []);
+
+  const handleSidebarSelectLine = useCallback((id: string) => {
+    setCurrentLineId(id);
+    setIsMobileSidebarOpen(false);
+  }, []);
+
+  const handleSidebarAddLine = useCallback((name: string, color: string) => {
+    const ok = handleAddLine(name, color);
+    if (ok) setIsMobileSidebarOpen(false);
+    return ok;
+  }, [handleAddLine]);
 
   const handleAddStation = (station: Station) => {
     pushHistory();
@@ -823,14 +830,15 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRemoveStationFromLine = (lineId: string, stationId: string) => {
+  const handleRemoveStationFromLine = useCallback((lineId: string, stationId: string) => {
     pushHistory();
+    const sectionMap = new Map(sectionsRef.current.map((section) => [section.id, section]));
     setLines((prev) =>
       prev.map((line) => {
         if (line.id !== lineId) return line;
 
         const validSectionIds = line.sectionIds.filter((sectionId) => {
-          const currentSection = sections.find((section) => section.id === sectionId);
+          const currentSection = sectionMap.get(sectionId);
           if (!currentSection) return false;
           return currentSection.startStationId !== stationId && currentSection.endStationId !== stationId;
         });
@@ -847,9 +855,9 @@ const App: React.FC = () => {
     setSections((prev) =>
       prev.filter((section) => !(section.lineId === lineId && (section.startStationId === stationId || section.endStationId === stationId)))
     );
-  };
+  }, [pushHistory]);
 
-  const handleReorderStations = (lineId: string, stationIds: string[]) => {
+  const handleReorderStations = useCallback((lineId: string, stationIds: string[]) => {
     pushHistory();
     setLines((prev) =>
       prev.map((line) => {
@@ -857,24 +865,25 @@ const App: React.FC = () => {
         return { ...line, stationIds };
       })
     );
-  };
+  }, [pushHistory]);
 
-  const handleDeleteLine = (lineId: string) => {
+  const handleDeleteLine = useCallback((lineId: string) => {
     pushHistory();
-    const deletingLine = lines.find((line) => line.id === lineId);
+    const deletingLine = linesRef.current.find((line) => line.id === lineId);
     if (deletingLine) {
-      setSections((prev) => prev.filter((section) => !deletingLine.sectionIds.includes(section.id)));
+      const deletingSectionSet = new Set(deletingLine.sectionIds);
+      setSections((prev) => prev.filter((section) => !deletingSectionSet.has(section.id)));
     }
 
     setLines((prev) => prev.filter((line) => line.id !== lineId));
-    if (currentLineId === lineId) {
+    if (currentLineIdRef.current === lineId) {
       setCurrentLineId(null);
     }
     message.success('线路已删除');
-  };
+  }, [pushHistory]);
 
-  const handleChangeLineColor = (lineId: string, newColor: string) => {
-    if (lines.some((line) => line.id !== lineId && line.color === newColor)) {
+  const handleChangeLineColor = useCallback((lineId: string, newColor: string) => {
+    if (linesRef.current.some((line) => line.id !== lineId && line.color === newColor)) {
       message.error('该颜色已被其他线路占用，请选择其他颜色');
       return false;
     }
@@ -883,13 +892,13 @@ const App: React.FC = () => {
     setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, color: newColor } : line)));
     message.success('线路颜色已更新');
     return true;
-  };
+  }, [pushHistory]);
 
-  const handleChangeLineName = (lineId: string, newName: string) => {
+  const handleChangeLineName = useCallback((lineId: string, newName: string) => {
     pushHistory();
     setLines((prev) => prev.map((line) => (line.id === lineId ? { ...line, name: newName } : line)));
     message.success('线路名称已更新');
-  };
+  }, [pushHistory]);
 
   const handleDeleteStation = (stationId: string) => {
     pushHistory();
@@ -919,12 +928,13 @@ const App: React.FC = () => {
     message.success('区间已删除');
   };
 
-  const handleReorderLines = (newOrder: string[]) => {
+  const handleReorderLines = useCallback((newOrder: string[]) => {
     pushHistory();
-    const nextLines = newOrder.map((lineId) => lines.find((line) => line.id === lineId)).filter(Boolean) as Line[];
+    const lineMap = new Map(linesRef.current.map((line) => [line.id, line]));
+    const nextLines = newOrder.map((lineId) => lineMap.get(lineId)).filter(Boolean) as Line[];
     setLines(nextLines);
     message.success('线路顺序已更新');
-  };
+  }, [pushHistory]);
 
   const applyGuestDraft = (draft: GuestDraft) => {
     gallerySourceRef.current = draft.gallerySourceToken;
@@ -2079,15 +2089,36 @@ const App: React.FC = () => {
     try {
       stage.scale({ x: 1, y: 1 });
       stage.position({ x: 0, y: 0 });
-      const minX = stations.length ? Math.min(...stations.map(station => station.x)) : 0;
-      const minY = stations.length ? Math.min(...stations.map(station => station.y)) : 0;
-      const maxX = stations.length ? Math.max(...stations.map(station => station.x)) : original.width;
-      const maxY = stations.length ? Math.max(...stations.map(station => station.y)) : original.height;
+      let minX = 0;
+      let minY = 0;
+      let maxX = original.width;
+      let maxY = original.height;
+      if (stations.length > 0) {
+        minX = Infinity;
+        minY = Infinity;
+        maxX = -Infinity;
+        maxY = -Infinity;
+        for (let i = 0; i < stations.length; i++) {
+          const sx = stations[i].x;
+          const sy = stations[i].y;
+          if (sx < minX) minX = sx;
+          if (sy < minY) minY = sy;
+          if (sx > maxX) maxX = sx;
+          if (sy > maxY) maxY = sy;
+        }
+      }
       const width = Math.max(maxX - minX + 200, 800);
       const height = Math.max(maxY - minY + 200, 600);
+      // 大尺寸线网下限制导出纹理边长与总像素预算，防止浏览器/移动端 WebView 超出 Canvas 上限导致空白或崩溃
+      const maxSide = isAndroidClient ? 8192 : 12288;
+      const maxArea = isAndroidClient ? 16_777_216 : 36_000_000;
+      const safePixelRatio = Math.max(
+        0.25,
+        Math.min(2, maxSide / Math.max(1, width, height), Math.sqrt(maxArea / Math.max(1, width * height)))
+      );
       stage.width(width); stage.height(height);
       stage.position({ x: (width - maxX + minX) / 2 - minX, y: (height - maxY + minY) / 2 - minY });
-      dataUrl = stage.toDataURL({ pixelRatio: 2, mimeType: 'image/png', quality: 1 });
+      dataUrl = stage.toDataURL({ pixelRatio: safePixelRatio, mimeType: 'image/png', quality: 1 });
     } catch (error) {
       console.error('导出图片失败:', error);
       message.error('导出图片失败，请重试');
@@ -2387,13 +2418,9 @@ const App: React.FC = () => {
               lines={lines}
               stations={stations}
               currentLineId={currentLineId}
-              onSelectLine={(id) => { handleSelectLine(id); setIsMobileSidebarOpen(false); }}
+              onSelectLine={handleSidebarSelectLine}
               onDeselectLine={handleDeselectLine}
-              onAddLine={(name, color) => {
-                const ok = handleAddLine(name, color);
-                if (ok) setIsMobileSidebarOpen(false);
-                return ok;
-              }}
+              onAddLine={handleSidebarAddLine}
               onDeleteLine={handleDeleteLine}
               onChangeLineColor={handleChangeLineColor}
               onChangeLineName={handleChangeLineName}

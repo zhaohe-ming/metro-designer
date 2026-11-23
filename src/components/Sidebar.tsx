@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, ColorPicker, Dropdown, Modal, Space, Tooltip, Typography, message } from 'antd';
 import Input from 'antd/es/input';
 import { DeleteOutlined, DragOutlined, MoreOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
@@ -248,11 +248,38 @@ const Sidebar: React.FC<SidebarProps> = ({
     }));
   };
 
+  const stationById = useMemo(() => {
+    const map = new Map<string, Station>();
+    stations.forEach((station) => map.set(station.id, station));
+    return map;
+  }, [stations]);
+
   const getLineStations = (line: Line) => {
     return line.stationIds
-      .map((id) => stations.find((station) => station.id === id))
+      .map((id) => stationById.get(id))
       .filter(Boolean) as Station[];
   };
+
+  // 大线网站点列表虚拟滚动参数（超过阈值才启用窗口化裁剪，避免一次性挂载上千个 DOM 节点）
+  const VIRTUALIZE_THRESHOLD = 80;
+  const STATION_ITEM_STRIDE = 46;
+  const stationListScrollRef = useRef<HTMLDivElement>(null);
+  const [stationScrollTop, setStationScrollTop] = useState(0);
+  const [stationViewportHeight, setStationViewportHeight] = useState(360);
+
+  useEffect(() => {
+    const el = stationListScrollRef.current;
+    if (!el) return;
+    const syncHeight = () => {
+      const h = el.clientHeight;
+      if (h > 0) setStationViewportHeight((prev) => (Math.abs(prev - h) > 4 ? h : prev));
+    };
+    syncHeight();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(syncHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const openNameModal = (line: Line) => {
     setNameChangeModal({
@@ -463,7 +490,8 @@ const Sidebar: React.FC<SidebarProps> = ({
           ) : (
             lines.map((line) => {
               const active = currentLineId === line.id;
-              const lineStations = getLineStations(line);
+              const isExpanded = !!expandedLines[line.id];
+              const lineStations = isExpanded ? getLineStations(line) : [];
 
               return (
                 <article
@@ -590,7 +618,15 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Text type="secondary">{stations.length}</Text>
         </div>
 
-        <div className="metro-station-list">
+        <div
+          ref={stationListScrollRef}
+          className="metro-station-list"
+          onScroll={(e) => {
+            if (stations.length > VIRTUALIZE_THRESHOLD) {
+              setStationScrollTop(e.currentTarget.scrollTop);
+            }
+          }}
+        >
           {stations.length === 0 ? (
             <div className="metro-empty-card metro-empty-card--stations">
               {/* 单站点的小图：一个被光圈包围的圆点 */}
@@ -609,7 +645,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <div className="metro-empty-card__title">{text.emptyStationsTitle}</div>
               <div className="metro-empty-card__text">{text.emptyStationsText}</div>
             </div>
-          ) : (
+          ) : stations.length <= VIRTUALIZE_THRESHOLD ? (
             stations.map((station) => (
               <div key={station.id} className="metro-station-item">
                 <div>{station.name}</div>
@@ -618,6 +654,29 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               </div>
             ))
+          ) : (
+            (() => {
+              const overscan = 8;
+              const visibleCount = Math.ceil(stationViewportHeight / STATION_ITEM_STRIDE) + overscan * 2;
+              const startIndex = Math.max(0, Math.floor(stationScrollTop / STATION_ITEM_STRIDE) - overscan);
+              const endIndex = Math.min(stations.length, startIndex + visibleCount);
+              const topPad = startIndex * STATION_ITEM_STRIDE;
+              const bottomPad = Math.max(0, (stations.length - endIndex) * STATION_ITEM_STRIDE);
+              return (
+                <>
+                  {topPad > 0 ? <div style={{ height: topPad, flexShrink: 0 }} aria-hidden="true" /> : null}
+                  {stations.slice(startIndex, endIndex).map((station) => (
+                    <div key={station.id} className="metro-station-item">
+                      <div>{station.name}</div>
+                      <div className="metro-station-item__coords">
+                        {station.x.toFixed(0)}, {station.y.toFixed(0)}
+                      </div>
+                    </div>
+                  ))}
+                  {bottomPad > 0 ? <div style={{ height: bottomPad, flexShrink: 0 }} aria-hidden="true" /> : null}
+                </>
+              );
+            })()
           )}
         </div>
       </div>
@@ -744,4 +803,4 @@ const Sidebar: React.FC<SidebarProps> = ({
   );
 };
 
-export default Sidebar;
+export default React.memo(Sidebar);

@@ -18,6 +18,7 @@ import { MapSettings, Station, Line as LineType, Section, Waypoint, LINE_COLORS 
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
 import { roundLineFlat } from '../lib/roundedPath';
+import { SpatialBoxGrid } from '../lib/spatialGrid';
 import { AppAction } from '../lib/commandParser';
 import { useAmapViewport } from '../lib/useAmapViewport';
 import { createId } from '../utils/id';
@@ -71,6 +72,20 @@ const ZOOM_STEP_FACTOR = 1.15;        // 每档 ±15%
 // 同一次物理滚动常触发一串 wheel 事件（高分辨率/平滑滚轮尤甚）。
 // 用这个时间锁把事件洪流合并成"每 45ms 最多走一档"，既挡洪流又不拖慢正常滚动。
 const WHEEL_STEP_LOCK_MS = 45;
+
+type LabelRect = { x: number; y: number; width: number; height: number };
+
+const rectsOverlap = (a: LabelRect, b: LabelRect) =>
+  a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
+
+const distanceToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const lengthSquared = dx * dx + dy * dy;
+  if (lengthSquared === 0) return Math.hypot(px - x1, py - y1);
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSquared));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+};
 const CANVAS_THEME_PALETTES = {
   light: {
     background: '#fbfdff',
@@ -312,9 +327,48 @@ const Canvas: React.FC<CanvasProps> = ({
   const [selectedSection, setSelectedSection] = useState<{ sectionId: string; lineId: string; startStation: Station; endStation: Station } | null>(null);
   const [addingWaypoint, setAddingWaypoint] = useState(false);
 
+  // O(1) 主键与邻接索引表：消除大线网下 O(sections × stations) 的重复 .find / .filter
+  const lineById = useMemo(() => {
+    const map = new Map<string, LineType>();
+    lines.forEach((line) => map.set(line.id, line));
+    return map;
+  }, [lines]);
+
+  const stationById = useMemo(() => {
+    const map = new Map<string, Station>();
+    stations.forEach((station) => map.set(station.id, station));
+    return map;
+  }, [stations]);
+
+  const sectionById = useMemo(() => {
+    const map = new Map<string, Section>();
+    sections.forEach((section) => map.set(section.id, section));
+    return map;
+  }, [sections]);
+
+  const stationToSections = useMemo(() => {
+    const map = new Map<string, Section[]>();
+    sections.forEach((section) => {
+      const a = map.get(section.startStationId);
+      if (a) a.push(section);
+      else map.set(section.startStationId, [section]);
+      if (section.endStationId !== section.startStationId) {
+        const b = map.get(section.endStationId);
+        if (b) b.push(section);
+        else map.set(section.endStationId, [section]);
+      }
+    });
+    return map;
+  }, [sections]);
+
+  const currentLineStationIdSet = useMemo(() => {
+    const current = currentLineId ? lineById.get(currentLineId) : undefined;
+    return new Set<string>(current?.stationIds || []);
+  }, [lineById, currentLineId]);
+
   // 从 sections 中读取某区间的途经点
   const getSectionWaypoints = (sectionId: string): Waypoint[] =>
-    sections.find(section => section.id === sectionId)?.waypoints || [];
+    sectionById.get(sectionId)?.waypoints || [];
 
   // 写回某区间的途经点（保存前快照交给上层 onBeginInteraction 决定）
   const writeSectionWaypoints = (sectionId: string, nextWaypoints: Waypoint[]) => {
@@ -327,11 +381,16 @@ const Canvas: React.FC<CanvasProps> = ({
     startStation: null,
     points: []
   });
+  const drawingPointsRef = useRef<number[]>([]);
+  const dragStationDraftRef = useRef<{ id: string; x: number; y: number; lng?: number; lat?: number } | null>(null);
+  const dragWaypointDraftRef = useRef<{ sectionId: string; waypoints: Waypoint[] } | null>(null);
+  const sectionParallelMetaRef = useRef<Map<string, { total: number; index: number }>>(new Map());
   const [drawingStartPoint, setDrawingStartPoint] = useState<{ x: number; y: number } | null>(null);
   const setCanvasTool = (tool: CanvasTool) => {
     setActiveTool(tool);
     setIsDrawingMode(tool === 'line');
     if (tool !== 'line') {
+      drawingPointsRef.current = [];
       setDrawingLine({ startStation: null, points: [] });
       setIsDrawing(false);
     }
@@ -911,7 +970,7 @@ const Canvas: React.FC<CanvasProps> = ({
       stage.batchDraw();
     }
 
-    // 原有的绘制模式鼠标移动逻辑
+  // 原有的绘制模式鼠标移动逻辑：优先直接命令式更新顶层预览层 Line，避免每次鼠标移动重渲整张几千节点的画布
     if (isDrawing && drawingLine.startStation && drawingStartPoint) {
       const stage = e.target.getStage();
       const pointer = stage.getPointerPosition();
@@ -921,15 +980,21 @@ const Canvas: React.FC<CanvasProps> = ({
         ...getPointerWorldPosition(stage, pointer)
       };
 
-      setDrawingLine(prev => ({
-        ...prev,
-        points: [
-          drawingStartPoint.x,
-          drawingStartPoint.y,
-          worldPos.x,
-          worldPos.y
-        ]
-      }));
+      const nextPts = [
+        drawingStartPoint.x,
+        drawingStartPoint.y,
+        worldPos.x,
+        worldPos.y
+      ];
+      drawingPointsRef.current = nextPts;
+      const previewNode = stage?.findOne?.('#metro-drawing-preview');
+      if (previewNode) {
+        previewNode.points(nextPts);
+        previewNode.visible(true);
+        previewNode.getLayer?.()?.batchDraw?.();
+      } else {
+        setDrawingLine(prev => ({ ...prev, points: nextPts }));
+      }
     }
   };
 
@@ -1076,15 +1141,24 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const initialFitRef = useRef(fitOnMount);
+  const lastFittedDocKeyRef = useRef<string | null>(fitOnMount ? null : documentKey);
   const initialFitViewRef = useRef(fitView);
   initialFitViewRef.current = fitView;
   useEffect(() => {
-    if (initialFitRef.current && stageSize.width > 0 && stageSize.height > 0 &&
-      Math.abs(stageSize.width - (containerRef.current?.clientWidth || 0)) < 2) {
-      initialFitRef.current = false;
-      initialFitViewRef.current(72);
+    if (fitOnMount && documentKey !== lastFittedDocKeyRef.current) {
+      initialFitRef.current = true;
     }
-  }, [stageSize.width, stageSize.height]);
+  }, [documentKey, fitOnMount]);
+  useEffect(() => {
+    if (initialFitRef.current && !isDocumentLoading && stageSize.width > 0 && stageSize.height > 0 &&
+      Math.abs(stageSize.width - (containerRef.current?.clientWidth || stageSize.width)) < 2) {
+      initialFitRef.current = false;
+      lastFittedDocKeyRef.current = documentKey;
+      if (!isAmapMode && stations.length > 0) {
+        initialFitViewRef.current(72);
+      }
+    }
+  }, [documentKey, isAmapMode, isDocumentLoading, stageSize.width, stageSize.height, stations.length]);
 
   // 居中到某站（命令 center）。纯画布按当前缩放把站点移到视口中心；高德走 setCenter。
   const centerOnStation = (stationId: string) => {
@@ -1170,10 +1244,12 @@ const Canvas: React.FC<CanvasProps> = ({
     if (clickedStation) {
       if (!drawingLine.startStation) {
         const startPoint = getDisplayPoint(clickedStation);
+        const initPts = [startPoint.x, startPoint.y];
+        drawingPointsRef.current = initPts;
         // 开始绘制
         setDrawingLine({
           startStation: clickedStation,
-          points: [startPoint.x, startPoint.y]
+          points: initPts
         });
         setDrawingStartPoint(startPoint);
         setIsDrawing(true);
@@ -1193,7 +1269,7 @@ const Canvas: React.FC<CanvasProps> = ({
     }
 
     // 获取当前线路
-    const currentLine = lines.find(l => l.id === currentLineId);
+    const currentLine = lineById.get(currentLineId);
     if (!currentLine) {
       message.error('线路不存在');
       cancelDrawing();
@@ -1202,7 +1278,8 @@ const Canvas: React.FC<CanvasProps> = ({
 
     // 构建完整的路径点
     const endPoint = getDisplayPoint(endStation);
-    const allPoints = [...drawingLine.points, endPoint.x, endPoint.y];
+    const activePts = drawingPointsRef.current.length >= 2 ? drawingPointsRef.current : drawingLine.points;
+    const allPoints = [...activePts, endPoint.x, endPoint.y];
     
     // 根据路径点确定站点顺序
     const pathStations = getStationsAlongPath(allPoints);
@@ -1220,6 +1297,13 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 取消绘制
   const cancelDrawing = () => {
+    drawingPointsRef.current = [];
+    const previewNode = stageRef.current?.findOne?.('#metro-drawing-preview');
+    if (previewNode) {
+      previewNode.points([]);
+      previewNode.visible(false);
+      previewNode.getLayer?.()?.batchDraw?.();
+    }
     setDrawingLine({ startStation: null, points: [] });
     setIsDrawing(false);
   };
@@ -1307,53 +1391,138 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
 
-  // 拖动站点（含自动吸附）
-  const handleDragMove = (id: string, pos: { x: number; y: number }) => {
-    if (touchGestureRef.current.isNavigating) return;
-    const updatedStation = stations.find(s => s.id === id);
-    if (updatedStation) {
-      if (isAmapMode) {
-        const lngLat = getLngLatFromContainerPoint(pos);
-        onUpdateStation({
-          ...updatedStation,
-          x: pos.x,
-          y: pos.y,
-          ...(lngLat || {})
-        });
-        return;
-      }
-      const connectedStationIds = sections
-        .filter(sec => sec.startStationId === id || sec.endStationId === id)
-        .map(sec => (sec.startStationId === id ? sec.endStationId : sec.startStationId));
-      const connectedStations = connectedStationIds
-        .map(stationId => stations.find(s => s.id === stationId))
-        .filter(Boolean) as Station[];
-
-      let snappedX = pos.x;
-      let snappedY = pos.y;
-      const guides: number[][] = [];
-      let bestSnapDiff = Number.POSITIVE_INFINITY;
-
-      connectedStations.forEach(st => {
-        const guide = buildAxisGuide(st.x, st.y, pos.x, pos.y);
-        if (guide) {
-          guides.push(guide);
-        }
-        const snap = getDirectionalSnap(st.x, st.y, pos.x, pos.y, SNAP_THRESHOLD_DEG);
-        if (snap && snap.diff < bestSnapDiff) {
-          bestSnapDiff = snap.diff;
-          snappedX = snap.x;
-          snappedY = snap.y;
-        }
-      });
-
-      setActiveCalibrationGuides(guides);
-      onUpdateStation({
-        ...updatedStation,
-        x: snappedX,
-        y: snappedY
-      });
+  // 命令式更新某条区间在线网画布上的 Konva Line 坐标（拖拽站点/途经点期间 60fps 零 React 重渲染）
+  const updateSectionKonvaLineImperative = (
+    section: Section,
+    overrideStation?: { id: string; x: number; y: number },
+    overrideWaypoints?: Waypoint[]
+  ) => {
+    const stage = stageRef.current;
+    if (!stage?.findOne) return;
+    const start = stationById.get(section.startStationId);
+    const end = stationById.get(section.endStationId);
+    if (!start || !end) return;
+    const startPt = overrideStation && overrideStation.id === start.id
+      ? { x: overrideStation.x, y: overrideStation.y }
+      : getDisplayPoint(start);
+    const endPt = overrideStation && overrideStation.id === end.id
+      ? { x: overrideStation.x, y: overrideStation.y }
+      : getDisplayPoint(end);
+    const wps = overrideWaypoints !== undefined ? overrideWaypoints : (section.waypoints || []);
+    const wpPts = wps.map((point) => getWaypointDisplayPoint(point));
+    const rawPoints = [startPt.x, startPt.y, ...wpPts.flatMap((p) => [p.x, p.y]), endPt.x, endPt.y];
+    const dx = endPt.x - startPt.x;
+    const dy = endPt.y - startPt.y;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const normal = { x: -dy / len, y: dx / len };
+    const meta = sectionParallelMetaRef.current.get(section.id) || { total: 1, index: 0 };
+    const offset = (meta.index - (meta.total - 1) / 2) * 8;
+    const shiftedPoints: number[] = [];
+    for (let i = 0; i < rawPoints.length; i += 2) {
+      shiftedPoints.push(rawPoints[i] + normal.x * offset, rawPoints[i + 1] + normal.y * offset);
     }
+    const radius = Math.max(0, mapSettings.cornerRadius || 0);
+    const renderPoints = radius > 0 ? roundLineFlat(shiftedPoints, radius) : shiftedPoints;
+    const visNode = stage.findOne(`#sec_vis_${section.id}`);
+    const hitNode = stage.findOne(`#sec_hit_${section.id}`);
+    visNode?.points?.(renderPoints);
+    hitNode?.points?.(shiftedPoints);
+  };
+
+  // 命令式更新顶层辅助层上的校准虚线（最多 4 条），避免拖拽中 setActiveCalibrationGuides 引发重渲
+  const updateImperativeGuides = (guides: number[][]) => {
+    const stage = stageRef.current;
+    if (!stage?.findOne) {
+      setActiveCalibrationGuides(guides);
+      return;
+    }
+    let layer: any = null;
+    for (let i = 0; i < 4; i += 1) {
+      const node = stage.findOne(`#imperative_guide_${i}`);
+      if (!node) continue;
+      layer = layer || node.getLayer?.();
+      if (guides[i]) {
+        node.points(guides[i]);
+        node.visible(true);
+      } else {
+        node.points([]);
+        node.visible(false);
+      }
+    }
+    layer?.batchDraw?.();
+  };
+
+  // 拖动站点（含自动吸附；拖拽过程纯命令式更新 Konva，松手才提交一次 React 状态）
+  const handleDragMove = (id: string, pos: { x: number; y: number }, groupNode?: any) => {
+    if (touchGestureRef.current.isNavigating) return;
+    const updatedStation = stationById.get(id);
+    if (!updatedStation) return;
+
+    if (isAmapMode) {
+      const lngLat = getLngLatFromContainerPoint(pos);
+      dragStationDraftRef.current = { id, x: pos.x, y: pos.y, ...(lngLat || {}) };
+      const incident = stationToSections.get(id) || [];
+      if (stageRef.current?.findOne) {
+        incident.forEach((sec) => updateSectionKonvaLineImperative(sec, { id, x: pos.x, y: pos.y }));
+        groupNode?.getLayer?.()?.batchDraw?.();
+      } else {
+        onUpdateStation({ ...updatedStation, x: pos.x, y: pos.y, ...(lngLat || {}) });
+      }
+      return;
+    }
+
+    const incidentSections = stationToSections.get(id) || [];
+    const connectedStations: Station[] = [];
+    incidentSections.forEach((sec) => {
+      const neighborId = sec.startStationId === id ? sec.endStationId : sec.startStationId;
+      const neighbor = stationById.get(neighborId);
+      if (neighbor) connectedStations.push(neighbor);
+    });
+
+    let snappedX = pos.x;
+    let snappedY = pos.y;
+    const guides: number[][] = [];
+    let bestSnapDiff = Number.POSITIVE_INFINITY;
+
+    connectedStations.forEach((st) => {
+      const guide = buildAxisGuide(st.x, st.y, pos.x, pos.y);
+      if (guide) guides.push(guide);
+      const snap = getDirectionalSnap(st.x, st.y, pos.x, pos.y, SNAP_THRESHOLD_DEG);
+      if (snap && snap.diff < bestSnapDiff) {
+        bestSnapDiff = snap.diff;
+        snappedX = snap.x;
+        snappedY = snap.y;
+      }
+    });
+
+    dragStationDraftRef.current = { id, x: snappedX, y: snappedY };
+    if (groupNode?.position) {
+      groupNode.position({ x: snappedX, y: snappedY });
+    }
+    updateImperativeGuides(guides);
+    if (stageRef.current?.findOne) {
+      incidentSections.forEach((sec) => updateSectionKonvaLineImperative(sec, { id, x: snappedX, y: snappedY }));
+      groupNode?.getLayer?.()?.batchDraw?.();
+    } else {
+      onUpdateStation({ ...updatedStation, x: snappedX, y: snappedY });
+    }
+  };
+
+  const commitStationDrag = () => {
+    updateImperativeGuides([]);
+    setActiveCalibrationGuides([]);
+    setIsDraggingNode(false);
+    const draft = dragStationDraftRef.current;
+    dragStationDraftRef.current = null;
+    if (!draft) return;
+    const base = stationById.get(draft.id);
+    if (!base) return;
+    onUpdateStation({
+      ...base,
+      x: draft.x,
+      y: draft.y,
+      ...(draft.lng !== undefined && draft.lat !== undefined ? { lng: draft.lng, lat: draft.lat } : {})
+    });
   };
 
   // 处理站点点击
@@ -1457,10 +1626,10 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const getCurrentLineStationOptions = (excludeStationId?: string) => {
     if (!currentLineId) return [];
-    const currentLine = lines.find(l => l.id === currentLineId);
+    const currentLine = lineById.get(currentLineId);
     if (!currentLine) return [];
     return currentLine.stationIds
-      .map(id => stations.find(s => s.id === id))
+      .map(id => stationById.get(id))
       .filter(Boolean)
       .filter(s => (excludeStationId ? s!.id !== excludeStationId : true))
       .map(s => ({ label: s!.name, value: s!.id }));
@@ -1535,11 +1704,11 @@ const Canvas: React.FC<CanvasProps> = ({
     return snapped ? [x1, y1, snapped.x, snapped.y] : null;
   };
 
-  const updateWaypoint = (sectionId: string, waypointIndex: number, x: number, y: number, withGuide = false) => {
-    const section = sections.find(sec => sec.id === sectionId);
+  const updateWaypoint = (sectionId: string, waypointIndex: number, x: number, y: number, withGuide = false, circleNode?: any) => {
+    const section = sectionById.get(sectionId);
     if (!section) return;
-    const startStation = stations.find(s => s.id === section.startStationId);
-    const endStation = stations.find(s => s.id === section.endStationId);
+    const startStation = stationById.get(section.startStationId);
+    const endStation = stationById.get(section.endStationId);
     if (!startStation || !endStation) return;
 
     const current = section.waypoints || [];
@@ -1575,10 +1744,30 @@ const Canvas: React.FC<CanvasProps> = ({
       y: snappedY,
       ...(getLngLatFromContainerPoint({ x: snappedX, y: snappedY }) || {})
     };
-    writeSectionWaypoints(sectionId, next);
 
+    if (circleNode && stageRef.current?.findOne) {
+      if (!isAmapMode) circleNode.position?.({ x: snappedX, y: snappedY });
+      dragWaypointDraftRef.current = { sectionId, waypoints: next };
+      if (withGuide) updateImperativeGuides(guideLines.map(g => [g[0], g[1], g[2], g[3]]));
+      updateSectionKonvaLineImperative(section, undefined, next);
+      circleNode.getLayer?.()?.batchDraw?.();
+      return;
+    }
+
+    writeSectionWaypoints(sectionId, next);
     if (withGuide) {
       setActiveCalibrationGuides(guideLines.map(g => [g[0], g[1], g[2], g[3]]));
+    }
+  };
+
+  const commitWaypointDrag = () => {
+    updateImperativeGuides([]);
+    setActiveCalibrationGuides([]);
+    setIsDraggingNode(false);
+    const draft = dragWaypointDraftRef.current;
+    dragWaypointDraftRef.current = null;
+    if (draft) {
+      writeSectionWaypoints(draft.sectionId, draft.waypoints);
     }
   };
 
@@ -1856,63 +2045,116 @@ const Canvas: React.FC<CanvasProps> = ({
   const scaledClassicStationTextSize = 12 * effectiveScale;
   const scaledClassicStationTextBox = 40 * effectiveScale;
 
-  // 渲染线路连接线（网状结构）
-  const renderLines = () => {
-    const segments = sections
-      .map(section => {
-        const line = lines.find(l => l.id === section.lineId);
-        const start = stations.find(s => s.id === section.startStationId);
-        const end = stations.find(s => s.id === section.endStationId);
-        if (!line || !start || !end) return null;
-        return {
-          section,
-          line,
-          start,
-          end,
-          waypoints: section.waypoints || [],
-          normalizedKey: [section.startStationId, section.endStationId].sort().join('_')
-        };
-      })
-      .filter(Boolean) as Array<{
+  const isLargeGraph = stations.length > 200 || sections.length > 200;
+
+  // 预计算并缓存所有区间的平行偏移与圆角几何，仅在拓扑/投影/圆角变化时重算，并用 O(1) Map 替代 .find
+  const preparedLineSegments = useMemo(() => {
+    if (!canvasSceneReady) {
+      sectionParallelMetaRef.current = new Map();
+      return [];
+    }
+    const rawList: Array<{
       section: Section;
       line: LineType;
       start: Station;
       end: Station;
       waypoints: Waypoint[];
       normalizedKey: string;
-    }>;
+    }> = [];
+    for (let i = 0; i < sections.length; i += 1) {
+      const section = sections[i];
+      const line = lineById.get(section.lineId);
+      const start = stationById.get(section.startStationId);
+      const end = stationById.get(section.endStationId);
+      if (!line || !start || !end) continue;
+      const a = section.startStationId;
+      const b = section.endStationId;
+      rawList.push({
+        section,
+        line,
+        start,
+        end,
+        waypoints: section.waypoints || [],
+        normalizedKey: a < b ? `${a}_${b}` : `${b}_${a}`
+      });
+    }
 
     const countMap = new Map<string, number>();
-    segments.forEach(seg => countMap.set(seg.normalizedKey, (countMap.get(seg.normalizedKey) || 0) + 1));
+    rawList.forEach((seg) => countMap.set(seg.normalizedKey, (countMap.get(seg.normalizedKey) || 0) + 1));
     const indexMap = new Map<string, number>();
+    const metaMap = new Map<string, { total: number; index: number }>();
 
-    const result: JSX.Element[] = [];
-    segments.forEach(seg => {
+    const map = amapRef.current;
+    const projectWp = (point: Waypoint) => {
+      if (isAmapMode && amapReady && map && typeof point.lng === 'number' && typeof point.lat === 'number') {
+        const pixel = map.lngLatToContainer?.([point.lng, point.lat]);
+        if (pixel) return { x: pixel.x, y: pixel.y };
+      }
+      return { x: point.x, y: point.y };
+    };
+
+    const prepared = rawList.map((seg) => {
       const total = countMap.get(seg.normalizedKey) || 1;
       const currentIndex = indexMap.get(seg.normalizedKey) || 0;
       indexMap.set(seg.normalizedKey, currentIndex + 1);
-      const startPoint = getDisplayPoint(seg.start);
-      const endPoint = getDisplayPoint(seg.end);
+      metaMap.set(seg.section.id, { total, index: currentIndex });
 
-      const waypointPoints = seg.waypoints.map(point => getWaypointDisplayPoint(point));
-      const rawPoints = [startPoint.x, startPoint.y, ...waypointPoints.flatMap(p => [p.x, p.y]), endPoint.x, endPoint.y];
+      const startPoint = stationDisplayPoints[seg.start.id] || { x: seg.start.x, y: seg.start.y };
+      const endPoint = stationDisplayPoints[seg.end.id] || { x: seg.end.x, y: seg.end.y };
+      const rawPoints: number[] = [startPoint.x, startPoint.y];
+      for (let w = 0; w < seg.waypoints.length; w += 1) {
+        const p = projectWp(seg.waypoints[w]);
+        rawPoints.push(p.x, p.y);
+      }
+      rawPoints.push(endPoint.x, endPoint.y);
+
       const dx = endPoint.x - startPoint.x;
       const dy = endPoint.y - startPoint.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
-      const normal = { x: -dy / len, y: dx / len };
+      const normalX = -dy / len;
+      const normalY = dx / len;
       const offset = (currentIndex - (total - 1) / 2) * 8;
 
-      const shiftedPoints: number[] = [];
+      const shiftedPoints: number[] = new Array(rawPoints.length);
       for (let i = 0; i < rawPoints.length; i += 2) {
-        shiftedPoints.push(rawPoints[i] + normal.x * offset, rawPoints[i + 1] + normal.y * offset);
+        shiftedPoints[i] = rawPoints[i] + normalX * offset;
+        shiftedPoints[i + 1] = rawPoints[i + 1] + normalY * offset;
       }
-      // 可见线走圆角后的点；命中区(hit)仍用直线 shiftedPoints，保证点击/加途经点的判定不变。
-      // 校准虚线 guide 也继续用 shiftedPoints（基于真实拐点判断近水平/竖直）。
       const renderPoints =
         lineCornerRadius > 0 ? roundLineFlat(shiftedPoints, lineCornerRadius) : shiftedPoints;
 
+      return {
+        ...seg,
+        currentIndex,
+        shiftedPoints,
+        renderPoints
+      };
+    });
+
+    sectionParallelMetaRef.current = metaMap;
+    return prepared;
+  }, [
+    canvasSceneReady,
+    sections,
+    lineById,
+    stationById,
+    stationDisplayPoints,
+    isAmapMode,
+    amapReady,
+    mapRenderTick,
+    lineCornerRadius
+  ]);
+
+  // 渲染线路连接线（网状结构）
+  const renderLines = (suppressShadow: boolean) => {
+    const result: JSX.Element[] = [];
+    const showAllGuides = !suppressShadow && sections.length <= 80;
+
+    preparedLineSegments.forEach((seg) => {
+      const { currentIndex, shiftedPoints, renderPoints } = seg;
+
       const handleSectionLineClick = (e: any) => {
-    if (readOnly) { e?.evt?.preventDefault?.(); return; }
+        if (readOnly) { e?.evt?.preventDefault?.(); return; }
         if (lastIsRightClickRef.current) {
           lastIsRightClickRef.current = false;
           return;
@@ -1944,7 +2186,7 @@ const Canvas: React.FC<CanvasProps> = ({
       };
 
       const handleSectionLineContextMenu = (e: any) => {
-    if (readOnly) { e?.evt?.preventDefault?.(); return; }
+        if (readOnly) { e?.evt?.preventDefault?.(); return; }
         e.evt.preventDefault();
         lastIsRightClickRef.current = true;
         const stage = e.target.getStage();
@@ -1963,12 +2205,14 @@ const Canvas: React.FC<CanvasProps> = ({
       result.push(
         <Line
           key={`${seg.section.id}_${currentIndex}_hit`}
+          id={`sec_hit_${seg.section.id}`}
           points={shiftedPoints}
           stroke="rgba(0,0,0,0.001)"
           strokeWidth={Math.max(SECTION_HIT_STROKE_WIDTH, stylePreset.lineWidth + 12)}
           hitStrokeWidth={Math.max(SECTION_HIT_STROKE_WIDTH, stylePreset.lineWidth + 12)}
           lineCap="round"
           lineJoin="round"
+          perfectDrawEnabled={false}
           tension={0}
           sectionId={seg.section.id}
           onTap={handleSectionLineClick}
@@ -1977,16 +2221,17 @@ const Canvas: React.FC<CanvasProps> = ({
         />,
         <Line
           key={`${seg.section.id}_${currentIndex}`}
+          id={`sec_vis_${seg.section.id}`}
           name="zoom-sized-stroke"
           points={renderPoints}
           stroke={seg.line.color}
           strokeWidth={scaledLineWidth}
           lineCap="round"
           lineJoin="round"
+          perfectDrawEnabled={false}
           shadowColor={seg.line.color}
-          // 交互中（含纯画布 pan/zoom）禁用阴影：Gaussian blur 是 Konva 单帧最大的开销
-          shadowBlur={isLightRender ? 0 : stylePreset.lineShadowBlur}
-          shadowOpacity={isLightRender ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
+          shadowBlur={suppressShadow ? 0 : stylePreset.lineShadowBlur}
+          shadowOpacity={suppressShadow ? 0 : Math.max(canvasPalette.lineShadowOpacity, stylePreset.lineShadowOpacity)}
           tension={0}
           sectionId={seg.section.id}
           onTap={handleSectionLineClick}
@@ -1995,52 +2240,48 @@ const Canvas: React.FC<CanvasProps> = ({
         />
       );
 
-      // 校准虚线：显示接近水平/竖直的段
-      for (let i = 0; i < shiftedPoints.length - 2; i += 2) {
-        const guide = buildAxisGuide(
-          shiftedPoints[i],
-          shiftedPoints[i + 1],
-          shiftedPoints[i + 2],
-          shiftedPoints[i + 3]
-        );
-        if (guide) {
-          result.push(
-            <Line
-              key={`guide_${seg.section.id}_${currentIndex}_${i}`}
-              points={guide}
-              stroke={canvasPalette.lineGuide}
-              strokeWidth={1}
-              dash={[6, 6]}
-              opacity={0.8}
-              listening={false}
-            />
+      // 校准虚线：大线网仅对当前激活编辑线路展示静态校准虚线，避免成百上千条辅助虚线翻倍占用绘制预算
+      if (!isLightRender && (showAllGuides || seg.line.id === currentLineId)) {
+        for (let i = 0; i < shiftedPoints.length - 2; i += 2) {
+          const guide = buildAxisGuide(
+            shiftedPoints[i],
+            shiftedPoints[i + 1],
+            shiftedPoints[i + 2],
+            shiftedPoints[i + 3]
           );
+          if (guide) {
+            result.push(
+              <Line
+                key={`guide_${seg.section.id}_${currentIndex}_${i}`}
+                points={guide}
+                stroke={canvasPalette.lineGuide}
+                strokeWidth={1}
+                dash={[6, 6]}
+                opacity={0.8}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+            );
+          }
         }
       }
     });
     return result;
   };
 
-  // 生成直线连接  // 生成直线连接
+  // 生成直线连接
   const generateStraightLine = (lineStations: Station[]): number[] => {
     if (lineStations.length < 2) return [];
 
     const points: number[] = [];
-    
-    // 直接连接相邻站点
     for (let i = 0; i < lineStations.length; i++) {
       points.push(lineStations[i].x, lineStations[i].y);
     }
-    
     return points;
   };
 
-  // 获取站点是否在当前线路中
-  const isStationInCurrentLine = (stationId: string) => {
-    if (!currentLineId) return false;
-    const currentLine = lines.find(l => l.id === currentLineId);
-    return currentLine?.stationIds.includes(stationId) || false;
-  };
+  // 获取站点是否在当前线路中（O(1) Set 查表）
+  const isStationInCurrentLine = (stationId: string) => currentLineStationIdSet.has(stationId);
 
   const isDotLabelStyle = mapSettings.mapStyle === 'dot-label';
   const isDarkCanvas = mapSettings.canvasTheme === 'dark';
@@ -2095,40 +2336,24 @@ const Canvas: React.FC<CanvasProps> = ({
   const readableLabelText = isMutedAmapStyle ? '#ffffff' : isFreshAmapStyle ? '#0f172a' : dotLabelStyle.color || canvasPalette.labelText;
   const readableLabelShadow = isMutedAmapStyle ? 'rgba(0, 0, 0, 0.92)' : 'rgba(255, 255, 255, 0.98)';
 
-  type LabelRect = { x: number; y: number; width: number; height: number };
-
-  const rectsOverlap = (a: LabelRect, b: LabelRect) =>
-    a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-
-  const distanceToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number) => {
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const lengthSquared = dx * dx + dy * dy;
-    if (lengthSquared === 0) return Math.hypot(px - x1, py - y1);
-    const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / lengthSquared));
-    return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
-  };
-
   // O(1) 查询：currentLine 一次查表；非当前线就取这个站第一条经过线的色；都没有给默认灰
-  const currentLine = currentLineId ? lines.find(line => line.id === currentLineId) : null;
+  const currentLine = currentLineId ? (lineById.get(currentLineId) || null) : null;
+  const suppressShadows = isLightRender || isLargeGraph;
   const getStationColor = (stationId: string) => {
     const passing = stationToLines.get(stationId);
     if (currentLine && passing?.some(l => l.id === currentLine.id)) return currentLine.color;
     return passing?.[0]?.color || '#64748b';
   };
 
-  // 站名标注布局：O(stations × candidates × stations) 量级，必须缓存。
-  // 依赖经过精挑：stationDisplayPoints 已捕获 mapRenderTick / AMap 状态等隐式输入。
-  // labelPlacementsCacheRef 在拖拽期间被 useMemo 复用，避免每个 mousemove 都重算
+  // 站名标注布局：用 2D 空间网格哈希索引将 O(stations² + stations×segments) 降至近似 O(stations)，
+  // 评分结果与原版全量碰撞算法严格等价，千站规模下耗时从数百毫秒降至数毫秒。
   const labelPlacementsCacheRef = useRef<Record<string, LabelRect>>({});
   const labelPlacements = useMemo(() => {
     if (!canvasSceneReady) { labelPlacementsCacheRef.current = {}; return {}; }
     const __t0 = performance.now();
     if (isLightAmapRender) return {} as Record<string, LabelRect>;
-    // 拖拽 / pan 中：直接复用上一次算好的，跳过 O(n²) 评分。松手时 useMemo 依赖
-    // skipHeavyLayout 翻 false 会立即重新计算并 cache。
     if (skipHeavyLayout) return labelPlacementsCacheRef.current;
-    void __t0;
+
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
     const waypointPointOf = (point: Waypoint) => {
       const map = amapRef.current;
@@ -2138,22 +2363,60 @@ const Canvas: React.FC<CanvasProps> = ({
       }
       return { x: point.x, y: point.y };
     };
-    const occupied: LabelRect[] = [];
-    const lineSegments = sections
-      .map(section => {
-        const start = stations.find(station => station.id === section.startStationId);
-        const end = stations.find(station => station.id === section.endStationId);
-        if (!start || !end) return [];
-        const points = [pointOf(start), ...((section.waypoints || []).map(waypointPointOf)), pointOf(end)];
-        const segments: Array<[number, number, number, number]> = [];
-        for (let i = 0; i < points.length - 1; i += 1) {
-          segments.push([points[i].x, points[i].y, points[i + 1].x, points[i + 1].y]);
-        }
-        return segments;
-      })
-      .flat();
 
-    // 按 Tier 1 优先排序：换乘+首末站先放（占据 occupied 列表），普通站后放并允许丢弃
+    const gridCellSize = Math.max(64, Math.round(128 * effectiveScale));
+    const occupiedGrid = new SpatialBoxGrid<LabelRect>(gridCellSize);
+
+    type StationCollisionBox = LabelRect & { stationId: string };
+    const stationGrid = new SpatialBoxGrid<StationCollisionBox>(gridCellSize);
+    for (let i = 0; i < stations.length; i += 1) {
+      const st = stations[i];
+      const pt = pointOf(st);
+      stationGrid.insert({
+        stationId: st.id,
+        x: pt.x - scaledStationCollisionRadius,
+        y: pt.y - scaledStationCollisionRadius,
+        width: scaledStationCollisionRadius * 2,
+        height: scaledStationCollisionRadius * 2
+      });
+    }
+
+    type SegmentCollisionBox = LabelRect & { x1: number; y1: number; x2: number; y2: number };
+    const segmentGrid = new SpatialBoxGrid<SegmentCollisionBox>(gridCellSize);
+    const pad = scaledLineCollisionDistance;
+    for (let s = 0; s < sections.length; s += 1) {
+      const section = sections[s];
+      const start = stationById.get(section.startStationId);
+      const end = stationById.get(section.endStationId);
+      if (!start || !end) continue;
+      const wps = section.waypoints;
+      let prev = pointOf(start);
+      if (wps && wps.length > 0) {
+        for (let w = 0; w < wps.length; w += 1) {
+          const cur = waypointPointOf(wps[w]);
+          const minX = Math.min(prev.x, cur.x) - pad;
+          const minY = Math.min(prev.y, cur.y) - pad;
+          segmentGrid.insert({
+            x: minX,
+            y: minY,
+            width: Math.abs(cur.x - prev.x) + pad * 2,
+            height: Math.abs(cur.y - prev.y) + pad * 2,
+            x1: prev.x, y1: prev.y, x2: cur.x, y2: cur.y
+          });
+          prev = cur;
+        }
+      }
+      const last = pointOf(end);
+      segmentGrid.insert({
+        x: Math.min(prev.x, last.x) - pad,
+        y: Math.min(prev.y, last.y) - pad,
+        width: Math.abs(last.x - prev.x) + pad * 2,
+        height: Math.abs(last.y - prev.y) + pad * 2,
+        x1: prev.x, y1: prev.y, x2: last.x, y2: last.y
+      });
+    }
+
+    // 按 Tier 1 优先排序：换乘+首末站先放（占据 occupiedGrid），普通站后放并允许丢弃
     const sortedStations = [...stations].sort((a, b) => {
       const aT1 = tier1StationIds.has(a.id) ? 0 : 1;
       const bT1 = tier1StationIds.has(b.id) ? 0 : 1;
@@ -2163,11 +2426,9 @@ const Canvas: React.FC<CanvasProps> = ({
     const computed = sortedStations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
       const isT1 = tier1StationIds.has(station.id);
-      // 仅关键模式：T2 完全不显示标签（圆点仍画在外面，这里只是没标签）
       if (labelDensity === 'key' && !isT1) return result;
 
       const stationPoint = pointOf(station);
-      // 用 scaledFontSize 算 rect 尺寸：collision detection 才能匹配实际渲染的视觉大小
       const labelWidth = Math.max(scaledStationLabelMinWidth, station.name.length * scaledFontSize);
       const labelHeight = Math.max(scaledStationLabelMinHeight, scaledFontSize + 10 * effectiveScale);
       const gap = scaledStationLabelGap;
@@ -2182,49 +2443,43 @@ const Canvas: React.FC<CanvasProps> = ({
         { key: 'bottom-left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y + gap }
       ].filter(candidate => station.labelPosition === 'auto' || !station.labelPosition || candidate.key === station.labelPosition);
 
-      const best = candidates
-        .map(candidate => {
-          const rect = { x: candidate.x, y: candidate.y, width: labelWidth, height: labelHeight };
-          let score = 0;
-          occupied.forEach(other => {
-            if (rectsOverlap(rect, other)) score += 100;
-          });
-          stations.forEach(other => {
-            const otherPoint = pointOf(other);
-            if (
-              other.id !== station.id &&
-              rectsOverlap(rect, {
-                x: otherPoint.x - scaledStationCollisionRadius,
-                y: otherPoint.y - scaledStationCollisionRadius,
-                width: scaledStationCollisionRadius * 2,
-                height: scaledStationCollisionRadius * 2
-              })
-            ) {
-              score += 60;
-            }
-          });
-          if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height) {
-            score += 40;
+      let best: { rect: LabelRect; score: number } | null = null;
+      for (let c = 0; c < candidates.length; c += 1) {
+        const candidate = candidates[c];
+        const rect: LabelRect = { x: candidate.x, y: candidate.y, width: labelWidth, height: labelHeight };
+        let score = 0;
+        occupiedGrid.forEachInBox(rect, (other) => {
+          if (rectsOverlap(rect, other)) score += 100;
+        });
+        stationGrid.forEachInBox(rect, (other) => {
+          if (other.stationId !== station.id && rectsOverlap(rect, other)) score += 60;
+        });
+        if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height) {
+          score += 40;
+        }
+        const cx = rect.x + rect.width / 2;
+        const cy = rect.y + rect.height / 2;
+        const nearSegments = segmentGrid.queryPoint(cx, cy);
+        for (let k = 0; k < nearSegments.length; k += 1) {
+          const seg = nearSegments[k];
+          if (distanceToSegment(cx, cy, seg.x1, seg.y1, seg.x2, seg.y2) < scaledLineCollisionDistance) {
+            score += 18;
           }
-          const center = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
-          lineSegments.forEach(([x1, y1, x2, y2]) => {
-            if (distanceToSegment(center.x, center.y, x1, y1, x2, y2) < scaledLineCollisionDistance) score += 18;
-          });
-          if (candidate.key === 'right') score -= 6;
-          if (candidate.key === 'left') score -= 3;
-          return { rect, score };
-        })
-        .sort((a, b) => a.score - b.score)[0];
+        }
+        if (candidate.key === 'right') score -= 6;
+        if (candidate.key === 'left') score -= 3;
+        if (!best || score < best.score) {
+          best = { rect, score };
+        }
+      }
 
       if (!best) return result;
-      // T1 站必须放；T2 站当最优位置评分 ≥ 100（说明跟 T1 或别的标签强重叠）就丢
       if (!isT1 && best.score >= 100) return result;
 
-      occupied.push(best.rect);
+      occupiedGrid.insert(best.rect);
       result[station.id] = best.rect;
       return result;
     }, {});
-    // 把结果存进 ref，交互期间的下次 render 直接复用，不再重算 O(n²)
     labelPlacementsCacheRef.current = computed;
     perfMark(`labelPlacements computed (stations=${stations.length}, sections=${sections.length})`, __t0);
     return computed;
@@ -2234,6 +2489,7 @@ const Canvas: React.FC<CanvasProps> = ({
     skipHeavyLayout,
     sections,
     stations,
+    stationById,
     scaledFontSize,
     effectiveScale,
     scaledStationLabelGap,
@@ -2251,27 +2507,27 @@ const Canvas: React.FC<CanvasProps> = ({
     labelDensity
   ]);
 
-  // 线路名标签布局：依赖 labelPlacements + stationDisplayPoints，跟着它们重算就够了
+  // 线路名标签布局：同样接入空间网格索引与 stationById O(1) 查表
   const lineNamePlacementsCacheRef = useRef<Array<{ key: string; line: LineType; x: number; y: number; width: number; height: number }>>([]);
   const lineNamePlacements = useMemo(() => {
     if (!canvasSceneReady) { lineNamePlacementsCacheRef.current = []; return []; }
     const __t0 = performance.now();
     if (isLightAmapRender || !mapSettings.showLineNameLabels || lines.length === 0) return [];
     if (skipHeavyLayout) return lineNamePlacementsCacheRef.current;
-    void __t0;
+
     const pointOf = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
-    const occupied: LabelRect[] = [
-      ...Object.values(labelPlacements),
-      ...stations.map(station => {
-        const point = pointOf(station);
-        return {
-          x: point.x - scaledInterchangeRadius - scaledStationCollisionRadius,
-          y: point.y - scaledInterchangeRadius - scaledStationCollisionRadius,
-          width: (scaledInterchangeRadius + scaledStationCollisionRadius) * 2,
-          height: (scaledInterchangeRadius + scaledStationCollisionRadius) * 2
-        };
-      })
-    ];
+    const occupiedGrid = new SpatialBoxGrid<LabelRect>(Math.max(64, Math.round(128 * effectiveScale)));
+    const labelValues = Object.values(labelPlacements);
+    for (let i = 0; i < labelValues.length; i += 1) occupiedGrid.insert(labelValues[i]);
+    for (let i = 0; i < stations.length; i += 1) {
+      const point = pointOf(stations[i]);
+      occupiedGrid.insert({
+        x: point.x - scaledInterchangeRadius - scaledStationCollisionRadius,
+        y: point.y - scaledInterchangeRadius - scaledStationCollisionRadius,
+        width: (scaledInterchangeRadius + scaledStationCollisionRadius) * 2,
+        height: (scaledInterchangeRadius + scaledStationCollisionRadius) * 2
+      });
+    }
 
     const placements: Array<{
       key: string;
@@ -2284,7 +2540,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
     lines.forEach(line => {
       const orderedStations = line.stationIds
-        .map(id => stations.find(station => station.id === id))
+        .map(id => stationById.get(id))
         .filter(Boolean) as Station[];
       if (orderedStations.length < 2) return;
 
@@ -2337,7 +2593,7 @@ const Canvas: React.FC<CanvasProps> = ({
         })
         .map(candidate => {
           let score = candidate.score;
-          occupied.forEach(other => {
+          occupiedGrid.forEachInBox(candidate.rect, (other) => {
             if (rectsOverlap(candidate.rect, other)) score += 90;
           });
           if (
@@ -2353,7 +2609,7 @@ const Canvas: React.FC<CanvasProps> = ({
         .sort((a, b) => a.score - b.score)[0];
 
       if (best) {
-        occupied.push(best.rect);
+        occupiedGrid.insert(best.rect);
         placements.push({
           key: line.id,
           line,
@@ -2373,6 +2629,8 @@ const Canvas: React.FC<CanvasProps> = ({
     lines,
     labelPlacements,
     stations,
+    stationById,
+    effectiveScale,
     stylePreset,
     scaledInterchangeRadius,
     scaledStationCollisionRadius,
@@ -2667,7 +2925,7 @@ const Canvas: React.FC<CanvasProps> = ({
             listening={false}
           />
           {/* 渲染线路连接线 */}
-          {renderLines()}
+          {renderLines(suppressShadows)}
           {lineNamePlacements.map(label => (
             <Group key={`line_label_${label.key}`} name="zoom-sized-element" x={label.x} y={label.y} listening={false}>
               <Rect
@@ -2682,8 +2940,9 @@ const Canvas: React.FC<CanvasProps> = ({
                     : scaledLineLabelStrokeWidth
                 }
                 shadowColor={label.line.color}
-                shadowBlur={isAmapMode ? 8 : 4}
-                shadowOpacity={isAmapMode ? 0.22 : 0.16}
+                shadowBlur={suppressShadows ? 0 : isAmapMode ? 8 : 4}
+                shadowOpacity={suppressShadows ? 0 : isAmapMode ? 0.22 : 0.16}
+                perfectDrawEnabled={false}
               />
               <Text
                 text={label.line.name}
@@ -2694,19 +2953,9 @@ const Canvas: React.FC<CanvasProps> = ({
                 fontSize={scaledLineLabelFontSize}
                 fontStyle={`${stylePreset.lineLabelFontWeight}`}
                 fill={isMutedAmapStyle ? '#0f172a' : stylePreset.lineLabelText}
+                perfectDrawEnabled={false}
               />
             </Group>
-          ))}
-          {activeCalibrationGuides.map((guide, idx) => (
-            <Line
-              key={`active_guide_${idx}`}
-              points={guide}
-              stroke={canvasPalette.activeGuide}
-              strokeWidth={1}
-              dash={[6, 6]}
-              opacity={0.9}
-              listening={false}
-            />
           ))}
           {sections.map(section => {
             const points = section.waypoints || [];
@@ -2726,7 +2975,8 @@ const Canvas: React.FC<CanvasProps> = ({
                   stroke={canvasPalette.waypointStroke}
                   strokeWidth={2}
                   shadowColor={canvasPalette.waypointShadow}
-                  shadowBlur={isLightRender ? 0 : 5}
+                  shadowBlur={suppressShadows ? 0 : 5}
+                  perfectDrawEnabled={false}
                   name="touch-edit-node"
                   sectionId={section.id}
                   waypointIndex={idx}
@@ -2734,15 +2984,13 @@ const Canvas: React.FC<CanvasProps> = ({
                   dragDistance={isCompact ? 8 : 3}
                   onDragStart={() => {
                     onBeginInteraction?.();
+                    dragWaypointDraftRef.current = null;
                     setIsDraggingNode(true);
                   }}
                   onDragMove={e => {
-                    updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true);
+                    updateWaypoint(section.id, idx, e.target.x(), e.target.y(), true, e.target);
                   }}
-                  onDragEnd={() => {
-                    setActiveCalibrationGuides([]);
-                    setIsDraggingNode(false);
-                  }}
+                  onDragEnd={commitWaypointDrag}
                   onContextMenu={e => {
                     e.evt.preventDefault();
                     lastIsRightClickRef.current = true;
@@ -2763,20 +3011,6 @@ const Canvas: React.FC<CanvasProps> = ({
             });
           })}
           
-          {/* 渲染正在绘制的线 */}
-          {isDrawing && drawingLine.points.length >= 4 && (
-            <Line
-              points={drawingLine.points}
-              stroke={canvasPalette.drawingLine}
-              strokeWidth={3}
-              lineCap="round"
-              lineJoin="round"
-              dash={[5, 5]}
-              tension={0}
-              listening={false}
-            />
-          )}
-          
           {/* 渲染站点 */}
           {stations.map(station => {
             const stationColor = getStationColor(station.id);
@@ -2794,15 +3028,13 @@ const Canvas: React.FC<CanvasProps> = ({
                 draggable={!readOnly && (activeTool === 'select' || (!isCompact && activeTool === 'station'))}
                 onDragStart={() => {
                   onBeginInteraction?.();
+                  dragStationDraftRef.current = null;
                   setIsDraggingNode(true);
                 }}
                 onDragMove={e =>
-                  handleDragMove(station.id, { x: e.target.x(), y: e.target.y() })
+                  handleDragMove(station.id, { x: e.target.x(), y: e.target.y() }, e.target)
                 }
-                onDragEnd={() => {
-                  setActiveCalibrationGuides([]);
-                  setIsDraggingNode(false);
-                }}
+                onDragEnd={commitStationDrag}
                 onTap={(e) => handleStationTap(station, e)}
                 onClick={(e) => {
                   if (isCompact) { touchTapAllowedRef.current = true; handleStationTap(station, e); }
@@ -2846,7 +3078,8 @@ const Canvas: React.FC<CanvasProps> = ({
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={isLightRender ? 0 : 6}
+                                shadowBlur={suppressShadows ? 0 : 6}
+                                perfectDrawEnabled={false}
                               />
                               {plan.curvedArrows.map((arrow, i) => (
                                 <Path
@@ -2854,6 +3087,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                   data={buildCurvedArrowPath(0, 0, innerR, outerR, arrow)}
                                   fill={arrow.color}
                                   listening={false}
+                                  perfectDrawEnabled={false}
                                 />
                               ))}
                               {/* 外圈细深环 */}
@@ -2863,6 +3097,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                 stroke={outerStrokeColor}
                                 strokeWidth={scaledInterchangeStrokeWidth}
                                 listening={false}
+                                perfectDrawEnabled={false}
                               />
                             </>
                           );
@@ -2877,7 +3112,8 @@ const Canvas: React.FC<CanvasProps> = ({
                                 radius={scaledInterchangeRadius}
                                 fill={canvasPalette.stationStroke}
                                 shadowColor={canvasPalette.dotShadow}
-                                shadowBlur={isLightRender ? 0 : 6}
+                                shadowBlur={suppressShadows ? 0 : 6}
+                                perfectDrawEnabled={false}
                               />
                               {plan.sectors.map((s, i) => (
                                 <Arc
@@ -2888,6 +3124,7 @@ const Canvas: React.FC<CanvasProps> = ({
                                   rotation={s.startDeg}
                                   fill={s.color}
                                   listening={false}
+                                  perfectDrawEnabled={false}
                                 />
                               ))}
                             </>
@@ -2904,7 +3141,8 @@ const Canvas: React.FC<CanvasProps> = ({
                               stroke={darkOutline}
                               strokeWidth={scaledInterchangeStrokeWidth}
                               shadowColor={canvasPalette.dotShadow}
-                              shadowBlur={isLightRender ? 0 : 6}
+                              shadowBlur={suppressShadows ? 0 : 6}
+                              perfectDrawEnabled={false}
                             />
                             <Circle
                               radius={scaledInterchangeInnerRadius}
@@ -2912,6 +3150,7 @@ const Canvas: React.FC<CanvasProps> = ({
                               stroke={darkOutline}
                               strokeWidth={scaledInterchangeStrokeWidth * 0.5}
                               listening={false}
+                              perfectDrawEnabled={false}
                             />
                           </>
                         );
@@ -2925,7 +3164,8 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={stationColor}
                           strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={isLightRender ? 0 : 4}
+                          shadowBlur={suppressShadows ? 0 : 4}
+                          perfectDrawEnabled={false}
                         />
                       ) : (
                         <Circle
@@ -2934,7 +3174,8 @@ const Canvas: React.FC<CanvasProps> = ({
                           stroke={canvasPalette.stationStroke}
                           strokeWidth={scaledNormalStationStrokeWidth}
                           shadowColor={canvasPalette.dotShadow}
-                          shadowBlur={isLightRender ? 0 : 4}
+                          shadowBlur={suppressShadows ? 0 : 4}
+                          perfectDrawEnabled={false}
                         />
                       )
                     )}
@@ -2949,9 +3190,13 @@ const Canvas: React.FC<CanvasProps> = ({
                           fill={readableLabelText}
                           align="center"
                           verticalAlign="middle"
-                          shadowColor={isAmapMode ? readableLabelShadow : canvasPalette.labelShadow}
-                          shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 5 : 2}
-                          shadowOpacity={1}
+                          stroke={isLargeGraph ? (isAmapMode ? readableLabelShadow : canvasPalette.labelShadow) : undefined}
+                          strokeWidth={isLargeGraph ? Math.max(2, 2.5 * effectiveScale) : 0}
+                          fillAfterStrokeEnabled={isLargeGraph}
+                          shadowColor={isLargeGraph ? undefined : (isAmapMode ? readableLabelShadow : canvasPalette.labelShadow)}
+                          shadowBlur={suppressShadows ? 0 : isAmapMode ? 5 : isDarkCanvas ? 5 : 2}
+                          shadowOpacity={suppressShadows ? 0 : 1}
+                          perfectDrawEnabled={false}
                         />
                       </Group>
                     ) : null}
@@ -2964,8 +3209,9 @@ const Canvas: React.FC<CanvasProps> = ({
                       stroke={canvasPalette.stationStroke}
                       strokeWidth={isInterchangeStation ? scaledClassicInterchangeStrokeWidth : scaledClassicStationStrokeWidth}
                       shadowColor={isDarkCanvas ? 'rgba(147,197,253,0.35)' : 'rgba(15,23,42,0.28)'}
-                      shadowBlur={isLightRender ? 0 : isDarkCanvas ? 7 : 4}
+                      shadowBlur={suppressShadows ? 0 : isDarkCanvas ? 7 : 4}
                       shadowOffset={{ x: 2 * effectiveScale, y: 2 * effectiveScale }}
+                      perfectDrawEnabled={false}
                     />
                     {!isLightAmapRender ? (
                       <Text
@@ -2979,8 +3225,9 @@ const Canvas: React.FC<CanvasProps> = ({
                         offsetX={scaledClassicStationTextBox / 2}
                         offsetY={scaledClassicStationTextBox / 2}
                         shadowColor={isAmapMode ? 'rgba(2,6,23,0.95)' : isDarkCanvas ? 'rgba(2,6,23,0.8)' : 'rgba(15,23,42,0.42)'}
-                        shadowBlur={isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
+                        shadowBlur={suppressShadows ? 0 : isAmapMode ? 5 : isDarkCanvas ? 3 : 2}
                         shadowOffset={{ x: effectiveScale, y: effectiveScale }}
+                        perfectDrawEnabled={false}
                       />
                     ) : null}
                   </>
@@ -2989,6 +3236,42 @@ const Canvas: React.FC<CanvasProps> = ({
             );
           })}
           </>}
+        </Layer>
+        {/* 顶层轻量交互辅助层：橡皮筋连线预览与动态吸附虚线单独占一层 Canvas，60fps 移动鼠标/拖站点时完全不重绘底层线网 */}
+        <Layer listening={false}>
+          {canvasSceneReady && (
+            <>
+              {[0, 1, 2, 3].map((idx) => (
+                <Line
+                  key={`imp_guide_${idx}`}
+                  id={`imperative_guide_${idx}`}
+                  points={activeCalibrationGuides[idx] || []}
+                  visible={Boolean(activeCalibrationGuides[idx])}
+                  stroke={canvasPalette.activeGuide}
+                  strokeWidth={1}
+                  dash={[6, 6]}
+                  opacity={0.9}
+                  listening={false}
+                  perfectDrawEnabled={false}
+                />
+              ))}
+              {isDrawing && (
+                <Line
+                  id="metro-drawing-preview"
+                  points={drawingPointsRef.current.length >= 4 ? drawingPointsRef.current : drawingLine.points}
+                  visible={drawingPointsRef.current.length >= 4 || drawingLine.points.length >= 4}
+                  stroke={canvasPalette.drawingLine}
+                  strokeWidth={3}
+                  lineCap="round"
+                  lineJoin="round"
+                  dash={[5, 5]}
+                  tension={0}
+                  listening={false}
+                  perfectDrawEnabled={false}
+                />
+              )}
+            </>
+          )}
         </Layer>
       </Stage>
       
