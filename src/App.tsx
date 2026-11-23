@@ -285,6 +285,8 @@ const App: React.FC = () => {
   const [sections, setSections] = useState<Section[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [currentLineId, setCurrentLineId] = useState<string | null>(null);
+  const [isMapOpening, setIsMapOpening] = useState(false);
+  const mapOpeningRequestRef = useRef(0);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [previewMode, setPreviewMode] = useState(() => !isAuthCallbackURL() && (new URLSearchParams(window.location.search).get('preview') === '1' || hasGuestSession()));
   const [guestReady, setGuestReady] = useState(false);
@@ -590,6 +592,8 @@ const App: React.FC = () => {
         let lastMapId: string | null = null;
         try { lastMapId = localStorage.getItem(LAST_MAP_KEY); } catch { /* ignore */ }
         if (lastMapId && !guestPreviewRequestedRef.current && !hasGuestSession()) {
+          const openingRequest = ++mapOpeningRequestRef.current;
+          setIsMapOpening(true);
           try {
             const { map } = await api.getMap(lastMapId);
             if (getToken() === token && documentSessionRef.current.canApplyLoad(restoreTicket)) applyLoadedMap(map);
@@ -597,6 +601,8 @@ const App: React.FC = () => {
             if (getToken() === token && documentSessionRef.current.isLatestLoad(restoreTicket)) {
               try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
             }
+          } finally {
+            if (mapOpeningRequestRef.current === openingRequest) setIsMapOpening(false);
           }
         }
         // 历史存量头像可能是几百 KB 的原图 dataURL，DB 全是这种东西会拖慢列表/me。
@@ -1316,6 +1322,8 @@ const App: React.FC = () => {
     const load = async () => {
       const ticket = documentSessionRef.current.beginLoad();
       const requestToken = getToken();
+      const openingRequest = ++mapOpeningRequestRef.current;
+      setIsMapOpening(true);
       try {
         const { map } = await api.getMap(mapId);
         if (getToken() !== requestToken || !documentSessionRef.current.isLatestLoad(ticket)) return;
@@ -1330,6 +1338,8 @@ const App: React.FC = () => {
         if (getToken() === requestToken && documentSessionRef.current.isLatestLoad(ticket)) {
           message.error(error.message || '加载地图失败');
         }
+      } finally {
+        if (mapOpeningRequestRef.current === openingRequest) setIsMapOpening(false);
       }
     };
     if (!dirtyRef.current) { await load(); return; }
@@ -2343,6 +2353,8 @@ const App: React.FC = () => {
             <div className="metro-canvas-stage">
 
               {(!previewMode || guestReady) ? <Canvas
+                documentKey={currentMap?.id || guestDraftId || 'draft'}
+                isDocumentLoading={isMapOpening}
                 initialViewport={guestInitialViewport}
                 fitOnMount={!!guestDraftId && !guestInitialViewport}
                 onViewportChange={setGuestViewport}

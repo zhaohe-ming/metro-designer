@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 're
 import { createPortal } from 'react-dom';
 import Konva from 'konva';
 import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
-import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip } from 'antd';
+import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip, Spin } from 'antd';
 import {
   DownOutlined,
   SelectOutlined,
@@ -19,7 +19,7 @@ import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
 import { roundLineFlat } from '../lib/roundedPath';
 import { AppAction } from '../lib/commandParser';
-import { getAmapConfig, loadAmap } from '../amapLoader';
+import { useAmapViewport } from '../lib/useAmapViewport';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
 import CanvasStartPrompt from './CanvasStartPrompt';
@@ -132,6 +132,8 @@ interface CanvasProps {
   sections: Section[];
   stations: Station[];
   mapSettings: MapSettings;
+  documentKey?: string;
+  isDocumentLoading?: boolean;
   language?: 'zh-CN' | 'en-US';
   onAddStation: (station: Station) => void;
   onUpdateStation: (station: Station) => void;
@@ -167,6 +169,7 @@ const Canvas: React.FC<CanvasProps> = ({
   sections,
   stations,
   mapSettings,
+  documentKey = 'draft', isDocumentLoading = false,
   language = 'zh-CN',
   onAddStation,
   onUpdateStation,
@@ -414,9 +417,6 @@ const Canvas: React.FC<CanvasProps> = ({
   const syncZoomElementSizesRef = useRef<(viewportScale: number) => void>(() => {});
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
-  const amapRef = useRef<any>(null);
-  const amapOverlayFrameRef = useRef<number | null>(null);
-  const amapInteractionEndTimerRef = useRef<number | null>(null);
   // 纯画布交互（拖动 / 滚轮缩放）也走"高频交互"通道，让 skipHeavyLayout 生效。
   // wheel 事件没有明确的"结束"信号，靠这个 timer 在最后一次 wheel 后 150ms 落回。
   const canvasInteractionEndTimerRef = useRef<number | null>(null);
@@ -433,19 +433,27 @@ const Canvas: React.FC<CanvasProps> = ({
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
   const amapPaperScaleAnchorZoomRef = useRef<number | null>(null);
-  const [amapReady, setAmapReady] = useState(false);
-  const [amapError, setAmapError] = useState('');
-  const [mapRenderTick, setMapRenderTick] = useState(0);
   const [isMapInteracting, setIsMapInteracting] = useState(false);
   // 拖站点 / 拖途经点中：跟 isMapInteracting 一起作为"高频交互"标志，
   // 屏蔽 O(n²) 的 label layout 和 line name 计算，让拖拽帧率不卡
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const isAmapMode = mapSettings.baseMap.mode === 'amap';
-  const amapEnv = getAmapConfig();
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestMapSettingsRef.current = mapSettings;
   }, [mapSettings]);
+
+  const { mapRef: amapRef, ready: amapReady, error: amapError, renderTick: mapRenderTick } = useAmapViewport({
+    enabled: isAmapMode, containerRef: amapContainerRef, documentKey, documentLoading: isDocumentLoading,
+    viewport: mapSettings.baseMap.amap || DEFAULT_AMAP_SETTINGS, width: stageSize.width, height: stageSize.height,
+    onInteractionChange: setIsMapInteracting,
+    onViewportChange: (center, zoom) => {
+      const latest = latestMapSettingsRef.current;
+      onMapSettingsChange?.({ ...latest, baseMap: { mode: 'amap',
+        amap: { ...(latest.baseMap.amap || DEFAULT_AMAP_SETTINGS), center, zoom } } });
+    }
+  });
+  const canvasSceneReady = !isDocumentLoading && (!isAmapMode || amapReady);
 
   useEffect(() => {
     if (onStageReady && stageRef.current) {
@@ -567,152 +575,15 @@ const Canvas: React.FC<CanvasProps> = ({
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
-    if (!isAmapMode) {
-      if (amapInteractionEndTimerRef.current !== null) {
-        window.clearTimeout(amapInteractionEndTimerRef.current);
-        amapInteractionEndTimerRef.current = null;
-      }
-      if (amapRef.current) {
-        amapRef.current.destroy?.();
-        amapRef.current = null;
-      }
-      setIsMapInteracting(false);
-      setAmapReady(false);
-      setAmapError('');
-      return;
-    }
-
-    if (!amapEnv.key || !amapEnv.securityCode) {
-      setAmapError('请先配置 REACT_APP_AMAP_KEY 和 REACT_APP_AMAP_SECURITY_CODE');
-      setAmapReady(false);
-      return;
-    }
-
-    let disposed = false;
-    loadAmap()
-      .then((AMap) => {
-        if (disposed || !amapContainerRef.current) return;
-        if (!amapRef.current) {
-          const scheduleOverlayRender = () => {
-            if (amapOverlayFrameRef.current !== null) return;
-            amapOverlayFrameRef.current = window.requestAnimationFrame(() => {
-              amapOverlayFrameRef.current = null;
-              setMapRenderTick(tick => tick + 1);
-            });
-          };
-          const amapOptions = mapSettings.baseMap.amap || {
-            center: [116.397428, 39.90923] as [number, number],
-            zoom: 11,
-            style: 'normal' as const
-          };
-          const map = new AMap.Map(amapContainerRef.current, {
-            center: amapOptions.center,
-            zoom: amapOptions.zoom,
-            viewMode: '2D',
-            mapStyle: `amap://styles/${amapOptions.style}`,
-            resizeEnable: true
-          });
-          amapRef.current = map;
-          const syncSettings = () => {
-            const center = map.getCenter();
-            const zoom = map.getZoom();
-            const latestSettings = latestMapSettingsRef.current;
-            onMapSettingsChange?.({
-              ...latestSettings,
-              baseMap: {
-                mode: 'amap',
-                amap: {
-                  ...(latestSettings.baseMap.amap || DEFAULT_AMAP_SETTINGS),
-                  center: [center.lng, center.lat],
-                  zoom
-                }
-              }
-            });
-          };
-          const startMapInteraction = () => {
-            if (amapInteractionEndTimerRef.current !== null) {
-              window.clearTimeout(amapInteractionEndTimerRef.current);
-              amapInteractionEndTimerRef.current = null;
-            }
-            setIsMapInteracting(true);
-            scheduleOverlayRender();
-          };
-          const finishMapInteraction = () => {
-            syncSettings();
-            scheduleOverlayRender();
-            if (amapInteractionEndTimerRef.current !== null) {
-              window.clearTimeout(amapInteractionEndTimerRef.current);
-            }
-            amapInteractionEndTimerRef.current = window.setTimeout(() => {
-              amapInteractionEndTimerRef.current = null;
-              setIsMapInteracting(false);
-              scheduleOverlayRender();
-            }, 120);
-          };
-          map.on('movestart', startMapInteraction);
-          map.on('zoomstart', startMapInteraction);
-          map.on('mapmove', scheduleOverlayRender);
-          map.on('zoomchange', scheduleOverlayRender);
-          map.on('moveend', finishMapInteraction);
-          map.on('zoomend', finishMapInteraction);
-        }
-        setAmapReady(true);
-        setAmapError('');
-        setMapRenderTick(tick => tick + 1);
-      })
-      .catch(error => {
-        if (!disposed) {
-          setAmapError(error?.message || '高德地图加载失败');
-          setAmapReady(false);
-        }
-      });
-
-    return () => {
-      disposed = true;
-      if (amapOverlayFrameRef.current !== null) {
-        window.cancelAnimationFrame(amapOverlayFrameRef.current);
-        amapOverlayFrameRef.current = null;
-      }
-      if (amapInteractionEndTimerRef.current !== null) {
-        window.clearTimeout(amapInteractionEndTimerRef.current);
-        amapInteractionEndTimerRef.current = null;
-      }
-    };
-  }, [isAmapMode, amapEnv.key, amapEnv.securityCode]);
-
-  useEffect(() => {
-    const map = amapRef.current;
-    const amapOptions = mapSettings.baseMap.amap;
-    if (!isAmapMode || !map || !amapOptions) return;
-    map.setMapStyle?.(`amap://styles/${amapOptions.style}`);
-    const currentCenter = map.getCenter?.();
-    const currentZoom = map.getZoom?.();
-    const shouldMove =
-      !currentCenter ||
-      Math.abs(currentCenter.lng - amapOptions.center[0]) > 0.000001 ||
-      Math.abs(currentCenter.lat - amapOptions.center[1]) > 0.000001 ||
-      Math.abs((currentZoom || amapOptions.zoom) - amapOptions.zoom) > 0.01;
-    if (shouldMove) {
-      map.setZoomAndCenter?.(amapOptions.zoom, amapOptions.center);
-    }
-    setMapRenderTick(tick => tick + 1);
-  }, [
-    isAmapMode,
-    mapSettings.baseMap.amap?.style,
-    mapSettings.baseMap.amap?.zoom,
-    mapSettings.baseMap.amap?.center?.[0],
-    mapSettings.baseMap.amap?.center?.[1]
-  ]);
-
   // 站点像素坐标缓存：AMap 模式下根据经纬度投影，否则用 station.x/y。
   // 依赖 mapRenderTick 是为了在 AMap pan/zoom 后强制重算（amapRef.current 不会触发 React 重渲染）。
   const stationDisplayPoints = useMemo(() => {
+    if (!canvasSceneReady) return {} as Record<string, { x: number; y: number }>;
     const map = amapRef.current;
     return stations.reduce<Record<string, { x: number; y: number }>>((result, station) => {
       if (isAmapMode && amapReady && map && typeof station.lng === 'number' && typeof station.lat === 'number') {
         const pixel = map.lngLatToContainer?.([station.lng, station.lat]);
-        if (pixel) {
+        if (pixel && Number.isFinite(pixel.x) && Number.isFinite(pixel.y)) {
           result[station.id] = { x: pixel.x, y: pixel.y };
           return result;
         }
@@ -720,7 +591,7 @@ const Canvas: React.FC<CanvasProps> = ({
       result[station.id] = { x: station.x, y: station.y };
       return result;
     }, {});
-  }, [stations, isAmapMode, amapReady, mapRenderTick]);
+  }, [stations, isAmapMode, amapReady, mapRenderTick, canvasSceneReady, stageSize.width, stageSize.height]);
 
   const getDisplayPoint = (station: Station) => stationDisplayPoints[station.id] || { x: station.x, y: station.y };
 
@@ -2240,6 +2111,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // labelPlacementsCacheRef 在拖拽期间被 useMemo 复用，避免每个 mousemove 都重算
   const labelPlacementsCacheRef = useRef<Record<string, LabelRect>>({});
   const labelPlacements = useMemo(() => {
+    if (!canvasSceneReady) { labelPlacementsCacheRef.current = {}; return {}; }
     const __t0 = performance.now();
     if (isLightAmapRender) return {} as Record<string, LabelRect>;
     // 拖拽 / pan 中：直接复用上一次算好的，跳过 O(n²) 评分。松手时 useMemo 依赖
@@ -2346,6 +2218,7 @@ const Canvas: React.FC<CanvasProps> = ({
     perfMark(`labelPlacements computed (stations=${stations.length}, sections=${sections.length})`, __t0);
     return computed;
   }, [
+    canvasSceneReady,
     isLightAmapRender,
     skipHeavyLayout,
     sections,
@@ -2370,6 +2243,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // 线路名标签布局：依赖 labelPlacements + stationDisplayPoints，跟着它们重算就够了
   const lineNamePlacementsCacheRef = useRef<Array<{ key: string; line: LineType; x: number; y: number; width: number; height: number }>>([]);
   const lineNamePlacements = useMemo(() => {
+    if (!canvasSceneReady) { lineNamePlacementsCacheRef.current = []; return []; }
     const __t0 = performance.now();
     if (isLightAmapRender || !mapSettings.showLineNameLabels || lines.length === 0) return [];
     if (skipHeavyLayout) return lineNamePlacementsCacheRef.current;
@@ -2481,6 +2355,7 @@ const Canvas: React.FC<CanvasProps> = ({
     perfMark(`lineNamePlacements computed (lines=${lines.length})`, __t0);
     return placements;
   }, [
+    canvasSceneReady,
     isLightAmapRender,
     skipHeavyLayout,
     mapSettings.showLineNameLabels,
@@ -2551,6 +2426,7 @@ const Canvas: React.FC<CanvasProps> = ({
       onTouchCancel={handleTouchCancel}
       className={`metro-canvas-surface ${isDarkCanvas ? 'is-canvas-dark' : ''}`}
       data-map-mode={mapSettings.baseMap.mode}
+      aria-busy={!canvasSceneReady}
       style={{
         width: '100%',
         height: '100%',
@@ -2579,24 +2455,15 @@ const Canvas: React.FC<CanvasProps> = ({
           }}
         />
       )}
-      {isAmapMode && amapError && (
-        <div
-          style={{
-            position: 'absolute',
-            top: 86,
-            left: 18,
-            zIndex: 1002,
-            maxWidth: 420,
-            padding: '10px 12px',
-            borderRadius: 8,
-            background: '#fff7ed',
-            border: '1px solid #fed7aa',
-            color: '#9a3412',
-            fontSize: 13,
-            boxShadow: '0 10px 28px rgba(15,23,42,0.12)'
-          }}
-        >
-          {amapError}
+      {!canvasSceneReady && (
+        <div role="status" aria-live="polite" className="metro-map-loading"
+          style={{ position: 'absolute', inset: 0, zIndex: 1001, display: 'grid', placeItems: 'center',
+            background: isAmapMode && amapStyle === 'dark' ? '#151c25' : '#f1f5f9',
+            color: isAmapMode && amapStyle === 'dark' ? '#e2e8f0' : '#475569' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 440, padding: 28, fontSize: 15 }}>
+            {!amapError && <Spin />}
+            <span>{amapError || (language === 'en-US' ? 'Loading map and network…' : '正在加载地图与线网…')}</span>
+          </div>
         </div>
       )}
       <div className="metro-canvas-tools">
@@ -2775,9 +2642,11 @@ const Canvas: React.FC<CanvasProps> = ({
         onWheel={handleWheel}
         onClick={handleWaypointPlacement}
         onTap={handleWaypointPlacement}
-        style={{ cursor: activeTool === 'pan' ? 'grab' : isDrawingMode || activeTool === 'station' ? 'crosshair' : 'default' }}
+        style={{ visibility: canvasSceneReady ? 'visible' : 'hidden', pointerEvents: canvasSceneReady ? 'auto' : 'none',
+          cursor: activeTool === 'pan' ? 'grab' : isDrawingMode || activeTool === 'station' ? 'crosshair' : 'default' }}
       >
-        <Layer>
+        <Layer listening={canvasSceneReady}>
+          {canvasSceneReady && <>
           <Rect
             x={-10000}
             y={-10000}
@@ -3108,6 +2977,7 @@ const Canvas: React.FC<CanvasProps> = ({
               </Group>
             );
           })}
+          </>}
         </Layer>
       </Stage>
       
