@@ -2394,9 +2394,9 @@ const App: React.FC = () => {
               borderRadius: 8,
               colorText: '#0f172a',
               colorTextSecondary: '#475569',
-              colorBorder: '#cfe0f5',
-              colorBorderSecondary: '#e8f1ff',
-              colorBgLayout: '#eef6ff'
+              colorBorder: '#dde4ee',
+              colorBorderSecondary: '#edf2f7',
+              colorBgLayout: '#e9eef5'
             }
     }),
     [resolvedInterfaceTheme]

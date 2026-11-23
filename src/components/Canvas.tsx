@@ -103,7 +103,7 @@ const distanceToSegment = (px: number, py: number, x1: number, y1: number, x2: n
 };
 const CANVAS_THEME_PALETTES = {
   light: {
-    background: '#fbfdff',
+    background: '#ffffff',
     lineGuide: '#94a3b8',
     activeGuide: '#2563eb',
     drawingLine: '#2563eb',
@@ -2741,13 +2741,13 @@ const Canvas: React.FC<CanvasProps> = ({
         height: '100%',
         '--metro-canvas-bg': canvasBackgroundColor,
         backgroundColor: canvasBackgroundColor,
-        // 用户导入了自定义画布背景图 → 用那张图；
-        // 否则 undefined（不写 'none'），让 CSS 里的 drafting-paper 点状网格能生效
+        // 用户导入了自定义画布背景图 → 用那张图并设置 cover/no-repeat；
+        // 否则保持 undefined，避免内联 cover/no-repeat 把 CSS 里的 24×24 制图点阵拉成单点导致失效
         backgroundImage:
           !isAmapMode && canvasBackgroundImage ? `url(${canvasBackgroundImage})` : undefined,
-        backgroundSize: 'cover',
-        backgroundPosition: 'center',
-        backgroundRepeat: 'no-repeat'
+        backgroundSize: !isAmapMode && canvasBackgroundImage ? 'cover' : undefined,
+        backgroundPosition: !isAmapMode && canvasBackgroundImage ? 'center' : undefined,
+        backgroundRepeat: !isAmapMode && canvasBackgroundImage ? 'no-repeat' : undefined
       } as React.CSSProperties}
     >
       {lines.length === 0 && stations.length === 0 && sections.length === 0 && !isAmapMode && !canvasBackgroundImage && onCreateLine && onStartWithAmap && (

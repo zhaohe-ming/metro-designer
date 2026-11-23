@@ -18,13 +18,13 @@
   --color-text-soft:  #475569;
   --color-text-muted: #64748b;
 
-  /* 表面 + 背景（压淡黄，接近暖白） */
-  --color-bg:             #eef6ff;
+  /* 表面 + 底盘（雾灰蓝一体底盘 + 纯白悬浮画布，中性冷灰弱边框） */
+  --color-bg:             #e9eef5;
   --color-surface:        #ffffff;
-  --color-surface-muted:  #f8fbff;
-  --color-border:         #cfe0f5;
-  --color-border-strong:  #9dbce7;
-  --color-border-subtle:  #e8f1ff;
+  --color-surface-muted:  #f2f5fa;
+  --color-border:         rgba(15, 23, 42, 0.08);
+  --color-border-strong:  rgba(15, 23, 42, 0.16);
+  --color-border-subtle:  rgba(15, 23, 42, 0.045);
 
   --color-danger:  #ef4444;
   --color-success: #10b981;
@@ -3365,12 +3365,12 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   --color-text:        #0f172a;
   --color-text-soft:   #475569;
   --color-text-muted:  #64748b;
-  --color-bg:          #eef6ff;
+  --color-bg:          #e9eef5;
   --color-surface:     #ffffff;
-  --color-surface-muted: #f8fbff;
-  --color-border:      #cfe0f5;
-  --color-border-strong: #9dbce7;
-  --color-border-subtle: #e8f1ff;
+  --color-surface-muted: #f2f5fa;
+  --color-border:      rgba(15, 23, 42, 0.08);
+  --color-border-strong: rgba(15, 23, 42, 0.16);
+  --color-border-subtle: rgba(15, 23, 42, 0.045);
 }
 
 /* Desktop layout polish: keep these overrides after the responsive blocks so
@@ -3390,22 +3390,18 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 
   .metro-sider,
   .metro-sider.ant-layout-sider {
-    border: 1.5px solid rgba(96, 165, 250, 0.58) !important;
-    border-radius: 12px !important;
-    background: rgba(255, 255, 255, 0.94) !important;
-    box-shadow:
-      0 0 0 1px rgba(255, 255, 255, 0.92) inset,
-      0 10px 26px rgba(15, 23, 42, 0.07);
-    overflow: hidden;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible;
   }
 
   .metro-app-shell[data-interface-theme="dark"] .metro-sider,
   .metro-app-shell[data-interface-theme="dark"] .metro-sider.ant-layout-sider {
-    background: rgba(17, 24, 39, 0.92) !important;
-    border-color: rgba(96, 165, 250, 0.46) !important;
-    box-shadow:
-      0 0 0 1px rgba(15, 23, 42, 0.82) inset,
-      0 10px 28px rgba(0, 0, 0, 0.22);
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
   }
 
   .metro-command-bar {
@@ -5972,5 +5968,266 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
     z-index: 15;
     width: min(76%, 240px);
     box-shadow: 12px 0 32px rgba(15, 23, 42, 0.18);
+  }
+}
+
+
+/* ========================================================================== */
+/* 11. 方案 A + A1：雾灰蓝一体底盘 + 沉浸无框侧栏 + 悬浮圆角纯白画布             */
+/*     零外围实线描边，完全依靠底盘明度高差、环境弥散阴影与制图点阵肌理切分空间  */
+/* ========================================================================== */
+
+/* 唤醒纯画布制图点阵肌理（亮色冷灰微点 / 暗色蓝图光点；高德底图模式隐藏） */
+.metro-canvas-surface {
+  background-color: var(--metro-canvas-bg, #ffffff) !important;
+  background-image: radial-gradient(circle, rgba(100, 116, 139, 0.165) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 12px 12px;
+}
+
+.metro-canvas-surface.is-canvas-dark {
+  background-color: var(--metro-canvas-bg, #07111f) !important;
+  background-image: radial-gradient(circle, rgba(148, 197, 253, 0.14) 1px, transparent 1px);
+}
+
+.metro-canvas-surface[data-map-mode="amap"] {
+  background-image: none !important;
+}
+
+@media (min-width: 769px) {
+  /* 1) 外围雾灰蓝一体底盘（Tonal Chassis）：把顶栏与左侧栏自然承托在同一层温润底托上 */
+  .metro-app-shell {
+    padding: 6px 12px 12px;
+    background: linear-gradient(180deg, #ecf1f7 0%, #e3eaf3 100%);
+  }
+
+  .metro-workbench,
+  .metro-header,
+  .metro-body {
+    background: transparent !important;
+    border-color: transparent !important;
+  }
+
+  .metro-body {
+    padding: 4px 2px 2px 2px;
+    gap: 14px;
+  }
+
+  /* 顶栏控件在雾灰底盘上的轻透白瓷质感（去粉蓝描边） */
+  .metro-header-mapchip,
+  .metro-toolbar__secondary.ant-btn,
+  .user-chip--trigger,
+  .metro-header-save-btn.is-clean.ant-btn {
+    background: rgba(255, 255, 255, 0.78) !important;
+    border: 1px solid rgba(15, 23, 42, 0.055) !important;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+
+  .metro-header-mapchip:hover,
+  .metro-toolbar__secondary.ant-btn:not(:disabled):hover,
+  .user-chip--trigger:hover,
+  .metro-header-save-btn.is-clean.ant-btn:hover {
+    background: #ffffff !important;
+    border-color: rgba(37, 99, 235, 0.24) !important;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.06);
+  }
+
+  /* 2) A1 · 左侧栏沉浸融入底盘：彻底去除外框、圆角框与粗描边 */
+  .metro-sider,
+  .metro-sider.ant-layout-sider {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .metro-sidebar {
+    padding: 6px 4px 4px 4px;
+  }
+
+  .metro-sidebar__title {
+    margin-top: 4px;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+    color: #0f172a;
+  }
+
+  .metro-sidebar__splitter-grip {
+    background: rgba(15, 23, 42, 0.075);
+  }
+
+  /* 侧栏内部卡片：无描边纯白软浮卡，告别“框套框” */
+  .metro-sidebar .metro-line-card {
+    border: none !important;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, 0.90);
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 4px 12px rgba(15, 23, 42, 0.03);
+    transition: background 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  }
+
+  .metro-sidebar .metro-line-card:hover {
+    background: #ffffff;
+    box-shadow:
+      0 2px 5px rgba(15, 23, 42, 0.05),
+      0 8px 18px rgba(15, 23, 42, 0.06);
+  }
+
+  .metro-sidebar .metro-line-card.is-active {
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-color) 11%, #ffffff) 0%, #ffffff 56%);
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--accent-color) 42%, transparent),
+      0 6px 16px rgba(15, 23, 42, 0.06);
+  }
+
+  .metro-sidebar .metro-station-item {
+    border: none !important;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.66);
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.025);
+    transition: background 130ms ease, box-shadow 130ms ease;
+  }
+
+  .metro-sidebar .metro-station-item:hover {
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: 0 3px 8px rgba(15, 23, 42, 0.05);
+  }
+
+  .metro-sidebar .metro-empty-card {
+    border: none !important;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.46) !important;
+    box-shadow: none !important;
+  }
+
+  /* 3) A · 右侧悬浮大圆角纯白画布舞台（零实线外描边，纯靠明度差与多层柔光投影托起） */
+  .metro-canvas-stage {
+    border: none !important;
+    border-radius: 18px !important;
+    background: #ffffff;
+    overflow: hidden;
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    box-shadow:
+      0 1px 3px rgba(15, 23, 42, 0.035),
+      0 10px 28px -6px rgba(15, 23, 42, 0.075),
+      0 24px 56px -16px rgba(15, 23, 42, 0.065) !important;
+  }
+
+  /* 画布内悬浮工具岛、命令栏、缩放 HUD 收敛为无感微高光玻璃，去除旧版浅蓝圈 */
+  .metro-canvas-tools .metro-tool-group,
+  .metro-command-bar__row,
+  .metro-canvas-hud {
+    border: 1px solid rgba(15, 23, 42, 0.065) !important;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.96),
+      0 8px 22px rgba(15, 23, 42, 0.08),
+      0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+
+  .metro-command-bar.is-expanded .metro-command-bar__row {
+    border-color: rgba(37, 99, 235, 0.45) !important;
+    box-shadow:
+      0 0 0 3px rgba(37, 99, 235, 0.12),
+      0 10px 26px rgba(15, 23, 42, 0.10);
+  }
+
+  /* 4) 深色界面主题下的同构底盘与悬浮画布层次 */
+  .metro-app-shell[data-interface-theme="dark"] {
+    background: linear-gradient(180deg, #080d17 0%, #050911 100%) !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-workbench,
+  .metro-app-shell[data-interface-theme="dark"] .metro-header,
+  .metro-app-shell[data-interface-theme="dark"] .metro-body,
+  .metro-app-shell[data-interface-theme="dark"] .metro-sider,
+  .metro-app-shell[data-interface-theme="dark"] .metro-sider.ant-layout-sider {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sidebar__title {
+    color: #f8fafc;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sidebar__splitter-grip {
+    background: rgba(148, 163, 184, 0.16);
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-header-mapchip,
+  .metro-app-shell[data-interface-theme="dark"] .metro-toolbar__secondary.ant-btn,
+  .metro-app-shell[data-interface-theme="dark"] .user-chip--trigger,
+  .metro-app-shell[data-interface-theme="dark"] .metro-header-save-btn.is-clean.ant-btn {
+    background: rgba(17, 24, 39, 0.78) !important;
+    border: 1px solid rgba(148, 163, 184, 0.16) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.24);
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sidebar .metro-line-card {
+    background: rgba(17, 24, 39, 0.86) !important;
+    border: none !important;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.30);
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sidebar .metro-line-card.is-active {
+    background:
+      linear-gradient(90deg, color-mix(in srgb, var(--accent-color) 20%, #111827) 0%, rgba(17, 24, 39, 0.92) 60%) !important;
+    box-shadow:
+      0 0 0 1.5px color-mix(in srgb, var(--accent-color) 52%, transparent),
+      0 8px 20px rgba(0, 0, 0, 0.36) !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sidebar .metro-station-item {
+    background: rgba(17, 24, 39, 0.62) !important;
+    border: none !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sidebar .metro-empty-card {
+    background: rgba(17, 24, 39, 0.46) !important;
+    border: none !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-stage {
+    border: none !important;
+    border-radius: 18px !important;
+    background: #0f172a !important;
+    box-shadow:
+      0 2px 6px rgba(0, 0, 0, 0.32),
+      0 18px 46px -8px rgba(0, 0, 0, 0.55) !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group,
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group,
+  .metro-app-shell[data-interface-theme="dark"] .metro-command-bar__row,
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud,
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-hud {
+    background: rgba(15, 23, 42, 0.88) !important;
+    border-color: rgba(148, 163, 184, 0.18) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.07),
+      0 10px 28px rgba(0, 0, 0, 0.36) !important;
+  }
+}
+
+/* 移动端抽屉侧栏保持不透明磨砂底色，防止滑出覆盖画布时文字透底 */
+@media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
+  .metro-sider,
+  .metro-sider.ant-layout-sider {
+    background: rgba(244, 247, 252, 0.96) !important;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    border: none !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-sider,
+  .metro-app-shell[data-interface-theme="dark"] .metro-sider.ant-layout-sider {
+    background: rgba(15, 23, 42, 0.96) !important;
+    border: none !important;
   }
 }
