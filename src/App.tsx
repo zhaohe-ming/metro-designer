@@ -1334,7 +1334,12 @@ const App: React.FC = () => {
     setLines(loadedLines);
     setSections(normalizeSections(map.sections));
     setStations(Array.isArray(map.stations) ? map.stations : []);
-    setMapSettings(normalizeMapSettings(map.mapSettings));
+    const rawSettings = (map.mapSettings && typeof map.mapSettings === 'object' ? map.mapSettings : undefined) as Partial<MapSettings> | undefined;
+    const nextSettings = normalizeMapSettings(rawSettings);
+    if (!rawSettings?.labelDensity) {
+      nextSettings.labelDensity = readLabelDensity();
+    }
+    setMapSettings(nextSettings);
     setCurrentLineId(loadedLines[0]?.id || null);
     setCurrentMap({
       id: map.id,

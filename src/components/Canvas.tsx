@@ -1,4 +1,11 @@
-import { plainCanvasElementScale, liveElementScaleRatio } from '../lib/canvasZoom';
+import {
+  AMAP_REFERENCE_ZOOM,
+  computeAmapVisualScales,
+  computePlainVisualScales,
+  estimateSingleLineTextWidth,
+  liveElementScaleRatio,
+  plainCanvasElementScale
+} from '../lib/canvasZoom';
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Konva from 'konva';
@@ -385,6 +392,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const dragStationDraftRef = useRef<{ id: string; x: number; y: number; lng?: number; lat?: number } | null>(null);
   const dragWaypointDraftRef = useRef<{ sectionId: string; waypoints: Waypoint[] } | null>(null);
   const sectionParallelMetaRef = useRef<Map<string, { total: number; index: number }>>(new Map());
+  const parallelGapRef = useRef(8);
   const [drawingStartPoint, setDrawingStartPoint] = useState<{ x: number; y: number } | null>(null);
   const setCanvasTool = (tool: CanvasTool) => {
     setActiveTool(tool);
@@ -494,7 +502,6 @@ const Canvas: React.FC<CanvasProps> = ({
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
-  const amapPaperScaleAnchorZoomRef = useRef<number | null>(null);
   const [isMapInteracting, setIsMapInteracting] = useState(false);
   // 拖站点 / 拖途经点中：跟 isMapInteracting 一起作为"高频交互"标志，
   // 屏蔽 O(n²) 的 label layout 和 line name 计算，让拖拽帧率不卡
@@ -1101,8 +1108,8 @@ const Canvas: React.FC<CanvasProps> = ({
     setCanvasZoom(next);
   };
 
-  // 适应视图
-  const fitView = (extraPadding = 0) => {
+  // 适应视图：自动打开小地图时封顶 1.0（保持 100% 标准设计比例不暴涨到 200%），手动点击“适应视图”温和封顶 1.15
+  const fitView = (extraPadding = 0, maxZoomCap = 1.15) => {
     if (stations.length === 0) return;
     if (isAmapMode && amapRef.current) {
       const lngLatStations = stations.filter(station => typeof station.lng === 'number' && typeof station.lat === 'number');
@@ -1132,7 +1139,7 @@ const Canvas: React.FC<CanvasProps> = ({
     const paddingBottom = (isCompact ? 156 : 50) + extraPadding / 2;
     const scaleX = Math.max(40, stageWidth - paddingX * 2) / Math.max(contentWidth, 1);
     const scaleY = Math.max(40, stageHeight - paddingTop - paddingBottom) / Math.max(contentHeight, 1);
-    const newScale = Math.max(ZOOM_MIN, Math.min(scaleX, scaleY, 2));
+    const newScale = Math.max(ZOOM_MIN, Math.min(scaleX, scaleY, maxZoomCap));
     
     applyCanvasViewport(newScale, {
       x: (stageWidth - contentWidth * newScale) / 2 - minX * newScale,
@@ -1155,7 +1162,7 @@ const Canvas: React.FC<CanvasProps> = ({
       initialFitRef.current = false;
       lastFittedDocKeyRef.current = documentKey;
       if (!isAmapMode && stations.length > 0) {
-        initialFitViewRef.current(72);
+        initialFitViewRef.current(72, 1);
       }
     }
   }, [documentKey, isAmapMode, isDocumentLoading, stageSize.width, stageSize.height, stations.length]);
@@ -1416,7 +1423,7 @@ const Canvas: React.FC<CanvasProps> = ({
     const len = Math.sqrt(dx * dx + dy * dy) || 1;
     const normal = { x: -dy / len, y: dx / len };
     const meta = sectionParallelMetaRef.current.get(section.id) || { total: 1, index: 0 };
-    const offset = (meta.index - (meta.total - 1) / 2) * 8;
+    const offset = (meta.index - (meta.total - 1) / 2) * parallelGapRef.current;
     const shiftedPoints: number[] = [];
     for (let i = 0; i < rawPoints.length; i += 2) {
       shiftedPoints.push(rawPoints[i] + normal.x * offset, rawPoints[i + 1] + normal.y * offset);
@@ -1965,40 +1972,24 @@ const Canvas: React.FC<CanvasProps> = ({
   //               * 上限 2.5 / 下限 0.5：保证最大不致遮屏，最小不致看不见
   // - adaptive: 反向 damped 缩放，让屏幕显示接近恒定大小（plain canvas 缩远时不至于完全看不见）
   // - key:      跟 adaptive 同样的尺寸策略，差异只在于 labelPlacements 把 T2 全部丢掉
-  const AMAP_BASELINE_ZOOM = 11;
-  useEffect(() => {
-    if (!isAmapMode || labelDensity !== 'paper') {
-      amapPaperScaleAnchorZoomRef.current = null;
-      return;
-    }
-
-    if (amapPaperScaleAnchorZoomRef.current === null) {
-      amapPaperScaleAnchorZoomRef.current =
-        amapRef.current?.getZoom?.() ||
-        latestMapSettingsRef.current.baseMap.amap?.zoom ||
-        AMAP_BASELINE_ZOOM;
-    }
-  }, [amapReady, isAmapMode, labelDensity]);
-
-  const effectiveScale = useMemo(() => {
-    if (labelDensity === 'paper') {
-      if (isAmapMode) {
-        const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
-        const anchorZoom =
-          amapPaperScaleAnchorZoomRef.current ||
-          mapSettings.baseMap.amap?.zoom ||
-          AMAP_BASELINE_ZOOM;
-        return Math.max(0.72, Math.min(1.6, Math.pow(1.22, zoom - anchorZoom)));
-      }
-      return 1; // plain canvas：Konva Stage 自己会按 scale 放缩，我们不再额外乘
-    }
-    // adaptive / key
+  // 统一无状态视觉缩放模型：
+  // - 高德模式：严格按当前地理 zoom 与固定参考层级（AMAP_REFERENCE_ZOOM = 11.8）计算分层系数，
+  //   彻底废除会话期随机锚点，保证任意顺序打开地图或刷新页面后站点、站名、胶囊大小 100% 一致；
+  // - 纯画布模式：与 Konva Stage 实时手势共享 plainCanvasElementScale，滚轮落停零跳变。
+  const visualScales = useMemo(() => {
     if (isAmapMode) {
-      const zoom = amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_BASELINE_ZOOM;
-      return Math.max(0.85, Math.min(1.2, 1 + 0.05 * (zoom - AMAP_BASELINE_ZOOM)));
+      const liveZoom = amapReady ? amapRef.current?.getZoom?.() : undefined;
+      const zoom =
+        typeof liveZoom === 'number' && Number.isFinite(liveZoom)
+          ? liveZoom
+          : mapSettings.baseMap.amap?.zoom || AMAP_REFERENCE_ZOOM;
+      return computeAmapVisualScales(labelDensity, zoom);
     }
-    return plainCanvasElementScale(labelDensity, scale);
-  }, [labelDensity, isAmapMode, scale, mapRenderTick, mapSettings.baseMap.amap?.zoom]);
+    return computePlainVisualScales(labelDensity, scale);
+  }, [labelDensity, isAmapMode, amapReady, scale, mapRenderTick, mapSettings.baseMap.amap?.zoom]);
+
+  const { dotScale, strokeScale, labelScale, pillScale, allowTier1OverlapCull } = visualScales;
+  const effectiveScale = labelScale;
 
   // 手势直接写 Stage 时，同帧补偿站点/文字与线路宽度，避免松手后才改变字号。
   // 仅遍历现有 Konva 节点，不触发整张线网的 React 更新或标签避让计算。
@@ -2006,44 +1997,48 @@ const Canvas: React.FC<CanvasProps> = ({
     const synchronize = (viewportScale: number) => {
       const stage = stageRef.current;
       if (!stage) return;
-      const ratio = isAmapMode ? 1 : liveElementScaleRatio(labelDensity, viewportScale, effectiveScale);
-      const elementScale = isAmapMode ? effectiveScale : plainCanvasElementScale(labelDensity, viewportScale);
+      const ratio = isAmapMode ? 1 : liveElementScaleRatio(labelDensity, viewportScale, dotScale);
+      const elementStrokeScale = isAmapMode ? strokeScale : plainCanvasElementScale(labelDensity, viewportScale);
       stage.find('.zoom-sized-element').forEach((node: any) => node.scale({ x: ratio, y: ratio }));
-      stage.find('.zoom-sized-stroke').forEach((node: any) => node.strokeWidth(stylePreset.lineWidth * elementScale));
+      stage.find('.zoom-sized-stroke').forEach((node: any) => node.strokeWidth(stylePreset.lineWidth * elementStrokeScale));
     };
     syncZoomElementSizesRef.current = synchronize;
     synchronize(stageRef.current?.scaleX() || scale);
   });
 
-  // 把 stylePreset / dotLabelStyle 的"基准"数值乘上 effectiveScale 得到"实际渲染"用的数值。
-  // 集中在这里算，下面 render 全引用 scaled* 即可，单个地方改起来不易漏。
-  const scaledLineWidth = stylePreset.lineWidth * effectiveScale;
-  const scaledNormalStationRadius = stylePreset.normalStationRadius * effectiveScale;
-  const scaledNormalStationStrokeWidth = stylePreset.normalStationStrokeWidth * effectiveScale;
-  const scaledInterchangeRadius = stylePreset.interchangeRadius * effectiveScale;
-  const scaledInterchangeInnerRadius = stylePreset.interchangeInnerRadius * effectiveScale;
-  const scaledInterchangeStrokeWidth = stylePreset.interchangeStrokeWidth * effectiveScale;
-  const scaledFontSize = mapSettings.dotLabelStyle.fontSize * effectiveScale;
-  // 线路名 pill 标签（终端"1 号线"那个色块）也要跟着缩放，跟 dot/线宽保持视觉一致
-  const scaledLineLabelFontSize = stylePreset.lineLabelFontSize * effectiveScale;
-  const scaledLineLabelStrokeWidth = stylePreset.lineLabelStrokeWidth * effectiveScale;
-  const scaledLineLabelPaddingX = stylePreset.lineLabelPaddingX * effectiveScale;
-  const scaledLineLabelPaddingY = stylePreset.lineLabelPaddingY * effectiveScale;
-  const scaledStationLabelGap = 12 * effectiveScale;
-  const scaledStationLabelMinWidth = 44 * effectiveScale;
-  const scaledStationLabelMinHeight = 22 * effectiveScale;
-  const scaledStationCollisionRadius = 8 * effectiveScale;
-  const scaledLineCollisionDistance = 16 * effectiveScale;
-  const scaledLineLabelMinWidth = 52 * effectiveScale;
-  const scaledLineLabelTerminalGap = 14 * effectiveScale;
-  const scaledLineLabelMinDistance = 24 * effectiveScale;
-  const scaledLineLabelSideGap = 8 * effectiveScale;
-  const scaledClassicStationRadius = 20 * effectiveScale;
-  const scaledClassicInterchangeRadius = 24 * effectiveScale;
-  const scaledClassicStationStrokeWidth = 2 * effectiveScale;
-  const scaledClassicInterchangeStrokeWidth = 4 * effectiveScale;
-  const scaledClassicStationTextSize = 12 * effectiveScale;
-  const scaledClassicStationTextBox = 40 * effectiveScale;
+  // 按元素语义分别乘上 strokeScale / dotScale / labelScale / pillScale：
+  // 缩远看全城时圆点与线宽显著收窄不糊成毛虫，站名保持可读下限并自动避让，首末站胶囊保持克制比例。
+  const scaledLineWidth = stylePreset.lineWidth * strokeScale;
+  const scaledParallelGap = Math.max(3.5, 8 * strokeScale);
+  parallelGapRef.current = scaledParallelGap;
+  const scaledNormalStationRadius = stylePreset.normalStationRadius * dotScale;
+  const scaledNormalStationStrokeWidth = stylePreset.normalStationStrokeWidth * dotScale;
+  const scaledInterchangeRadius = stylePreset.interchangeRadius * dotScale;
+  const scaledInterchangeInnerRadius = stylePreset.interchangeInnerRadius * dotScale;
+  const scaledInterchangeStrokeWidth = stylePreset.interchangeStrokeWidth * dotScale;
+  const scaledWaypointRadius = Math.max(3.5, 6 * dotScale);
+  const scaledWaypointStrokeWidth = Math.max(1.25, 2 * dotScale);
+  const scaledFontSize = mapSettings.dotLabelStyle.fontSize * labelScale;
+  // 线路名 pill 标签（终端“1 号线”色块）走独立的 pillScale，缩远或放大都不会喧宾夺主
+  const scaledLineLabelFontSize = stylePreset.lineLabelFontSize * pillScale;
+  const scaledLineLabelStrokeWidth = stylePreset.lineLabelStrokeWidth * pillScale;
+  const scaledLineLabelPaddingX = stylePreset.lineLabelPaddingX * pillScale;
+  const scaledLineLabelPaddingY = stylePreset.lineLabelPaddingY * pillScale;
+  const scaledStationLabelGap = Math.max(6, scaledNormalStationRadius + 6 * labelScale);
+  const scaledStationLabelMinWidth = 36 * labelScale;
+  const scaledStationLabelMinHeight = 20 * labelScale;
+  const scaledStationCollisionRadius = Math.max(5, scaledNormalStationRadius + 3 * dotScale);
+  const scaledLineCollisionDistance = Math.max(10, scaledLineWidth + 10 * labelScale);
+  const scaledLineLabelMinWidth = 48 * pillScale;
+  const scaledLineLabelTerminalGap = 12 * pillScale;
+  const scaledLineLabelMinDistance = 20 * pillScale;
+  const scaledLineLabelSideGap = 7 * pillScale;
+  const scaledClassicStationRadius = 20 * dotScale;
+  const scaledClassicInterchangeRadius = 24 * dotScale;
+  const scaledClassicStationStrokeWidth = 2 * dotScale;
+  const scaledClassicInterchangeStrokeWidth = 4 * dotScale;
+  const scaledClassicStationTextSize = 12 * labelScale;
+  const scaledClassicStationTextBox = 40 * dotScale;
 
   const isLargeGraph = stations.length > 200 || sections.length > 200;
 
@@ -2113,7 +2108,7 @@ const Canvas: React.FC<CanvasProps> = ({
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
       const normalX = -dy / len;
       const normalY = dx / len;
-      const offset = (currentIndex - (total - 1) / 2) * 8;
+      const offset = (currentIndex - (total - 1) / 2) * scaledParallelGap;
 
       const shiftedPoints: number[] = new Array(rawPoints.length);
       for (let i = 0; i < rawPoints.length; i += 2) {
@@ -2142,7 +2137,8 @@ const Canvas: React.FC<CanvasProps> = ({
     isAmapMode,
     amapReady,
     mapRenderTick,
-    lineCornerRadius
+    lineCornerRadius,
+    scaledParallelGap
   ]);
 
   // 渲染线路连接线（网状结构）
@@ -2416,22 +2412,27 @@ const Canvas: React.FC<CanvasProps> = ({
       });
     }
 
-    // 按 Tier 1 优先排序：换乘+首末站先放（占据 occupiedGrid），普通站后放并允许丢弃
+    // 按重要性精细排序：Tier 1（换乘 + 首末站）优先于普通站；同为 Tier 1 时，多线换乘大枢纽优先于双线换乘与单线终点站
     const sortedStations = [...stations].sort((a, b) => {
       const aT1 = tier1StationIds.has(a.id) ? 0 : 1;
       const bT1 = tier1StationIds.has(b.id) ? 0 : 1;
-      return aT1 - bT1;
+      if (aT1 !== bT1) return aT1 - bT1;
+      return (stationLineCounts[b.id] || 0) - (stationLineCounts[a.id] || 0);
     });
 
     const computed = sortedStations.reduce<Record<string, LabelRect>>((result, station) => {
       if (station.labelPosition === 'hidden') return result;
       const isT1 = tier1StationIds.has(station.id);
       if (labelDensity === 'key' && !isT1) return result;
+      const hasPinnedPosition = Boolean(station.labelPosition && station.labelPosition !== 'auto');
 
       const stationPoint = pointOf(station);
-      const labelWidth = Math.max(scaledStationLabelMinWidth, station.name.length * scaledFontSize);
-      const labelHeight = Math.max(scaledStationLabelMinHeight, scaledFontSize + 10 * effectiveScale);
-      const gap = scaledStationLabelGap;
+      const labelWidth = Math.max(
+        scaledStationLabelMinWidth,
+        Math.ceil(estimateSingleLineTextWidth(station.name, scaledFontSize) + 8 * labelScale)
+      );
+      const labelHeight = Math.max(scaledStationLabelMinHeight, Math.ceil(scaledFontSize + 8 * labelScale));
+      const gap = ((stationLineCounts[station.id] || 0) > 1 ? scaledInterchangeRadius : scaledNormalStationRadius) + 5 * labelScale;
       const candidates = [
         { key: 'right', x: stationPoint.x + gap, y: stationPoint.y - labelHeight / 2 },
         { key: 'left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y - labelHeight / 2 },
@@ -2441,15 +2442,19 @@ const Canvas: React.FC<CanvasProps> = ({
         { key: 'bottom-right', x: stationPoint.x + gap, y: stationPoint.y + gap },
         { key: 'top-left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y - labelHeight - gap },
         { key: 'bottom-left', x: stationPoint.x - labelWidth - gap, y: stationPoint.y + gap }
-      ].filter(candidate => station.labelPosition === 'auto' || !station.labelPosition || candidate.key === station.labelPosition);
+      ].filter(candidate => !hasPinnedPosition || candidate.key === station.labelPosition);
 
-      let best: { rect: LabelRect; score: number } | null = null;
+      let best: { rect: LabelRect; score: number; hasLabelOverlap: boolean } | null = null;
       for (let c = 0; c < candidates.length; c += 1) {
         const candidate = candidates[c];
         const rect: LabelRect = { x: candidate.x, y: candidate.y, width: labelWidth, height: labelHeight };
         let score = 0;
+        let hasLabelOverlap = false;
         occupiedGrid.forEachInBox(rect, (other) => {
-          if (rectsOverlap(rect, other)) score += 100;
+          if (rectsOverlap(rect, other)) {
+            score += 120;
+            hasLabelOverlap = true;
+          }
         });
         stationGrid.forEachInBox(rect, (other) => {
           if (other.stationId !== station.id && rectsOverlap(rect, other)) score += 60;
@@ -2469,12 +2474,16 @@ const Canvas: React.FC<CanvasProps> = ({
         if (candidate.key === 'right') score -= 6;
         if (candidate.key === 'left') score -= 3;
         if (!best || score < best.score) {
-          best = { rect, score };
+          best = { rect, score, hasLabelOverlap };
         }
       }
 
       if (!best) return result;
-      if (!isT1 && best.score >= 100) return result;
+      // 普通站在发生硬重叠或严重压盖圆点时隐藏；缩远密集视野下若 T1 的全部 8 个候选位仍与更高优先级站名硬叠字，也自动避让隐藏（手动固定位置除外）
+      if (!hasPinnedPosition) {
+        if (!isT1 && (best.hasLabelOverlap || best.score >= 100)) return result;
+        if (isT1 && allowTier1OverlapCull && best.hasLabelOverlap) return result;
+      }
 
       occupiedGrid.insert(best.rect);
       result[station.id] = best.rect;
@@ -2491,8 +2500,10 @@ const Canvas: React.FC<CanvasProps> = ({
     stations,
     stationById,
     scaledFontSize,
+    labelScale,
     effectiveScale,
-    scaledStationLabelGap,
+    scaledNormalStationRadius,
+    scaledInterchangeRadius,
     scaledStationLabelMinWidth,
     scaledStationLabelMinHeight,
     scaledStationCollisionRadius,
@@ -2504,6 +2515,8 @@ const Canvas: React.FC<CanvasProps> = ({
     amapReady,
     mapRenderTick,
     tier1StationIds,
+    stationLineCounts,
+    allowTier1OverlapCull,
     labelDensity
   ]);
 
@@ -2546,7 +2559,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
       const labelWidth = Math.max(
         scaledLineLabelMinWidth,
-        line.name.length * scaledLineLabelFontSize + scaledLineLabelPaddingX * 2
+        Math.ceil(estimateSingleLineTextWidth(line.name, scaledLineLabelFontSize) + scaledLineLabelPaddingX * 2)
       );
       const labelHeight = scaledLineLabelFontSize + scaledLineLabelPaddingY * 2 + 2;
       const terminalPairs = [
@@ -2950,6 +2963,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 height={label.height}
                 align="center"
                 verticalAlign="middle"
+                wrap="none"
                 fontSize={scaledLineLabelFontSize}
                 fontStyle={`${stylePreset.lineLabelFontWeight}`}
                 fill={isMutedAmapStyle ? '#0f172a' : stylePreset.lineLabelText}
@@ -2970,10 +2984,10 @@ const Canvas: React.FC<CanvasProps> = ({
                   key={`wp_${section.id}_${idx}`}
                   x={waypointPoint.x}
                   y={waypointPoint.y}
-                  radius={6}
+                  radius={scaledWaypointRadius}
                   fill={canvasPalette.waypointFill}
                   stroke={canvasPalette.waypointStroke}
-                  strokeWidth={2}
+                  strokeWidth={scaledWaypointStrokeWidth}
                   shadowColor={canvasPalette.waypointShadow}
                   shadowBlur={suppressShadows ? 0 : 5}
                   perfectDrawEnabled={false}
@@ -3190,6 +3204,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           fill={readableLabelText}
                           align="center"
                           verticalAlign="middle"
+                          wrap="none"
                           stroke={isLargeGraph ? (isAmapMode ? readableLabelShadow : canvasPalette.labelShadow) : undefined}
                           strokeWidth={isLargeGraph ? Math.max(2, 2.5 * effectiveScale) : 0}
                           fillAfterStrokeEnabled={isLargeGraph}

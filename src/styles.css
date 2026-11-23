@@ -472,9 +472,10 @@ body {
 
 .metro-body {
   display: flex;
-  flex: 1 1 auto;
+  flex: 1 1 0;
   gap: 12px;
   min-height: 0;
+  overflow: hidden;
   padding: 12px 16px 16px;
   background: var(--metro-bg);
 }
@@ -484,7 +485,17 @@ body {
   width: 252px !important;
   min-width: 252px !important;
   max-width: 252px !important;
+  height: 100%;
+  min-height: 0;
   background: transparent !important;
+}
+
+.metro-sider > .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .metro-sider,
@@ -568,10 +579,10 @@ body {
 .is-canvas-dark .metro-canvas-start__actions .ant-btn-default { border-color: #50698e; background: #172033; color: #93c5fd; }
 
 .metro-sidebar {
+  flex: 1 1 0;
   height: 100%;
   padding: 12px;
-  /* 不再让整个侧栏一起滚 —— 改成 flex column，让标题区固定、两个 list 各自滚。
-     站点 / 线路一多，原本"整页上下滚"导致标题区一起滚走，体验很差。 */
+  /* 标题区与分界条固定不滚，上下两个区域严格按比例分配剩余高度并各自独立滚动 */
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -585,9 +596,9 @@ body {
 }
 
 /* 可拖拽分界条：替代原 antd Divider。
-   12px 高 = 4px line + 上下 4px padding 当作命中区（拖小条容易点偏，给足 hit area） */
+   16px 高度提供充足指针命中区，z-index 保证永远不被上下滚动区遮挡 */
 .metro-sidebar__splitter {
-  flex: 0 0 14px;
+  flex: 0 0 16px;
   margin: 4px 0;
   cursor: row-resize;
   display: flex;
@@ -595,6 +606,7 @@ body {
   justify-content: center;
   touch-action: none;     /* 移动端禁止浏览器把竖向手势当滚动 */
   position: relative;
+  z-index: 2;
 }
 .metro-sidebar__splitter-grip {
   width: 100%;
@@ -660,12 +672,17 @@ body {
 }
 
 .metro-sidebar__section {
-  margin-top: 16px;
-  /* 两个 section（线路 / 站点）各占剩余空间一份，section-head 钉住，内部 list 滚动 */
+  margin-top: 10px;
+  /* 两个 section（线路 / 站点）严格受限于侧栏剩余高度，section-head 钉住，内部 list 滚动，绝不越界堆叠 */
   display: flex;
   flex-direction: column;
   flex: 1 1 0;
-  min-height: 0;
+  min-height: 88px;
+  overflow: hidden;
+}
+
+.metro-sidebar__section--stations {
+  margin-top: 2px;
 }
 
 .metro-sidebar__section-head {
@@ -673,7 +690,7 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   /* section-head 不参与 flex 拉伸，钉在 section 顶端 */
   flex: 0 0 auto;
 }
@@ -698,17 +715,17 @@ body {
 
 .metro-line-list,
 .metro-station-list {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  /* 每个 list 占满 section 剩余高度并独立滚动；min-height: 0 是 flex 子项能被压缩 +
-     允许 overflow:auto 生效的关键，否则 list 会被内容撑到完整高度，反而让外层滚动。 */
+  /* 每个 list 占满 section 剩余高度并独立滚动；overscroll-behavior 防止滚到底部时带动另一区域 */
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  /* 右侧 6px 留白让滚动条不贴边 */
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   padding-right: 4px;
-  /* 自定义滚动条更细一点；Firefox 用 scrollbar-width；WebKit 用 ::-webkit-scrollbar */
   scrollbar-width: thin;
 }
 .metro-line-list::-webkit-scrollbar,
@@ -727,6 +744,8 @@ body {
 
 .metro-line-card {
   position: relative;
+  /* 严禁 flex 子项因 overflow:hidden 被压缩成扁条堆叠，超出高度一律交给 .metro-line-list 滚动 */
+  flex-shrink: 0;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -819,6 +838,11 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  max-height: 136px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+  scrollbar-width: thin;
 }
 
 .metro-line-card__station-tag {
@@ -839,6 +863,7 @@ body {
 
 /* 空状态卡片：从一段纯文字升级成「插画 + 标题 + 说明 + 可选 CTA」的居中块 */
 .metro-empty-card {
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -908,8 +933,16 @@ body {
   border-bottom: 0;
 }
 
+.metro-station-list__virtual {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+}
+
 .metro-station-item {
-  padding: 10px 12px;
+  flex-shrink: 0;
+  min-height: 38px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -918,7 +951,23 @@ body {
   color: var(--metro-heading);
 }
 
+.metro-station-item--virtual {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 38px;
+}
+
+.metro-station-item__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .metro-station-item__coords {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
   color: var(--metro-text-soft);
 }
 
@@ -1335,22 +1384,16 @@ body {
   }
 }
 
-@media (max-width: 1080px) {
-  .metro-body {
-    flex-wrap: wrap;
-  }
-
+@media (min-width: 769px) and (max-width: 1080px) {
   .metro-sider.ant-layout-sider {
-    flex: 0 0 100% !important;
-    width: 100% !important;
-    min-width: 100% !important;
-    max-width: 100% !important;
+    flex: 0 0 214px !important;
+    width: 214px !important;
+    min-width: 214px !important;
+    max-width: 214px !important;
   }
+}
 
-  .metro-canvas-stage {
-    min-height: 60vh;
-  }
-
+@media (max-width: 1080px) {
   .auth-card__inner {
     grid-template-columns: 1fr;
     min-height: auto;
@@ -1361,19 +1404,7 @@ body {
   }
 }
 
-@media (max-width: 900px) {
-  .metro-app-shell {
-    /* 移动端解除桌面端的"锁死视口"，恢复自然滚动 */
-    height: auto;
-    overflow: visible;
-    padding: 10px;
-  }
-
-  .metro-workbench {
-    height: auto;
-    min-height: calc(100vh - 20px);
-  }
-
+@media (max-width: 768px) {
   .metro-header {
     height: auto;
     min-height: 54px;
@@ -1437,7 +1468,11 @@ body {
 }
 
 .metro-workbench {
-  min-height: calc(100vh - 16px);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 16px);
+  height: calc(100dvh - 16px);
+  min-height: 0;
   border: none;
   border-radius: 0;
   background: var(--color-surface-muted);
@@ -1476,8 +1511,23 @@ body {
   max-width: 238px !important;
 }
 
+@media (min-width: 769px) and (max-width: 1080px) {
+  .metro-sider.ant-layout-sider {
+    flex-basis: 214px !important;
+    width: 214px !important;
+    min-width: 214px !important;
+    max-width: 214px !important;
+  }
+}
+
+.metro-content {
+  height: 100%;
+  min-height: 0;
+}
+
 .metro-canvas-stage {
-  min-height: calc(100vh - 84px);
+  height: 100%;
+  min-height: 0;
   background: #ffffff;
   /* 去掉画布那层 inset 描边 */
   box-shadow: none;

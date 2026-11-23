@@ -178,39 +178,53 @@ const Sidebar: React.FC<SidebarProps> = ({
     try { window.localStorage?.setItem(SIDEBAR_SPLIT_KEY, String(linesFlex)); } catch { /* ignore */ }
   }, [linesFlex]);
 
+  const MIN_SECTION_HEIGHT = 88;
+  const activeSplitterCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activeSplitterCleanupRef.current?.();
+    };
+  }, []);
+
   const handleSplitterPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
-    const lines = linesSectionRef.current;
-    const stations = stationsSectionRef.current;
-    if (!lines || !stations) return;
-    const available = lines.getBoundingClientRect().height + stations.getBoundingClientRect().height;
+    const linesEl = linesSectionRef.current;
+    const stationsEl = stationsSectionRef.current;
+    if (!linesEl || !stationsEl) return;
+    const available = linesEl.getBoundingClientRect().height + stationsEl.getBoundingClientRect().height;
     if (available <= 0) return;
+    activeSplitterCleanupRef.current?.();
     splitterDragRef.current = { startY: e.clientY, startFlex: linesFlexRef.current, available };
     setIsSplitterDragging(true);
-    // 全局光标 / 防止文本选中
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
-    window.addEventListener('pointermove', handleSplitterPointerMove);
-    window.addEventListener('pointerup', handleSplitterPointerUp);
-    window.addEventListener('pointercancel', handleSplitterPointerUp);
-  };
 
-  const handleSplitterPointerMove = (e: PointerEvent) => {
-    if (!splitterDragRef.current) return;
-    const { startY, startFlex, available } = splitterDragRef.current;
-    const dy = e.clientY - startY;
-    const next = Math.max(0.15, Math.min(0.85, startFlex + dy / available));
-    setLinesFlex(next);
-  };
+    const onMove = (ev: PointerEvent) => {
+      if (!splitterDragRef.current) return;
+      const { startY, startFlex, available: total } = splitterDragRef.current;
+      const dy = ev.clientY - startY;
+      const minRatio = Math.min(0.42, Math.max(0.15, MIN_SECTION_HEIGHT / total));
+      const maxRatio = Math.max(0.58, 1 - minRatio);
+      const next = Math.max(minRatio, Math.min(maxRatio, startFlex + dy / total));
+      setLinesFlex(next);
+    };
 
-  const handleSplitterPointerUp = () => {
-    splitterDragRef.current = null;
-    setIsSplitterDragging(false);
-    document.body.style.cursor = '';
-    document.body.style.userSelect = '';
-    window.removeEventListener('pointermove', handleSplitterPointerMove);
-    window.removeEventListener('pointerup', handleSplitterPointerUp);
-    window.removeEventListener('pointercancel', handleSplitterPointerUp);
+    const cleanup = () => {
+      splitterDragRef.current = null;
+      activeSplitterCleanupRef.current = null;
+      setIsSplitterDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', cleanup);
+      window.removeEventListener('pointercancel', cleanup);
+    };
+
+    activeSplitterCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', cleanup);
+    window.addEventListener('pointercancel', cleanup);
   };
 
   // 双击复位到 50/50
@@ -280,6 +294,16 @@ const Sidebar: React.FC<SidebarProps> = ({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const el = stationListScrollRef.current;
+    if (!el) return;
+    const maxScroll = Math.max(0, stations.length * STATION_ITEM_STRIDE - el.clientHeight);
+    if (el.scrollTop > maxScroll) {
+      el.scrollTop = maxScroll;
+      setStationScrollTop(maxScroll);
+    }
+  }, [stations.length]);
 
   const openNameModal = (line: Line) => {
     setNameChangeModal({
@@ -423,9 +447,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <div
-        className="metro-sidebar__section"
+        className="metro-sidebar__section metro-sidebar__section--lines"
         ref={linesSectionRef}
-        style={{ flexGrow: linesFlex }}
+        style={{ flex: `${linesFlex} 1 0px` }}
       >
         <div className="metro-sidebar__section-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -609,9 +633,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <div
-        className="metro-sidebar__section"
+        className="metro-sidebar__section metro-sidebar__section--stations"
         ref={stationsSectionRef}
-        style={{ flexGrow: 1 - linesFlex }}
+        style={{ flex: `${1 - linesFlex} 1 0px` }}
       >
         <div className="metro-sidebar__section-head">
           <div className="metro-sidebar__section-title">{text.allStations}</div>
@@ -648,7 +672,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           ) : stations.length <= VIRTUALIZE_THRESHOLD ? (
             stations.map((station) => (
               <div key={station.id} className="metro-station-item">
-                <div>{station.name}</div>
+                <div className="metro-station-item__name" title={station.name}>{station.name}</div>
                 <div className="metro-station-item__coords">
                   {station.x.toFixed(0)}, {station.y.toFixed(0)}
                 </div>
@@ -660,21 +684,22 @@ const Sidebar: React.FC<SidebarProps> = ({
               const visibleCount = Math.ceil(stationViewportHeight / STATION_ITEM_STRIDE) + overscan * 2;
               const startIndex = Math.max(0, Math.floor(stationScrollTop / STATION_ITEM_STRIDE) - overscan);
               const endIndex = Math.min(stations.length, startIndex + visibleCount);
-              const topPad = startIndex * STATION_ITEM_STRIDE;
-              const bottomPad = Math.max(0, (stations.length - endIndex) * STATION_ITEM_STRIDE);
+              const totalHeight = stations.length * STATION_ITEM_STRIDE - 8;
               return (
-                <>
-                  {topPad > 0 ? <div style={{ height: topPad, flexShrink: 0 }} aria-hidden="true" /> : null}
-                  {stations.slice(startIndex, endIndex).map((station) => (
-                    <div key={station.id} className="metro-station-item">
-                      <div>{station.name}</div>
+                <div className="metro-station-list__virtual" style={{ height: Math.max(0, totalHeight) }}>
+                  {stations.slice(startIndex, endIndex).map((station, idx) => (
+                    <div
+                      key={station.id}
+                      className="metro-station-item metro-station-item--virtual"
+                      style={{ top: (startIndex + idx) * STATION_ITEM_STRIDE }}
+                    >
+                      <div className="metro-station-item__name" title={station.name}>{station.name}</div>
                       <div className="metro-station-item__coords">
                         {station.x.toFixed(0)}, {station.y.toFixed(0)}
                       </div>
                     </div>
                   ))}
-                  {bottomPad > 0 ? <div style={{ height: bottomPad, flexShrink: 0 }} aria-hidden="true" /> : null}
-                </>
+                </div>
               );
             })()
           )}
