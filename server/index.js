@@ -920,7 +920,7 @@ setInterval(() => {
 }, 30 * 60 * 1000).unref();
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { guestDraftImport: true, amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY) } });
+  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { worksGallery: true, guestDraftImport: true, amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY) } });
 });
 
 app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res) => {
@@ -1666,6 +1666,8 @@ app.post('/api/ai/edit-stream', auth, aiLimiter, asyncHandler(async (req, res) =
   res.end();
 }));
 
+const galleryService = require('./lib/galleryRoutes')(app, { auth, storage, pgPool, readJsonDb, writeJsonDb, JWT_SECRET, AMAP_WEB_SERVICE_KEY });
+
 app.get('/api/maps', auth, asyncHandler(async (req, res) => {
   const maps = await storage.listMaps(req.userId);
   res.json({ maps });
@@ -1685,7 +1687,10 @@ app.post('/api/maps', auth, asyncHandler(async (req, res) => {
   if (!name || !Array.isArray(lines) || !Array.isArray(stations) || !Array.isArray(sections)) {
     return res.status(400).json({ message: '地图数据不完整' });
   }
+  const origin = galleryService.readOrigin(req.body.gallerySourceToken);
   const map = await storage.createMap(req.userId, { name, lines, stations, sections, mapSettings, clientDraftId });
+  await galleryService.recordOrigin(map.id, req.userId, origin);
+  if (typeof req.body.sourcePrivateMapId === 'string') await galleryService.copyOrigin(req.body.sourcePrivateMapId, map.id, req.userId);
   res.json({ map });
 }));
 
@@ -1703,6 +1708,7 @@ app.delete('/api/maps/:id', auth, asyncHandler(async (req, res) => {
 }));
 
 app.use((error, req, res, _next) => {
+  if (error?.status >= 400 && error.status < 500) return res.status(error.status).json({ message: error.message });
   // CORS 拒绝的 origin 走错误中间件，单独返回 403 + 明确信息（不算 500）
   if (error && /CORS/i.test(error.message || '')) {
     return res.status(403).json({ message: '来源不允许', requestId: req.requestId });

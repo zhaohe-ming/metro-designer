@@ -2,6 +2,7 @@ import { DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMap
 import { createId } from '../utils/id';
 
 export interface GuestDraft {
+  gallerySourceToken?: string;
   version: 1;
   id: string;
   updatedAt: number;

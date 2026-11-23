@@ -1,0 +1,9 @@
+// Local UI fixture: independent database and loopback proxy, never production accounts.
+const fs=require('fs'),path=require('path'),os=require('os'),http=require('http'),express=require('express'),bcrypt=require('bcryptjs'),{spawn}=require('child_process');
+const root=path.resolve(__dirname,'..');const directory=fs.mkdtempSync(path.join(os.tmpdir(),'metro-gallery-ui-'));
+const seed=require('../server/lib/gallerySeeds')[0];
+const users=['owner','admin'].map(id=>({id,email:`${id}@example.test`,emailVerified:true,username:id==='owner'?'线网设计者':'审核管理员',phone:'',passwordHash:bcrypt.hashSync('fixture-password',4)}));
+const now=new Date().toISOString();fs.writeFileSync(path.join(directory,'db.json'),JSON.stringify({users,maps:[{id:'ui-private-map',userId:'owner',name:'云川的新想法',...seed.snapshot,createdAt:now,updatedAt:now}],seq:{user:3,map:2}}));
+const backend=spawn(process.execPath,[path.join(root,'server/index.js')],{env:{...process.env,PORT:'4196',METRO_DATA_DIR:directory,JWT_SECRET:'gallery-ui-fixture-only',DATABASE_URL:'',FRONTEND_ORIGIN:'',NODE_ENV:'test',RESEND_API_KEY:'',GALLERY_ADMIN_EMAILS:'admin@example.test'},stdio:'inherit'});
+const app=express();app.use('/api',(req,res)=>{const p=http.request({hostname:'127.0.0.1',port:4196,path:'/api'+req.url,method:req.method,headers:{...req.headers,host:'127.0.0.1:4196'}},r=>{res.writeHead(r.statusCode,r.headers);r.pipe(res);});p.on('error',()=>res.status(502).json({message:'Local fixture starting'}));req.pipe(p);});app.use(express.static(path.join(root,'build')));app.get('*',(req,res)=>res.sendFile(path.join(root,'build/index.html')));const server=app.listen(4197,'127.0.0.1',()=>console.log('Gallery UI fixture: http://127.0.0.1:4197/gallery'));
+process.on('SIGINT',()=>{backend.kill();server.close();process.exit();});process.on('exit',()=>backend.kill());

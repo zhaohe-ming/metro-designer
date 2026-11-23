@@ -127,6 +127,7 @@ type CanvasTool = 'select' | 'station' | 'line' | 'section' | 'pan';
 const CANVAS_TOOL_ORDER: CanvasTool[] = ['select', 'station', 'line', 'section', 'pan'];
 
 interface CanvasProps {
+  readOnly?: boolean;
   currentLineId: string | null;
   lines: LineType[];
   sections: Section[];
@@ -164,6 +165,7 @@ interface CanvasProps {
 }
 
 const Canvas: React.FC<CanvasProps> = ({
+  readOnly = false,
   currentLineId,
   lines,
   sections,
@@ -297,6 +299,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // 默认工具：桌面端"站点"（最常用），移动端"移动"（先让人能拖图，再让他想加站点）。
   // 仅 mount 时检测一次，之后用户切换 tool 由 setCanvasTool 接管。
   const [activeTool, setActiveTool] = useState<CanvasTool>(() => {
+    if (readOnly) return 'pan';
     if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 768px), (max-width: 1024px) and (max-height: 500px)').matches) {
       return 'pan';
     }
@@ -464,6 +467,7 @@ const Canvas: React.FC<CanvasProps> = ({
   // 监听ESC键取消绘制和全局点击关闭右键菜单
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (readOnly) return;
       if (e.key === 'Escape') {
         if (isDrawing) {
           cancelDrawing();
@@ -494,7 +498,7 @@ const Canvas: React.FC<CanvasProps> = ({
       window.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('pointerdown', handleGlobalClick);
     };
-  }, [isDrawing, isDrawingMode]);
+  }, [isDrawing, isDrawingMode, readOnly]);
 
   // 卸载时清理 canvas interaction timer，避免 React 警告 / 内存泄漏
   useEffect(() => {
@@ -789,6 +793,7 @@ const Canvas: React.FC<CanvasProps> = ({
     const waypointIndex = e.target.getAttr('waypointIndex');
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
+      if (readOnly) return;
       if (!gesture.canLongPress || isDrawingMode || addingWaypoint) return;
       gesture.consume();
       stationNode?.stopDrag();
@@ -1353,6 +1358,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 处理站点点击
   const handleStationClick = (station: Station, e?: any) => {
+    if (readOnly) {setStationInfoModal({visible:true,station,note:station.note||''});return;}
     if (lastIsRightClickRef.current) {
       lastIsRightClickRef.current = false;
       return;
@@ -1373,6 +1379,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   // 处理站点右键点击
   const handleStationRightClick = (e: any, station: Station) => {
+    if (readOnly) { e?.evt?.preventDefault?.(); return; }
     e.evt.preventDefault();
     lastIsRightClickRef.current = true;
     setShowConnectAction(false);
@@ -1392,6 +1399,7 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const handleStationTap = (station: Station, e: any) => {
+    if (readOnly) {if(touchTapAllowedRef.current)handleStationClick(station,e);return;}
     if (!touchTapAllowedRef.current || addingWaypoint) return;
     if (isDrawingMode) { handleDrawingModeClick(e); return; }
     if (activeTool === 'pan') return;
@@ -1602,6 +1610,7 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const handleCanvasContextMenu = (e: any) => {
+    if (readOnly) { e?.evt?.preventDefault?.(); return; }
     e.evt.preventDefault();
     const stage = e.target.getStage();
     if (!stage || e.target !== stage) {
@@ -1903,6 +1912,7 @@ const Canvas: React.FC<CanvasProps> = ({
         lineCornerRadius > 0 ? roundLineFlat(shiftedPoints, lineCornerRadius) : shiftedPoints;
 
       const handleSectionLineClick = (e: any) => {
+    if (readOnly) { e?.evt?.preventDefault?.(); return; }
         if (lastIsRightClickRef.current) {
           lastIsRightClickRef.current = false;
           return;
@@ -1934,6 +1944,7 @@ const Canvas: React.FC<CanvasProps> = ({
       };
 
       const handleSectionLineContextMenu = (e: any) => {
+    if (readOnly) { e?.evt?.preventDefault?.(); return; }
         e.evt.preventDefault();
         lastIsRightClickRef.current = true;
         const stage = e.target.getStage();
@@ -2719,7 +2730,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   name="touch-edit-node"
                   sectionId={section.id}
                   waypointIndex={idx}
-                  draggable={!isCompact || activeTool === 'select' || activeTool === 'section'}
+                  draggable={!readOnly && (!isCompact || activeTool === 'select' || activeTool === 'section')}
                   dragDistance={isCompact ? 8 : 3}
                   onDragStart={() => {
                     onBeginInteraction?.();
@@ -2780,7 +2791,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 dragDistance={isCompact ? 8 : 3}
                 x={stationPoint.x}
                 y={stationPoint.y}
-                draggable={activeTool === 'select' || (!isCompact && activeTool === 'station')}
+                draggable={!readOnly && (activeTool === 'select' || (!isCompact && activeTool === 'station'))}
                 onDragStart={() => {
                   onBeginInteraction?.();
                   setIsDraggingNode(true);
@@ -3143,16 +3154,16 @@ const Canvas: React.FC<CanvasProps> = ({
             </div>
             <div>
               <div style={{ marginBottom: 6 }}><strong>附加标注：</strong></div>
-              <Input.TextArea
+              {readOnly?<p style={{whiteSpace:'pre-wrap',overflowWrap:'anywhere',margin:0}}>{stationInfoModal.note||'暂无公开标注'}</p>:<Input.TextArea
                 value={stationInfoModal.note}
                 onChange={(e) => setStationInfoModal(prev => ({ ...prev, note: e.target.value }))}
                 placeholder="如：机场、高铁站、交通枢纽等"
                 rows={3}
-              />
+              />}
             </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {!readOnly&&<div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <Button type="primary" onClick={handleSaveStationNote}>保存标注</Button>
-            </div>
+            </div>}
           </div>
         )}
       </DraggableModal>

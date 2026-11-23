@@ -13,6 +13,8 @@ import {
   DownloadOutlined,
   InfoCircleOutlined,
   ThunderboltOutlined,
+  AppstoreOutlined,
+  MoreOutlined,
   PlaySquareOutlined
 } from '@ant-design/icons';
 import { api, clearToken, getToken, setToken, AIOperation } from './api';
@@ -22,6 +24,11 @@ import { GuestDraft, createGuestDraft, readGuestDraft, writeGuestDraft, deleteGu
 import GuestAnimationPreview from './components/GuestAnimationPreview';
 import DesktopUpdateNotice from './components/DesktopUpdateNotice';
 import Canvas from './components/Canvas';
+import GalleryPage from './gallery/GalleryPage';
+import PrivateMapThumbnail from './gallery/PrivateMapThumbnail';
+import PublishDialog from './gallery/PublishDialog';
+import { gallery, Work } from './gallery/api';
+import './gallery/gallery.css';
 import DraggableModal from './components/DraggableModal';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
@@ -281,6 +288,19 @@ const getSystemTheme = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 
 const App: React.FC = () => {
+  const [publicPath, setPublicPath] = useState(() => window.location.pathname + window.location.search);
+  const publicRoute = /^\/(gallery|works)(\/|\?|$)/.test(publicPath);
+  const gallerySourceRef = useRef<string>();
+  const [publishSource, setPublishSource] = useState<{id:string;name:string;work?:Work}|null>(null);
+  const [myPublications, setMyPublications] = useState<Work[]>([]);
+  const [mapsPublicationFilter,setMapsPublicationFilter] = useState("all");
+  useEffect(() => {
+    const update = () => setPublicPath(window.location.pathname + window.location.search);
+    window.addEventListener('popstate', update);
+    return () => window.removeEventListener('popstate', update);
+  }, []);
+  const navigatePublic = (path: string) => {window.history.pushState({}, '', path);setPublicPath(path);};
+
   const [lines, setLines] = useState<Line[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
@@ -631,6 +651,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if (/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) return;
       const target = event.target as HTMLElement | null;
       if (target) {
         const tag = target.tagName;
@@ -906,6 +927,7 @@ const App: React.FC = () => {
   };
 
   const applyGuestDraft = (draft: GuestDraft) => {
+    gallerySourceRef.current = draft.gallerySourceToken;
     guestDraftIdRef.current = draft.id;
     guestSavedRevisionRef.current = null;
     setGuestDraftId(draft.id);
@@ -929,7 +951,7 @@ const App: React.FC = () => {
       setPreviewMode(true);
       const params = new URLSearchParams(window.location.search);
       params.set('preview', '1');
-      window.history.replaceState({}, '', `/?${params}`);
+      if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', `/?${params}`);
     }
     if (guestDraftIdRef.current) { setGuestReady(true); return; }
     try {
@@ -956,7 +978,7 @@ const App: React.FC = () => {
   const draftSnapshotRef = useRef<GuestDraft | null>(null);
   useLayoutEffect(() => {
     draftSnapshotRef.current = guestDraftId ? {
-      version: 1, id: guestDraftId, updatedAt: Date.now(), name: mapName,
+      version: 1, id: guestDraftId, updatedAt: Date.now(), name: mapName, gallerySourceToken: gallerySourceRef.current,
       lines, stations, sections, mapSettings, currentLineId, viewport: guestViewport
     } : null;
   }, [guestDraftId, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport]);
@@ -1037,7 +1059,7 @@ const App: React.FC = () => {
     setGuestReady(false);
     setAuthAction(null);
     setAuthVisible(false);
-    window.history.replaceState({}, '', '/');
+    if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     revokeBlobUrl(userProfile?.avatar);
     clearToken();
     try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
@@ -1066,6 +1088,7 @@ const App: React.FC = () => {
   const handleNewMap = () => {
     const hasContent = dirtyRef.current || lines.length > 0 || sections.length > 0 || stations.length > 0;
     const doReset = () => {
+      gallerySourceRef.current = undefined;
       // 用户当前的 labelDensity 选择会带到新方案里，不被默认值覆盖
       // (跨 session 也用 localStorage 兜底，所以 readLabelDensity 也能 fallback)
       const stickyLabelDensity = mapSettingsRef.current.labelDensity || readLabelDensity();
@@ -1239,7 +1262,7 @@ const App: React.FC = () => {
     try {
       const { map } = targetMapId
         ? await api.updateMap(targetMapId, { name, ...snapshot })
-        : await api.createMap({ name, ...snapshot, clientDraftId: savingGuestId || undefined });
+        : await api.createMap({ name, ...snapshot, clientDraftId: savingGuestId || undefined, gallerySourceToken: gallerySourceRef.current });
       if (getToken() !== requestToken) {
         message.destroy('save-map');
         return;
@@ -1252,7 +1275,7 @@ const App: React.FC = () => {
           setGuestDraftId(null);
           setGuestSession(false);
           setPreviewMode(false);
-          window.history.replaceState({}, '', '/');
+          if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
           void deleteGuestDraft().catch(() => { /* Cloud save is already confirmed. */ });
         }
         setMapName('');
@@ -1291,11 +1314,12 @@ const App: React.FC = () => {
 
   // 把服务端返回的 map 应用到本地状态，纯 setter 操作，便于复用（boot 自动加载也调它）
   const applyLoadedMap = (map: any) => {
+    gallerySourceRef.current = undefined;
     guestDraftIdRef.current = null;
     setGuestDraftId(null);
     setGuestSession(false);
     setPreviewMode(false);
-    window.history.replaceState({}, '', '/');
+    if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     const loadedLines = normalizeLoadedLines(map.lines || []);
     setLines(loadedLines);
     setSections(normalizeSections(map.sections));
@@ -1431,7 +1455,7 @@ const App: React.FC = () => {
         lines: map.lines || [],
         stations: map.stations || [],
         sections: map.sections || [],
-        mapSettings: map.mapSettings
+        mapSettings: map.mapSettings, sourcePrivateMapId: mapId
       });
       if (getToken() !== requestToken) return;
       upsertSavedMap({
@@ -2123,12 +2147,17 @@ const App: React.FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (mapsVisible && userProfile) gallery.mine().then(r=>setMyPublications(r.works)).catch(()=>{});
+  }, [mapsVisible,userProfile]);
   const identityMenuItem = {
     key: 'identity', disabled: true,
     label: <span className="metro-user-menu__identity">{maskedEmail || '访客预览'}</span>
   };
   const newMapMenuItem = { key: 'new-map', icon: <FileAddOutlined />, label: '新建空白方案', onClick: handleNewMap };
+  const openGallery = () => {void persistGuestDraft();setGuestInitialViewport(guestViewport);navigatePublic('/gallery');};
   const settingsMenuItems = [
+    { key: 'gallery', icon: <AppstoreOutlined />, label: '作品广场', onClick: openGallery },
     { key: 'settings', icon: <SettingOutlined />, label: '设置', onClick: () => setSettingsVisible(true) },
     ...(!isAndroidClient ? [{ key: 'download-client', icon: <DownloadOutlined />,
       label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">下载客户端</a> }] : []),
@@ -2165,7 +2194,7 @@ const App: React.FC = () => {
     ...guestBackupMenuItems,
     { type: 'divider' as const },
     { key: 'return-login', icon: <LogoutOutlined />, label: '返回登录页', onClick: () => {
-      void persistGuestDraft(); setPreviewMode(false); window.history.replaceState({}, '', '/');
+      void persistGuestDraft(); setPreviewMode(false); if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     } }
   ];
 
@@ -2192,6 +2221,29 @@ const App: React.FC = () => {
     [resolvedInterfaceTheme]
   );
 
+  const returnToEditor = () => {navigatePublic('/');if (!userProfile && !previewMode) guestRestorePromiseRef.current = startGuestPreview();};
+  const copyPublicWork = async (data: Awaited<ReturnType<typeof gallery.fork>>) => {
+    if (dirty || (!userProfile && stations.length > 0)) {
+      const confirmed = await new Promise<boolean>(resolve => Modal.confirm({title:'在工作台打开副本？',content:userProfile?'当前未保存的修改将被替换，请先确认已保存。':'副本将替换当前本机草稿。',okText:'打开副本',cancelText:'取消',onOk:()=>resolve(true),onCancel:()=>resolve(false)}));
+      if (!confirmed) return;
+    }
+    if (userProfile) {
+      const sessionToken=getToken();
+      const {map} = await api.createMap({name:data.name,...data.snapshot,gallerySourceToken:data.sourceToken,clientDraftId:createId()});
+      if(getToken()!==sessionToken)return;
+      applyLoadedMap({...map,...data.snapshot});
+      upsertSavedMap({...map,lineCount:data.snapshot.lines.length,stationCount:data.snapshot.stations.length,sectionCount:data.snapshot.sections.length});
+    } else {
+      await persistGuestDraft();
+      const draft:GuestDraft={version:1,id:createId(),updatedAt:Date.now(),name:data.name,...data.snapshot,currentLineId:data.snapshot.lines[0]?.id||null,gallerySourceToken:data.sourceToken};
+      await writeGuestDraft(draft);applyGuestDraft(draft);setGuestSession(true);setPreviewMode(true);
+    }
+    setGuestInitialViewport(undefined);navigatePublic('/');message.success('副本已打开，可以继续设计');
+  };
+  if (publicRoute) return <ConfigProvider theme={{token:{colorPrimary:'#2563eb',borderRadius:8,fontFamily:'Inter, PingFang SC, Microsoft YaHei, sans-serif'}}}><AntdApp>
+    <GalleryPage path={publicPath} user={userProfile} onNavigate={navigatePublic} onEditor={returnToEditor} onAuthenticated={handleAuthenticated} onCopy={copyPublicWork}/>
+  </AntdApp></ConfigProvider>;
+
   if (!userProfile && !previewMode) {
     return (
       <ConfigProvider theme={antdThemeConfig}>
@@ -2208,6 +2260,7 @@ const App: React.FC = () => {
   return (
     <ConfigProvider theme={antdThemeConfig}>
       <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
+    <PublishDialog source={publishSource} user={userProfile} onClose={()=>setPublishSource(null)} onDone={()=>{gallery.mine().then(r=>setMyPublications(r.works)).catch(()=>{});}}/>
     <GuestAnimationPreview open={guestAnimationOpen} onClose={() => setGuestAnimationOpen(false)} />
     <Modal open={authVisible} onCancel={() => { setAuthVisible(false); setAuthAction(null); }}
       footer={null} width={520} className="metro-guest-auth" destroyOnHidden aria-labelledby="metro-guest-auth-title">
@@ -2262,6 +2315,7 @@ const App: React.FC = () => {
             </section>
 
             <section className="metro-user-panel">
+              <button type="button" className="metro-header-gallery" onClick={openGallery}><AppstoreOutlined/>作品广场</button>
               {/* AI 助手按钮：圆形 + 边缘 conic-gradient 慢旋 + 微光晕，全平台一致 */}
               <Tooltip title="AI 助手 —— 用自然语言编辑线路图">
                 <button
@@ -2356,7 +2410,7 @@ const App: React.FC = () => {
                 documentKey={currentMap?.id || guestDraftId || 'draft'}
                 isDocumentLoading={isMapOpening}
                 initialViewport={guestInitialViewport}
-                fitOnMount={!!guestDraftId && !guestInitialViewport}
+                fitOnMount={!guestInitialViewport}
                 onViewportChange={setGuestViewport}
                 onRequireAuth={() => requestGuestAuth('ai')}
                 isGuest={!userProfile}
@@ -2441,11 +2495,14 @@ const App: React.FC = () => {
 
         <DraggableModal
           title="我的地图"
+          className="metro-gallery-maps"
           open={mapsVisible}
           onCancel={() => { setMapsVisible(false); setMapsSearchKeyword(''); }}
           footer={null}
-          width={560}
+          width={1000}
         >
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{color:"#64748b",fontSize:13}}>私人存档与公开作品独立保存</span><Button type="link" onClick={()=>{setMapsVisible(false);navigatePublic("/gallery?view=mine");}}>管理广场作品 →</Button></div>
+          <Radio.Group value={mapsPublicationFilter} onChange={e=>setMapsPublicationFilter(e.target.value)} optionType="button" options={[{value:"all",label:"全部"},{value:"private",label:"私人存档"},{value:"public",label:"广场作品"}]} style={{marginBottom:18}}/>
           <Input.Search
             allowClear
             placeholder="按地图名称搜索"
@@ -2463,7 +2520,8 @@ const App: React.FC = () => {
           ) : null}
           <List
             // 自己做了 loading skeleton，AntD 内置 loading 关掉避免双重指示器
-            dataSource={savedMaps.filter((item) =>
+            pagination={{pageSize:6,showSizeChanger:false,hideOnSinglePage:true}}
+            dataSource={savedMaps.filter(item=>mapsPublicationFilter==="all"||(mapsPublicationFilter==="public"?myPublications.some(w=>w.sourceMapId===item.id):!myPublications.some(w=>w.sourceMapId===item.id))).filter((item) =>
               mapsSearchKeyword.trim()
                 ? item.name.toLowerCase().includes(mapsSearchKeyword.trim().toLowerCase())
                 : true
@@ -2501,6 +2559,7 @@ const App: React.FC = () => {
             }}
             renderItem={(item) => {
               const isCurrent = currentMap?.id === item.id;
+              const publication = myPublications.find(w=>w.sourceMapId===item.id);
               const counts = [
                 { label: '线路', value: item.lineCount },
                 { label: '站点', value: item.stationCount },
@@ -2509,37 +2568,21 @@ const App: React.FC = () => {
               return (
                 <List.Item
                   actions={[
-                    <Button key="load" type="link" onClick={() => handleLoadMap(item.id)}>
-                      加载
-                    </Button>,
-                    <Button key="rename" type="link" onClick={() => openRenameMapModal(item)}>
-                      重命名
-                    </Button>,
-                    <Button
-                      key="duplicate"
-                      type="link"
-                      loading={duplicatingMapId === item.id}
-                      onClick={() => handleDuplicateMap(item.id)}
-                    >
-                      复制
-                    </Button>,
-                    <Popconfirm
-                      key="delete"
-                      title="确认删除该地图？"
-                      onConfirm={() => handleDeleteMap(item.id)}
-                      okText="删除"
-                      cancelText="取消"
-                    >
-                      <Button type="link" danger>
-                        删除
-                      </Button>
-                    </Popconfirm>
+                    <Button key="publish" type="link" onClick={()=>{const work=myPublications.find(w=>w.sourceMapId===item.id);setMapsVisible(false);setPublishSource({id:item.id,name:item.name,work});}}>{myPublications.some(w=>w.sourceMapId===item.id)?'更新发布':'发布到广场'}</Button>,
+                    <Button key="load" onClick={() => handleLoadMap(item.id)}>打开</Button>,
+                    <Dropdown key="more" menu={{items:[
+                      {key:'rename',label:'重命名',onClick:()=>openRenameMapModal(item)},
+                      {key:'duplicate',label:duplicatingMapId===item.id?'正在复制…':'复制地图',disabled:!!duplicatingMapId,onClick:()=>void handleDuplicateMap(item.id)},
+                      {key:'delete',label:'删除私人地图',danger:true,onClick:()=>Modal.confirm({title:'删除这份私人地图？',content:publication?'该地图的公开副本继续保留，可前往我的作品撤回。':'请先保留需要的备份。',okText:'删除',cancelText:'取消',okButtonProps:{danger:true},onOk:()=>handleDeleteMap(item.id)})}
+                    ]}}><Button aria-label="更多地图操作" icon={<MoreOutlined/>}/></Dropdown>
                   ]}
                 >
                   <List.Item.Meta
+                    avatar={<PrivateMapThumbnail map={item}/>}
                     title={
                       <Space size={8} wrap>
                         <span>{item.name}</span>
+                        <span className={`gallery-status gallery-status--${publication?.reviewStatus||'private'}`}>{publication?publication.reviewStatus==='pending'?'审核中':publication.reviewStatus==='returned'?'待修改':publication.visibility==='public'?'已发布':publication.visibility==='hidden'?'已隐藏':'已撤回':'私人存档'}</span>
                         {isCurrent ? (
                           <span
                             style={{
@@ -2576,6 +2619,7 @@ const App: React.FC = () => {
               );
             }}
           />
+          <div className="gallery-private-footer"><span>共 {savedMaps.length} 份私人地图</span><Button onClick={()=>{setMapsVisible(false);handleNewMap();}} icon={<FileAddOutlined/>}>新建空白方案</Button></div>
         </DraggableModal>
 
         <DraggableModal
