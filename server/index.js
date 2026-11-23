@@ -1311,6 +1311,31 @@ const AI_EDIT_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_new_line_with_stations',
+      description: '从零创建一条包含全新站点序列的新线路（适用于空白画布建线，或新建一条大部分站点尚不存在的线路）。若 stationNames 中某些站名与当前地图已有站点完全同名，前端会自动复用已有站点形成换乘站。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '新线路名，如"1号线"' },
+          color: { type: 'string', description: '6 位十六进制颜色，如 #e11d48' },
+          stationNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '按线路顺序排列的站点名称数组，最少 2 个，最多 30 个。'
+          },
+          direction: {
+            type: 'string',
+            enum: ['east_west', 'north_south', 'nw_se', 'sw_ne'],
+            description: '可选：线路整体走向（东西向 east_west / 南北向 north_south / 西北-东南 nw_se / 西南-东北 sw_ne）'
+          }
+        },
+        required: ['name', 'color', 'stationNames']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'create_line',
       description: '创建一条新线路；stationIds 必须按线路顺序排列，至少 2 个；所有 id 必须是当前地图中已存在的站点。',
       parameters: {
@@ -1479,6 +1504,13 @@ function validateAIOperation(op, lineIds, stationIds) {
   const checkName = (n) => typeof n === 'string' && n.trim().length > 0 && [...n].length <= 32;
   const checkColor = (c) => typeof c === 'string' && HEX_COLOR_RE.test(c);
   switch (op.type) {
+    case 'create_new_line_with_stations': {
+      if (!checkName(op.name) || !checkColor(op.color)) return false;
+      if (!Array.isArray(op.stationNames) || op.stationNames.length < 2 || op.stationNames.length > 30) return false;
+      if (!op.stationNames.every(checkName)) return false;
+      if (op.direction !== undefined && !['east_west', 'north_south', 'nw_se', 'sw_ne'].includes(op.direction)) return false;
+      return true;
+    }
     case 'create_line':
       if (!checkName(op.name) || !checkColor(op.color)) return false;
       if (!Array.isArray(op.stationIds) || op.stationIds.length < 2) return false;
@@ -1534,11 +1566,12 @@ const AI_EDIT_SYSTEM_PROMPT =
   '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
   '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
   '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
+  '   - **用户要"从零新建一条线路并包含若干新站点"（例如空白画布建第一条线，或新建一条穿过已有同名站点的全新线路）** → 用 create_new_line_with_stations，stationNames 传按顺序排列的完整站名列表，并根据语义选择合适的 direction（如东西干线用 east_west、南北干线用 north_south）；若其中包含已有站点名，会自动在同名站形成十字换乘。\n' +
   '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
-  '6. **批量优先**：用户一次说要加 N 个站点，**必须用一次工具调用 + names 数组**，不要拆成 N 次单独调用。\n' +
-  '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 站点不存在），直接用中文解释为什么做不了，不要瞎调工具。\n' +
-  '8. 一次可以连续调用多个不同工具（比如"改颜色 + 加站点"），按操作顺序排列。\n' +
-  '9. 多轮对话：用户可以连续追问，比如"刚刚那条线再延伸 3 个站"。结合上下文 + 最新地图状态做判断；不确定就反问。';
+  '6. **批量优先**：用户一次说要加 N 个站点或建多条线，**每条操作必须用一次批量数组工具调用**，不要拆成单站多次调用。\n' +
+  '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 指定的既有站点不存在），直接用简明友好的中文解释原因并给出替代建议，不要瞎调工具。\n' +
+  '8. 一次可以连续调用多个不同工具（比如"新建 1 号线 + 新建 2 号线十字换乘"或"改颜色 + 加站点"），按逻辑顺序排列，并用简短中文说明本次规划亮点。\n' +
+  '9. 多轮对话：用户可以连续追问（如"把刚刚那条线再往东延伸 3 站"、"换个更搭的颜色"）。注意参考历史消息中标注的【用户已应用 / 未应用】状态以及最新地图状态做判断；不确定就礼貌追问。';
 
 // 共享的请求预处理：校验 messages + 组装 LLM payload + 收集 id 集合。
 // 返回 { error, status } 表示校验失败；否则 { llmMessages, lineIds, stationIds }。
@@ -1551,15 +1584,17 @@ function prepareAiEdit(req) {
     history = [{ role: 'user', content: single }];
   }
   if (history.length === 0) return { error: '消息列表为空', status: 400 };
-  if (history.length > 40) {
-    return { error: '对话过长（>40 条），请点击"新建对话"重新开始', status: 400 };
-  }
   for (const m of history) {
     if (!m || (m.role !== 'user' && m.role !== 'assistant')) {
       return { error: '消息格式无效：role 必须是 user 或 assistant', status: 400 };
     }
     if (typeof m.content !== 'string') return { error: '消息 content 必须是字符串', status: 400 };
-    if (m.content.length > 2000) return { error: '单条消息过长（>2000 字）', status: 400 };
+    if (m.content.length > 3000) return { error: '单条消息过长（>3000 字）', status: 400 };
+  }
+  // 长多轮会话自动滑动窗口截取最近 40 条上下文，避免用户在连续创作时被 400 阻断
+  if (history.length > 40) {
+    history = history.slice(-40);
+    if (history[0]?.role === 'assistant') history = history.slice(1);
   }
   if (history[history.length - 1].role !== 'user') {
     return { error: '最后一条消息必须是用户消息', status: 400 };
@@ -1581,7 +1616,7 @@ function prepareAiEdit(req) {
     )
     .join('\n');
   const stateStations = stationsArr
-    .slice(0, 200)
+    .slice(0, 600)
     .map((s) => `- {id: "${s.id}", name: "${s.name}"}`)
     .join('\n');
 
@@ -1638,8 +1673,8 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
     messages: prepared.llmMessages,
     tools: AI_EDIT_TOOLS,
     toolChoice: 'auto',
-    temperature: 0.1,
-    maxTokens: 800
+    temperature: 0.15,
+    maxTokens: 2000
   });
   if (!result.ok) {
     return res.status(502).json({ message: `AI 调用失败（${result.reason}），请稍后重试` });
@@ -1673,8 +1708,8 @@ app.post('/api/ai/edit-stream', auth, aiLimiter, asyncHandler(async (req, res) =
     messages: prepared.llmMessages,
     tools: AI_EDIT_TOOLS,
     toolChoice: 'auto',
-    temperature: 0.1,
-    maxTokens: 800,
+    temperature: 0.15,
+    maxTokens: 2000,
     onDelta: (token) => {
       fullText += token;
       send({ type: 'delta', text: token });

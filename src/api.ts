@@ -57,6 +57,13 @@ export type CheckPendingResult =
 // AI 自然语言编辑返回的操作类型。后端用 DeepSeek tool calls 翻译用户意图，
 // 已经过 id / 颜色 / 长度校验，前端直接 apply 即可。
 export type AIOperation =
+  | {
+      type: 'create_new_line_with_stations';
+      name: string;
+      color: string;
+      stationNames: string[];
+      direction?: 'east_west' | 'north_south' | 'nw_se' | 'sw_ne';
+    }
   | { type: 'create_line'; name: string; color: string; stationIds: string[] }
   | {
       type: 'create_line_via_extension';

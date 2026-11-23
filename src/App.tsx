@@ -35,6 +35,7 @@ import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
 import AIAssistantModal from './components/AIAssistantModal';
+import { migrateDraftAISessions } from './lib/aiSessionStore';
 import { AmapStyle, BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import BaseMapPicker from './components/BaseMapPicker';
 import AboutPanel from './components/AboutPanel';
@@ -1291,6 +1292,9 @@ const App: React.FC = () => {
       }
       upsertSavedMap({ ...map, ...counts });
       if (documentSessionRef.current.isSameDocument(ticket)) {
+        if (!targetMapId && userProfile?.id) {
+          migrateDraftAISessions(userProfile.id, savingGuestId || 'draft', map.id, name);
+        }
         setCurrentMap({ ...map, ...counts });
         if (savingGuestId && guestDraftIdRef.current === savingGuestId) {
           guestDraftIdRef.current = null;
@@ -1565,13 +1569,120 @@ const App: React.FC = () => {
   const applyAIOperations = (operations: AIOperation[]) => {
     if (!operations.length) return 0;
     pushHistory();
-    let nextLines = [...lines];
-    let nextStations = [...stations];
-    let nextSections = [...sections];
+    let nextLines = [...linesRef.current];
+    let nextStations = [...stationsRef.current];
+    let nextSections = [...sectionsRef.current];
     let applied = 0;
 
     for (const op of operations) {
       switch (op.type) {
+        case 'create_new_line_with_stations': {
+          const cleanNames = (op.stationNames || []).map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean);
+          if (cleanNames.length < 2) break;
+
+          const dirOrder = ['east_west', 'north_south', 'nw_se', 'sw_ne'] as const;
+          const dir = op.direction || dirOrder[nextLines.length % dirOrder.length];
+          const vecMap = {
+            east_west: { ux: 1, uy: 0 },
+            north_south: { ux: 0, uy: 1 },
+            nw_se: { ux: Math.SQRT1_2, uy: Math.SQRT1_2 },
+            sw_ne: { ux: Math.SQRT1_2, uy: -Math.SQRT1_2 }
+          };
+          const { ux, uy } = vecMap[dir] || vecMap.east_west;
+          const stepPx = 92;
+          const isAmap = mapSettingsRef.current.baseMap.mode === 'amap';
+          const amapCenter = mapSettingsRef.current.baseMap.amap?.center || [116.397428, 39.90923];
+          const stepLng = 0.015;
+          const stepLat = 0.0125;
+
+          const existingByName = new Map<string, Station>();
+          nextStations.forEach((st) => existingByName.set(st.name.trim(), st));
+
+          // 若新线路穿过已有同名站点，以首个匹配的已有站点为十字换乘锚点对齐坐标；否则围绕画布中心对称排布
+          let pivotIdx = cleanNames.findIndex((n) => existingByName.has(n));
+          let originX = stageRef.current?.width?.() ? stageRef.current.width() / 2 : 520;
+          let originY = stageRef.current?.height?.() ? stageRef.current.height() / 2 : 340;
+          let originLng = amapCenter[0];
+          let originLat = amapCenter[1];
+
+          if (pivotIdx >= 0) {
+            const pivotStation = existingByName.get(cleanNames[pivotIdx])!;
+            originX = pivotStation.x;
+            originY = pivotStation.y;
+            if (typeof pivotStation.lng === 'number' && typeof pivotStation.lat === 'number') {
+              originLng = pivotStation.lng;
+              originLat = pivotStation.lat;
+            }
+          } else {
+            if (nextStations.length > 0) {
+              originX = nextStations.reduce((acc, s) => acc + s.x, 0) / nextStations.length;
+              originY = nextStations.reduce((acc, s) => acc + s.y, 0) / nextStations.length;
+              const geoStations = nextStations.filter((s) => typeof s.lng === 'number' && typeof s.lat === 'number');
+              if (geoStations.length > 0) {
+                originLng = geoStations.reduce((acc, s) => acc + (s.lng || 0), 0) / geoStations.length;
+                originLat = geoStations.reduce((acc, s) => acc + (s.lat || 0), 0) / geoStations.length;
+              }
+              const perpShift = ((nextLines.length % 3) - 1) * 54;
+              originX += -uy * perpShift;
+              originY += ux * perpShift;
+              originLng += -uy * 0.008;
+              originLat += -ux * 0.0065;
+            }
+            pivotIdx = (cleanNames.length - 1) / 2;
+          }
+
+          const lineStations: Station[] = [];
+          const createdStations: Station[] = [];
+          cleanNames.forEach((stName, idx) => {
+            const existing = existingByName.get(stName);
+            if (existing) {
+              lineStations.push(existing);
+              return;
+            }
+            const delta = idx - pivotIdx;
+            const created: Station = {
+              id: createId(),
+              name: stName,
+              x: originX + ux * stepPx * delta,
+              y: originY + uy * stepPx * delta,
+              ...(isAmap
+                ? {
+                    lng: originLng + ux * stepLng * delta,
+                    lat: originLat - uy * stepLat * delta
+                  }
+                : {})
+            };
+            existingByName.set(stName, created);
+            createdStations.push(created);
+            lineStations.push(created);
+          });
+
+          const lineId = createId();
+          const newSectionList: Section[] = [];
+          for (let i = 0; i < lineStations.length - 1; i += 1) {
+            if (lineStations[i].id === lineStations[i + 1].id) continue;
+            newSectionList.push({
+              id: createId(),
+              lineId,
+              startStationId: lineStations[i].id,
+              endStationId: lineStations[i + 1].id
+            });
+          }
+          nextStations = [...nextStations, ...createdStations];
+          nextSections = [...nextSections, ...newSectionList];
+          nextLines.push({
+            id: lineId,
+            name: op.name,
+            color: op.color,
+            stationIds: lineStations.map((s) => s.id),
+            sectionIds: newSectionList.map((s) => s.id)
+          });
+          if (!currentLineIdRef.current) {
+            setCurrentLineId(lineId);
+          }
+          applied += 1;
+          break;
+        }
         case 'create_line': {
           // 创建新线路 + 相邻站点之间生成 sections
           const lineId = createId();
@@ -1896,9 +2007,13 @@ const App: React.FC = () => {
   // 把一个 AI 操作 op 转成人类能读的中文摘要，给确认弹窗展示。
   // 用当前的 lines / stations 解析 id → 名字；解析不到的 fallback 到 id 前 6 位。
   const summarizeOperation = (op: AIOperation): string => {
-    const lineName = (id: string) => lines.find((l) => l.id === id)?.name || `#${id.slice(0, 6)}`;
-    const stationName = (id: string) => stations.find((s) => s.id === id)?.name || `#${id.slice(0, 6)}`;
+    const curLines = linesRef.current;
+    const curStations = stationsRef.current;
+    const lineName = (id: string) => curLines.find((l) => l.id === id)?.name || `#${id.slice(0, 6)}`;
+    const stationName = (id: string) => curStations.find((s) => s.id === id)?.name || `#${id.slice(0, 6)}`;
     switch (op.type) {
+      case 'create_new_line_with_stations':
+        return `新建线路「${op.name}」（${op.color}），包含 ${op.stationNames.length} 个站点：${op.stationNames.join('、')}`;
       case 'create_line':
         return `新建线路「${op.name}」（${op.color}），共 ${op.stationIds.length} 个站点`;
       case 'create_line_via_extension':
@@ -1934,13 +2049,13 @@ const App: React.FC = () => {
     setAiBusy(true);
     try {
       const mapState = {
-        lines: lines.map((l) => ({
+        lines: linesRef.current.map((l) => ({
           id: l.id,
           name: l.name,
           color: l.color,
           stationIds: [...l.stationIds]
         })),
-        stations: stations.map((s) => ({ id: s.id, name: s.name }))
+        stations: stationsRef.current.map((s) => ({ id: s.id, name: s.name }))
       };
       const result = await api.aiEditStream({ messages, mapState }, { onDelta, signal });
       return {
@@ -2570,6 +2685,13 @@ const App: React.FC = () => {
         <AIAssistantModal
           open={aiModalOpen}
           busy={aiBusy}
+          userId={userProfile?.id || null}
+          mapKey={currentMap?.id || guestDraftId || 'draft'}
+          mapName={mapDisplayName}
+          lines={lines}
+          stations={stations}
+          canUndo={canUndo}
+          onUndo={handleUndo}
           onAnalyzeStream={handleAiAnalyzeStream}
           onApply={handleAiApply}
           onCancel={() => setAiModalOpen(false)}
