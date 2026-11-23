@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { COMMAND_VERBS } from '../lib/commandParser';
 
-// AutoCAD 式底部命令栏（v1）。纯受控输入：Enter 执行、↑/↓ 历史、Esc 失焦、Tab 补全动词。
-// 解析/执行都在 App（onSubmit），本组件只管输入与展示。焦点冲突由 App 的全局 keydown
-// 已处理（INPUT 聚焦时不触发画布 Ctrl+Z）。
+// 左下角灵动命令浮岛：平时紧凑不抢画面，聚焦或按 "/" 时平滑展开完整命令输入与自动补全。
 interface CommandBarProps {
   onSubmit: (input: string) => { ok: boolean; message: string };
   inputRef?: React.RefObject<HTMLInputElement>;
@@ -11,12 +9,18 @@ interface CommandBarProps {
 
 const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, inputRef }) => {
   const [input, setInput] = useState('');
+  const [focused, setFocused] = useState(false);
   const [feedback, setFeedback] = useState<{ ok: boolean; message: string } | null>(null);
   const [history, setHistory] = useState<string[]>([]);
   const [histIdx, setHistIdx] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (!feedback) return;
+    const timer = window.setTimeout(() => setFeedback(null), 4500);
+    return () => window.clearTimeout(timer);
+  }, [feedback]);
+
   const firstToken = input.trimStart().split(/\s+/)[0]?.toLowerCase() || '';
-  // 仅在输入首词、且还没打空格时提示候选动词
   const suggestions =
     input.length > 0 && !input.includes(' ') && firstToken.length > 0
       ? COMMAND_VERBS.filter(v => v.startsWith(firstToken) && v !== firstToken).slice(0, 8)
@@ -34,7 +38,7 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, inputRef }) => {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
-    if (e.key === 'Escape') { e.preventDefault(); setInput(''); (e.target as HTMLInputElement).blur(); return; }
+    if (e.key === 'Escape') { e.preventDefault(); setInput(''); setFeedback(null); (e.target as HTMLInputElement).blur(); return; }
     if (e.key === 'Tab' && suggestions.length > 0) { e.preventDefault(); setInput(suggestions[0] + ' '); return; }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
@@ -53,10 +57,15 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, inputRef }) => {
     }
   };
 
+  const isExpanded = focused || input.length > 0;
+
   return (
-    <div className="metro-command-bar">
+    <div className={`metro-command-bar${isExpanded ? ' is-expanded' : ''}`}>
       {feedback && (
-        <div className={`metro-command-bar__feedback ${feedback.ok ? 'is-ok' : 'is-error'}`}>
+        <div
+          className={`metro-command-bar__feedback ${feedback.ok ? 'is-ok' : 'is-error'}`}
+          onClick={() => setFeedback(null)}
+        >
           {feedback.message}
         </div>
       )}
@@ -67,7 +76,6 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, inputRef }) => {
               type="button"
               key={s}
               className="metro-command-bar__chip"
-              // mousedown preventDefault：点 chip 时不要先 blur 输入框
               onMouseDown={(e) => { e.preventDefault(); setInput(s + ' '); inputRef?.current?.focus(); }}
             >
               {s}
@@ -75,7 +83,7 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, inputRef }) => {
           ))}
         </div>
       )}
-      <div className="metro-command-bar__row">
+      <div className="metro-command-bar__row" onClick={() => inputRef?.current?.focus()}>
         <span className="metro-command-bar__prompt">›</span>
         <input
           ref={inputRef}
@@ -83,10 +91,13 @@ const CommandBar: React.FC<CommandBarProps> = ({ onSubmit, inputRef }) => {
           value={input}
           spellCheck={false}
           autoComplete="off"
-          placeholder={'输入命令，如  create line "2号线" blue  ；输入 help 查看用法（/ 聚焦）'}
+          placeholder={isExpanded ? '输入命令，如 create line "2号线" blue · 输入 help 查看用法' : '输入命令…'}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
         />
+        {!isExpanded && <kbd className="metro-command-bar__kbd" aria-hidden="true">/</kbd>}
       </div>
     </div>
   );

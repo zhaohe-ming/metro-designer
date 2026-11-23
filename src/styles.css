@@ -45,10 +45,8 @@
   --space-6: 32px;
 
   /* ---- 字体 ---- */
-  /* 显示字体：仅用于品牌名 / 大标题（衬线，呼应"纸面"质感）。
-     正文与控件保持无衬线（密集工具 UI 用全衬线伤可读性）。
-     纯系统字体栈零外部依赖；以后想上 webfont（如 Noto Serif SC）只改这一个变量。 */
-  --font-display: Georgia, "Times New Roman", "Source Han Serif SC", "Noto Serif SC", "Songti SC", SimSun, serif;
+  /* 工作台、弹窗与标题统一采用现代无衬线 UI 字体栈，消除宋体/衬线混排违和感 */
+  --font-display: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
 
   /* ---- 字号 scale ---- */
   --font-size-meta:    11px;  /* 时间戳 / 徽标 */
@@ -303,12 +301,11 @@ body {
   font-weight: 600;
 }
 
-/* AI 助手按钮：圆形 + 慢转 conic-gradient 边 + 柔和外光晕。
-   每个平台都一致；nicht 跟 antd Button 的视觉冲突，所以用原生 <button>。 */
+/* AI 助手按钮：32px 精致同色系极光流光环（蓝—靛—紫—青），与顶栏按钮等高对齐 */
 .metro-header-ai-btn {
   position: relative;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: 0;
   padding: 0;
@@ -318,37 +315,28 @@ body {
   align-items: center;
   justify-content: center;
   isolation: isolate;
-  transition: transform 160ms ease, box-shadow 240ms ease;
-  /* 外光晕：彩色冷暖混合，hover 时加深 */
+  transition: transform 160ms ease, box-shadow 220ms ease;
   box-shadow:
-    0 0 0 1px rgba(148, 163, 184, 0.18),
-    0 6px 18px -6px rgba(99, 102, 241, 0.35),
-    0 6px 18px -6px rgba(236, 72, 153, 0.18);
+    0 0 0 1px rgba(99, 102, 241, 0.14),
+    0 4px 12px -3px rgba(79, 70, 229, 0.28);
 }
 
-/* conic-gradient 描边：用 ::before 当 backdrop，盖一层比 button 大 2px 的渐变盘，
-   再让 button 自身用纯色背景覆盖中央，留出 1.5px 边作为彩色环。
-   注意：conic-gradient + 无限旋转动画会让浏览器每帧重栅化渐变，主线程持续负载，
-   实测会拖累整个页面的响应（包括 Canvas 渲染节奏）。所以默认静止，hover 才转。 */
 .metro-header-ai-btn::before {
   content: '';
   position: absolute;
-  inset: -2px;
+  inset: -1.5px;
   border-radius: 50%;
   background: conic-gradient(
-    from 0deg,
-    #ff3c8e 0%,
-    #ffb347 14%,
-    #ffe66d 28%,
-    #06d6a0 42%,
-    #4cc9f0 58%,
-    #8338ec 74%,
-    #ff3c8e 100%
+    from 180deg,
+    #2563eb 0%,
+    #6366f1 28%,
+    #8b5cf6 54%,
+    #06b6d4 78%,
+    #2563eb 100%
   );
   z-index: -1;
 }
 
-/* 内层圆：把中心遮成 surface 颜色，让外圈 conic-gradient 只露出环带 */
 .metro-header-ai-btn::after {
   content: '';
   position: absolute;
@@ -360,10 +348,9 @@ body {
 
 .metro-header-ai-btn__icon {
   display: inline-flex;
-  font-size: 16px;
-  color: #4338ca;
-  /* 给 icon 一点彩色：在白底上跟外圈呼应 */
-  background: linear-gradient(135deg, #6366f1 0%, #ec4899 100%);
+  font-size: 14px;
+  color: #4f46e5;
+  background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -373,19 +360,18 @@ body {
 .metro-header-ai-btn:hover {
   transform: translateY(-1px);
   box-shadow:
-    0 0 0 1px rgba(148, 163, 184, 0.18),
-    0 10px 24px -6px rgba(99, 102, 241, 0.55),
-    0 10px 24px -6px rgba(236, 72, 153, 0.35),
-    0 0 24px -2px rgba(236, 72, 153, 0.45);
+    0 0 0 1px rgba(99, 102, 241, 0.22),
+    0 8px 18px -4px rgba(79, 70, 229, 0.42),
+    0 0 16px -3px rgba(59, 130, 246, 0.35);
 }
 .metro-header-ai-btn:hover::before {
-  animation: metro-ai-btn-rotate 3.5s linear infinite;
+  animation: metro-ai-btn-rotate 3.2s linear infinite;
 }
 .metro-header-ai-btn:active {
-  transform: translateY(0) scale(0.96);
+  transform: translateY(0) scale(0.95);
 }
 .metro-header-ai-btn:focus-visible {
-  outline: 2px solid rgba(236, 72, 153, 0.7);
+  outline: 2px solid rgba(59, 130, 246, 0.7);
   outline-offset: 3px;
 }
 
@@ -410,7 +396,7 @@ body {
   background: #0f172a;
 }
 .metro-app-shell[data-interface-theme="dark"] .metro-header-ai-btn__icon {
-  background: linear-gradient(135deg, #818cf8 0%, #f472b6 100%);
+  background: linear-gradient(135deg, #60a5fa 0%, #a78bfa 100%);
   -webkit-background-clip: text;
   background-clip: text;
 }
@@ -1828,21 +1814,18 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-color-picker-tri
 }
 
 .app-header {
-  /* 第一栏给到 280-360px：要装下 ● Metro Designer + 📝 方案名 chip 这两块。
-     原本是 150-180px，会把品牌行挤成两行 + chip 跟 toolbar 紧挨。
-     gap 从 8 拉到 16，让 brand-panel 跟右边的 undo/redo 之间留出明显间距 */
+  display: grid;
   grid-template-columns: max-content minmax(0, 1fr) auto;
+  align-items: center;
   gap: 16px;
-  height: auto;
+  width: 100%;
+  height: 100%;
+  transform: none;
 }
 
 .metro-app-shell[data-interface-theme="dark"] .metro-header {
   background: transparent !important;
   border-color: transparent !important;
-}
-
-.app-header {
-  transform: translateY(-3px);
 }
 
 .metro-toolbar-panel {
@@ -3394,11 +3377,15 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
    the workbench frame, bottom HUD, and header alignment stay stable. */
 @media (min-width: 769px) {
   .metro-header {
-    transform: translateY(-3px);
+    display: flex;
+    align-items: center;
+    height: 48px;
+    min-height: 48px;
+    transform: none;
   }
 
   .app-header {
-    transform: translateY(-7px);
+    transform: none;
   }
 
   .metro-sider,
@@ -4021,24 +4008,390 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 }
 
 
-/* Guest entry shares the existing form and keeps both policy links below it. */
-.auth-preview-btn.ant-btn { height: 46px; margin-top: 14px; border: 1px solid rgba(37, 99, 235, 0.45);
-  border-radius: 10px; color: var(--color-primary-600); background: transparent; font-size: 16px; font-weight: 600; }
-.auth-preview-btn.ant-btn:hover { border-color: var(--color-primary-600); background: var(--color-primary-50); }
-.auth-card--embedded { display: block; width: 100%; height: auto; min-height: 0; padding: 0; border: 0;
-  box-shadow: none; background: transparent; overflow: visible; }
-.auth-card--embedded .auth-card__inner { display: block; min-height: 0; height: auto; padding: 0; }
-.auth-card--embedded .auth-card__form { width: 100%; height: auto; min-height: 0; padding: 12px 4px; overflow: visible; background: transparent; }
-.auth-card--embedded .auth-form-shell { width: 100%; max-height: none; overflow: visible; }
-.auth-card--embedded .auth-form-title { font-size: 30px !important; }
-.metro-guest-auth { top: 36px; padding-bottom: 36px; }
-.metro-guest-auth .ant-modal-body { max-height: calc(100dvh - 140px); overflow-y: auto; }
-.metro-guest-loading { display: grid; place-items: center; height: 100%; color: var(--color-text-soft); }
-@media (max-width: 768px) {
-  .metro-guest-auth { top: 16px; max-width: calc(100% - 24px); }
-  .metro-guest-auth .ant-modal-content { padding: 20px; }
+/* ========================================================================== */
+/* UI Aesthetic & Interaction Polish Pass                                     */
+/* ========================================================================== */
+
+/* 1. 根治 Chrome / Edge 自动填充（Autofill）直角灰蓝内框露馅问题 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+.ant-input:-webkit-autofill,
+.ant-input-affix-wrapper input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a;
+  border-radius: inherit;
+  transition: background-color 9999s ease-out 0s;
 }
 
+.auth-layout[data-interface-theme="dark"] input:-webkit-autofill,
+.auth-layout[data-interface-theme="dark"] .ant-input-affix-wrapper input:-webkit-autofill,
+body[data-interface-theme="dark"] .metro-modal-root input:-webkit-autofill,
+body[data-interface-theme="dark"] .metro-modal-root .ant-input-affix-wrapper input:-webkit-autofill {
+  -webkit-box-shadow: 0 0 0 1000px #172033 inset !important;
+  -webkit-text-fill-color: #f8fafc !important;
+  caret-color: #f8fafc;
+}
+
+/* 2. 顶栏工具区「作品广场」分隔竖线 + 保存按钮瘦身与已保存轻态 */
+.metro-toolbar__sep {
+  display: inline-block;
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.metro-header-save-btn.ant-btn {
+  height: 32px !important;
+  padding: 0 13px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+}
+
+.metro-header .metro-header-save-btn.ant-btn-primary {
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.20) !important;
+}
+
+.metro-header .metro-header-save-btn.ant-btn-primary:hover {
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.28) !important;
+}
+
+.metro-header-save-btn.is-clean.ant-btn {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+  color: var(--color-text-soft) !important;
+  box-shadow: none !important;
+}
+
+.metro-header-save-btn.is-clean.ant-btn .anticon {
+  color: var(--color-success, #10b981);
+}
+
+.metro-header-save-btn.is-clean.ant-btn:hover {
+  border-color: var(--color-primary-500) !important;
+  color: var(--color-primary-600) !important;
+  background: var(--color-primary-50) !important;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-header-save-btn.is-clean.ant-btn {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #cbd5e1 !important;
+}
+
+.metro-header-save-btn__dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: #fbbf24;
+  box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.28);
+  vertical-align: middle;
+}
+
+/* 3. 顶栏账号胶囊与未登录/已登录同构下拉菜单 */
+.user-chip--trigger {
+  height: 32px;
+  padding: 0 10px 0 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  gap: 7px;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.user-chip--trigger:hover {
+  border-color: var(--color-primary-500);
+  background: var(--color-primary-50);
+}
+
+.user-chip--guest {
+  padding-left: 5px;
+}
+
+.user-chip__guest-badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-primary-50);
+  color: var(--color-primary-600);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.user-chip__chevron {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.metro-app-shell[data-interface-theme="dark"] .user-chip--trigger {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(148, 163, 184, 0.30);
+}
+
+.metro-app-shell[data-interface-theme="dark"] .user-chip__guest-badge {
+  background: rgba(59, 130, 246, 0.20);
+  color: #93c5fd;
+}
+
+.metro-user-dropdown .ant-dropdown-menu {
+  width: 236px;
+  max-width: calc(100vw - 24px);
+  padding: 6px !important;
+  border-radius: 12px !important;
+  border: 1px solid var(--color-border);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14) !important;
+}
+
+.metro-user-dropdown .ant-dropdown-menu-item {
+  min-height: 36px;
+  padding: 7px 10px !important;
+  border-radius: 8px !important;
+  font-size: 13px;
+}
+
+.metro-user-dropdown .ant-dropdown-menu-item-divider {
+  margin: 5px 4px !important;
+}
+
+@media (min-width: 769px) {
+  .metro-user-dropdown .metro-user-menu__mobile-only {
+    display: none !important;
+  }
+}
+
+.metro-user-menu__header.ant-dropdown-menu-item-disabled {
+  cursor: default !important;
+  padding: 8px 10px 6px !important;
+}
+
+.metro-user-menu__account {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metro-user-menu__account-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.metro-user-menu__account-sub {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.3;
+}
+
+.metro-user-dropdown .metro-user-menu__unlock-card.ant-dropdown-menu-item {
+  padding: 10px 12px !important;
+  margin-bottom: 2px;
+  border-radius: 9px !important;
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.09) 0%, rgba(99, 102, 241, 0.06) 100%);
+  border: 1px solid rgba(37, 99, 235, 0.18);
+}
+
+.metro-user-dropdown .metro-user-menu__unlock-card.ant-dropdown-menu-item:hover {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.14) 0%, rgba(99, 102, 241, 0.10) 100%) !important;
+  border-color: rgba(37, 99, 235, 0.34);
+}
+
+.metro-user-menu__unlock-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.metro-user-menu__unlock-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--color-primary-600);
+  font-size: 13.5px;
+}
+
+.metro-user-menu__unlock-title strong {
+  font-weight: 600;
+}
+
+.metro-user-menu__unlock-desc {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+/* 4. 可拖拽内嵌登录弹窗（DraggableModal + AuthPanel embedded）精致紧凑化 */
+.auth-preview-btn.ant-btn {
+  height: 44px;
+  margin-top: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.42);
+  border-radius: 9px;
+  color: var(--color-primary-600);
+  background: transparent;
+  font-size: 15px;
+  font-weight: 600;
+}
+.auth-preview-btn.ant-btn:hover {
+  border-color: var(--color-primary-600);
+  background: var(--color-primary-50);
+}
+
+.metro-guest-auth {
+  top: 64px;
+  padding-bottom: 24px;
+}
+.metro-guest-auth .ant-modal-body {
+  max-height: calc(100dvh - 140px);
+  overflow-y: auto;
+  padding: 16px 20px 20px !important;
+}
+.metro-guest-loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--color-text-soft);
+}
+
+.metro-guest-auth .auth-card--embedded,
+.metro-guest-auth .auth-card--embedded .auth-card__inner,
+.metro-guest-auth .auth-card--embedded .auth-card__form {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0 !important;
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  overflow: visible;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form-shell {
+  width: 100%;
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form-title {
+  font-size: 18px !important;
+  font-weight: 600 !important;
+  margin: 0 0 6px !important;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form-subtitle--embedded {
+  display: block;
+  margin-top: 0;
+  margin-bottom: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-muted) !important;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-switcher {
+  margin-top: 0;
+  padding: 3px;
+  border-radius: 9px;
+  border: 1px solid var(--color-border) !important;
+  background: #f1f5f9 !important;
+  box-shadow: none !important;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-switcher__btn {
+  height: 32px;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-soft) !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-switcher__btn.is-active {
+  background: #ffffff !important;
+  color: var(--color-primary-600) !important;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10), 0 1px 2px rgba(15, 23, 42, 0.06) !important;
+}
+
+body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-switcher {
+  background: #0f172a !important;
+  border-color: #29364d !important;
+}
+
+body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-switcher__btn {
+  color: #94a3b8 !important;
+}
+
+body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-switcher__btn.is-active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form {
+  margin-top: 16px;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-form-item) {
+  margin-bottom: 14px;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-form-item-label) {
+  padding-bottom: 5px;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-form-item-label > label) {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-input-affix-wrapper),
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-input) {
+  min-height: 40px;
+  border-radius: 8px;
+  box-shadow: none !important;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-input-affix-wrapper > input.ant-input),
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-input-password input.ant-input) {
+  min-height: auto;
+  font-size: 14px;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-form :where(.ant-input-prefix) {
+  font-size: 15px;
+  margin-inline-end: 9px;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-submit-btn.ant-btn {
+  height: 40px;
+  margin-top: 4px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.22) !important;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-policy-links {
+  margin-top: 16px;
+  font-size: 12px;
+}
+
+@media (max-width: 768px) {
+  .metro-guest-auth { top: 20px; max-width: calc(100% - 24px); }
+  .metro-toolbar__sep,
+  .metro-toolbar__gallery { display: none !important; }
+}
 
 @media (min-width: 769px) and (max-width: 1100px) and (max-height: 800px) {
   .auth-card--preview-entry.auth-card--login .auth-card__form { padding: 24px !important; }
@@ -4046,23 +4399,580 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .auth-card--preview-entry.auth-card--login .auth-policy-links { margin-top: 16px; }
 }
 
-/* Embedded authentication has one title and one surface. */
-.metro-guest-auth .auth-card--embedded,
-.metro-guest-auth .auth-card--embedded .auth-card__inner,
-.metro-guest-auth .auth-card--embedded .auth-card__form {
-  border: 0 !important; outline: 0 !important; box-shadow: none !important; background: transparent !important;
+/* 5. 「我的地图」三个独立胶囊筛选按钮 + 同行搜索框 */
+.metro-maps-subhead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: var(--color-text-muted);
 }
-.metro-guest-auth .auth-card--embedded .auth-card__form { padding: 6px 0 0 !important; }
-.metro-guest-auth .auth-card--embedded .auth-form-title { padding-right: 32px; margin-top: 0; margin-bottom: 0; }
-.metro-guest-auth .auth-card--embedded .auth-switcher { margin-top: 24px; }
-.metro-user-menu__identity { color: var(--color-text-muted); font-size: 13px; }
-.metro-user-menu--guest .ant-dropdown-menu { width: 256px; max-width: calc(100vw - 24px); padding: 8px; }
-.metro-user-menu--guest .ant-dropdown-menu-item { min-height: 42px; padding: 8px 12px; }
-.metro-user-menu--guest .ant-dropdown-menu-item-disabled { min-height: 32px; padding-top: 4px; padding-bottom: 4px; }
-.metro-user-menu--guest .ant-dropdown-menu-item-divider { margin: 5px 0; }
-.metro-user-menu--guest .metro-user-menu__unlock { align-items: flex-start; padding-top: 10px; padding-bottom: 12px; }
-.metro-user-menu__unlock-content { display: flex; align-items: flex-start; gap: 10px; }
-.metro-user-menu__unlock-content > .anticon { flex: 0 0 16px; margin-top: 3px; color: var(--color-primary-600); font-size: 16px; }
-.metro-user-menu__unlock-label { display: flex; flex-direction: column; gap: 6px; white-space: normal; }
-.metro-user-menu__unlock-label strong { font-size: 15px; line-height: 22px; font-weight: 600; color: var(--color-primary-600); }
-.metro-user-menu__unlock-label > span { color: var(--color-text-muted); font-size: 13px; line-height: 1.65; }
+
+.metro-maps-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.metro-pill-filter-group {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.metro-pill-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: #f1f5f9;
+  color: #475569;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease, transform 100ms ease;
+}
+
+.metro-pill-filter:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.metro-pill-filter:active {
+  transform: scale(0.97);
+}
+
+.metro-pill-filter__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  background: rgba(15, 23, 42, 0.07);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.metro-pill-filter.is-active {
+  background: linear-gradient(135deg, #2f7df6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.24);
+}
+
+.metro-pill-filter.is-active .metro-pill-filter__count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+body[data-interface-theme="dark"] .metro-pill-filter {
+  background: #1e293b;
+  color: #cbd5e1;
+}
+
+body[data-interface-theme="dark"] .metro-pill-filter:hover {
+  background: #29364d;
+  color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-pill-filter__count {
+  background: rgba(255, 255, 255, 0.10);
+}
+
+body[data-interface-theme="dark"] .metro-pill-filter.is-active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.metro-maps-search {
+  width: 240px;
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  .metro-maps-search {
+    width: 100%;
+  }
+}
+
+/* 6. 「设置」弹窗内分段选择器统一升级为柔和圆角滑槽 */
+.metro-settings-panel .ant-radio-group-solid {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: #f1f5f9;
+}
+
+.metro-settings-panel .ant-radio-button-wrapper {
+  height: 30px !important;
+  line-height: 30px !important;
+  padding: 0 12px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  color: #475569 !important;
+  font-size: 13px !important;
+  font-weight: 500;
+  box-shadow: none !important;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+.metro-settings-panel .ant-radio-button-wrapper::before {
+  display: none !important;
+}
+
+.metro-settings-panel .ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
+  color: #0f172a !important;
+  background: rgba(255, 255, 255, 0.55) !important;
+}
+
+.metro-settings-panel .ant-radio-button-wrapper-checked {
+  background: #ffffff !important;
+  color: #1d4ed8 !important;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10), 0 1px 2px rgba(15, 23, 42, 0.06) !important;
+}
+
+body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-group-solid {
+  background: #0f172a;
+  border: 1px solid #29364d;
+}
+
+body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrapper {
+  background: transparent !important;
+  color: #94a3b8 !important;
+}
+
+body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
+  color: #f8fafc !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+}
+
+body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrapper-checked {
+  background: #2563eb !important;
+  color: #ffffff !important;
+}
+
+/* 7. 桌面端画布工具栏“灵动浮岛”滑动胶囊 + 拖拽跟手弹性形变 */
+@media (min-width: 769px) {
+  .metro-canvas-tools .metro-tool-group {
+    --desktop-tool-width: 76px;
+    position: relative;
+    isolation: isolate;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: var(--desktop-tool-width);
+    column-gap: 2px;
+    padding: 4px;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.30);
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.95),
+      0 8px 24px rgba(15, 23, 42, 0.09);
+  }
+
+  .metro-tool-group[data-active-tool="select"]  { --phone-tool-index: 0; }
+  .metro-tool-group[data-active-tool="station"] { --phone-tool-index: 1; }
+  .metro-tool-group[data-active-tool="line"]    { --phone-tool-index: 2; }
+  .metro-tool-group[data-active-tool="section"] { --phone-tool-index: 3; }
+  .metro-tool-group[data-active-tool="pan"]     { --phone-tool-index: 4; }
+
+  .metro-canvas-tools .metro-tool-group::before {
+    content: '';
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 0;
+    width: var(--desktop-tool-width);
+    height: 32px;
+    border-radius: 999px;
+    background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.42),
+      0 3px 10px rgba(37, 99, 235, 0.28);
+    transform: translateX(
+      var(--phone-tool-position, calc(var(--phone-tool-index, 1) * (var(--desktop-tool-width) + 2px)))
+    ) scale(var(--phone-lens-sx, 1), var(--phone-lens-sy, 1));
+    pointer-events: none;
+  }
+
+  .metro-canvas-tools .metro-tool-group[data-elastic-ready] {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    transform: translateX(var(--phone-shell-x, 0px)) scale(var(--phone-shell-sx, 1), var(--phone-shell-sy, 1));
+  }
+
+  .metro-canvas-tools .metro-tool-button {
+    position: relative;
+    z-index: 1;
+    width: var(--desktop-tool-width);
+    min-width: 0;
+    height: 32px;
+    padding: 0 8px;
+    justify-content: center;
+    border-radius: 999px;
+    background: transparent !important;
+    color: var(--color-text-soft);
+    transition: color 130ms ease, background 130ms ease;
+  }
+
+  .metro-canvas-tools .metro-tool-group:not([data-dragging]) .metro-tool-button:not(.is-active):hover {
+    background: rgba(37, 99, 235, 0.07) !important;
+    color: var(--color-primary-700);
+  }
+
+  .metro-canvas-tools .metro-tool-button.is-active {
+    background: transparent !important;
+    color: #ffffff !important;
+  }
+
+  .metro-canvas-tools .metro-tool-group[data-preview-index] .metro-tool-button {
+    color: var(--color-text-soft) !important;
+  }
+  .metro-canvas-tools .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
+  .metro-canvas-tools .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
+  .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"],
+  .metro-canvas-tools .metro-tool-group[data-preview-index="3"] .metro-tool-button[data-tool-index="3"],
+  .metro-canvas-tools .metro-tool-group[data-preview-index="4"] .metro-tool-button[data-tool-index="4"] {
+    color: #ffffff !important;
+    background: transparent !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group,
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group {
+    background: rgba(15, 23, 42, 0.88) !important;
+    border-color: rgba(148, 163, 184, 0.26) !important;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.10),
+      0 10px 28px rgba(0, 0, 0, 0.28) !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group[data-preview-index] .metro-tool-button,
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group[data-preview-index] .metro-tool-button {
+    color: #cbd5e1 !important;
+  }
+
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"],
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group[data-preview-index="3"] .metro-tool-button[data-tool-index="3"],
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group[data-preview-index="4"] .metro-tool-button[data-tool-index="4"],
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"],
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group[data-preview-index="3"] .metro-tool-button[data-tool-index="3"],
+  .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group[data-preview-index="4"] .metro-tool-button[data-tool-index="4"] {
+    color: #ffffff !important;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .metro-canvas-tools .metro-tool-group:not([data-elastic-ready])::before {
+      transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  }
+}
+
+/* 8. 画布毛玻璃悬浮右键菜单（Context Menus） */
+.metro-floating-menu {
+  position: absolute;
+  min-width: 192px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.14), 0 2px 6px rgba(15, 23, 42, 0.06);
+  color: #0f172a;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  user-select: none;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu {
+  background: rgba(15, 23, 42, 0.94);
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.42);
+  color: #f1f5f9;
+}
+
+.metro-floating-menu__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.02em;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__header,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__header {
+  color: #94a3b8;
+}
+
+.metro-floating-menu__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.metro-floating-menu__title {
+  color: #0f172a;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__title,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__title {
+  color: #f8fafc;
+}
+
+.metro-floating-menu__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metro-floating-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 33px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background 110ms ease, color 110ms ease;
+}
+
+.metro-floating-menu__item > .anticon {
+  font-size: 14px;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.metro-floating-menu__item.is-sub {
+  padding-left: 22px;
+  font-size: 12.5px;
+}
+
+.metro-floating-menu__item:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.08);
+  color: #1d4ed8;
+}
+
+.metro-floating-menu__item:hover:not(:disabled) > .anticon {
+  color: #2563eb;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__item:hover:not(:disabled),
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__item:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.20);
+  color: #93c5fd;
+}
+
+.metro-floating-menu__item:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.metro-floating-menu__item.is-danger {
+  color: #dc2626;
+}
+
+.metro-floating-menu__item.is-danger > .anticon {
+  color: #dc2626;
+}
+
+.metro-floating-menu__item.is-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.10);
+  color: #b91c1c;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__item.is-danger,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__item.is-danger {
+  color: #f87171;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__item.is-danger > .anticon,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__item.is-danger > .anticon {
+  color: #f87171;
+}
+
+.metro-floating-menu__divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: rgba(148, 163, 184, 0.22);
+}
+
+.metro-floating-menu__empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.metro-floating-menu__wp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 2px 4px;
+}
+
+.metro-floating-menu__wp-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-radius: 7px;
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 12px;
+}
+
+.metro-floating-menu__mini-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(148, 163, 184, 0.16);
+  color: inherit;
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.metro-floating-menu__mini-btn:hover {
+  background: rgba(37, 99, 235, 0.16);
+  color: #2563eb;
+}
+
+.metro-floating-menu__mini-btn.is-danger {
+  color: #dc2626;
+}
+
+.metro-floating-menu__mini-btn.is-danger:hover {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+/* 9. 左下角灵动命令浮岛：默认紧凑对称，聚焦平滑展开 */
+@media (min-width: 769px) {
+  .metro-command-bar {
+    left: 18px;
+    right: auto;
+    bottom: 18px;
+    width: 248px;
+    max-width: calc(100% - 312px);
+    transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .metro-command-bar.is-expanded {
+    width: min(520px, calc(100% - 312px));
+  }
+
+  .metro-command-bar__row {
+    height: 36px;
+    padding: 0 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    cursor: text;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+
+  .metro-command-bar.is-expanded .metro-command-bar__row {
+    border-color: var(--color-primary-500);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12), 0 10px 24px rgba(15, 23, 42, 0.10);
+  }
+}
+
+.metro-command-bar__kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__kbd,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__kbd {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #94a3b8;
+}
+
+/* 10. 左侧栏空状态卡片轻量化，避免与主画布大引导视觉打架 */
+.metro-sidebar .metro-empty-card {
+  border-style: solid;
+  border-color: var(--color-border-subtle);
+  background: rgba(248, 251, 255, 0.72);
+  padding: 16px 12px;
+  gap: 6px;
+}
+
+.metro-sidebar .metro-empty-card__art {
+  width: 52px;
+  height: 40px;
+  margin-bottom: 2px;
+  opacity: 0.75;
+}
+
+.metro-sidebar .metro-empty-card__title {
+  font-size: 13px;
+}
+
+.metro-sidebar .metro-empty-card__text {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-sidebar .metro-empty-card {
+  background: rgba(23, 32, 51, 0.55) !important;
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}

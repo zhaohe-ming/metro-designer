@@ -12,12 +12,20 @@ import Konva from 'konva';
 import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
 import { Input, Button, message, ColorPicker, Select, Dropdown, Tooltip, Spin } from 'antd';
 import {
+  BgColorsOutlined,
+  DeleteOutlined,
   DownOutlined,
-  SelectOutlined,
-  EnvironmentOutlined,
-  NodeIndexOutlined,
-  LineOutlined,
   DragOutlined,
+  EditOutlined,
+  EnvironmentOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
+  LineOutlined,
+  NodeIndexOutlined,
+  PictureOutlined,
+  PlusCircleOutlined,
+  ReloadOutlined,
+  SelectOutlined,
   TranslationOutlined
 } from '@ant-design/icons';
 import { api } from '../api';
@@ -411,8 +419,8 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
   
-  // 缩放相关状态
-  const toolGroupRef = useElasticToolbar(CANVAS_TOOL_ORDER.indexOf(activeTool), CANVAS_TOOL_ORDER.length, isCompact,
+  // 桌面端与移动端统一启用物理弹簧浮岛滑块与按住拖拽扫选（只读预览态停用手势）
+  const toolGroupRef = useElasticToolbar(CANVAS_TOOL_ORDER.indexOf(activeTool), CANVAS_TOOL_ORDER.length, !readOnly,
     index => setCanvasTool(CANVAS_TOOL_ORDER[index]));
   const [scale, setScale] = useState(initialViewport?.scale || 1);
   const [position, setPosition] = useState({ x: initialViewport?.x || 0, y: initialViewport?.y || 0 });
@@ -530,7 +538,7 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   }, [onStageReady]);
 
-  // 监听ESC键取消绘制和全局点击关闭右键菜单
+  // 监听 ESC 键取消绘制、单键快捷切换工具，以及全局点击关闭右键菜单
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (readOnly) return;
@@ -541,16 +549,35 @@ const Canvas: React.FC<CanvasProps> = ({
           setIsDrawingMode(false);
           setActiveTool('select');
         }
-        // ESC键也关闭右键菜单
         closeStationContextMenu();
+        setSectionContextMenu(prev => ({ ...prev, visible: false }));
+        setCanvasContextMenu(prev => ({ ...prev, visible: false }));
+        return;
       }
+
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable) return;
+      }
+      if (document.querySelector('.ant-modal-wrap:not([style*="display: none"])')) return;
+
+      const key = e.key.toLowerCase();
+      if (key === 'v') setCanvasTool('select');
+      else if (key === 's') setCanvasTool('station');
+      else if (key === 'l') setCanvasTool('line');
+      else if (key === 'w') setCanvasTool('section');
+      else if (key === 'h') setCanvasTool('pan');
     };
 
     const handleGlobalClick = (e: MouseEvent) => {
-      // 如果点击的不是右键菜单内的元素，则关闭菜单
       const target = e.target as HTMLElement;
       if (!target.closest('.station-context-menu')) {
         closeStationContextMenu();
+      }
+      if (!target.closest('.section-context-menu')) {
+        setSectionContextMenu(prev => ({ ...prev, visible: false }));
       }
       if (!target.closest('.canvas-context-menu')) {
         setCanvasContextMenu(prev => ({ ...prev, visible: false }));
@@ -2750,14 +2777,13 @@ const Canvas: React.FC<CanvasProps> = ({
       )}
       <div className="metro-canvas-tools">
         <div ref={toolGroupRef} className="metro-tool-group" data-active-tool={activeTool} role="toolbar" aria-label="Canvas tools">
-          {/* 工具组：5 个按钮 = icon + label。
-              激活态在 label 前显式插一个小蓝点，比单靠背景色更直观；
-              hint 不再常驻一行长文案，改成每个按钮 hover 时的 Tooltip */}
+          {/* 桌面与移动统一的灵动浮岛工具栏：移除会导致位移的小圆点，支持点击平滑飞入与按住左右扫选 */}
           {[
-            { key: 'select' as CanvasTool, label: text.tools.select, icon: <SelectOutlined />, hint: text.hints.select },
-            { key: 'station' as CanvasTool, label: text.tools.station, icon: <EnvironmentOutlined />, hint: text.hints.station },
+            { key: 'select' as CanvasTool, shortcut: 'V', label: text.tools.select, icon: <SelectOutlined />, hint: text.hints.select },
+            { key: 'station' as CanvasTool, shortcut: 'S', label: text.tools.station, icon: <EnvironmentOutlined />, hint: text.hints.station },
             {
               key: 'line' as CanvasTool,
+              shortcut: 'L',
               label: text.tools.line,
               icon: <NodeIndexOutlined />,
               hint:
@@ -2765,12 +2791,17 @@ const Canvas: React.FC<CanvasProps> = ({
                   ? text.hints.lineDrawing(drawingLine.startStation.name)
                   : text.hints.lineIdle
             },
-            { key: 'section' as CanvasTool, label: text.tools.section, icon: <LineOutlined />, hint: text.hints.section },
-            { key: 'pan' as CanvasTool, label: text.tools.pan, icon: <DragOutlined />, hint: text.hints.pan }
+            { key: 'section' as CanvasTool, shortcut: 'W', label: text.tools.section, icon: <LineOutlined />, hint: text.hints.section },
+            { key: 'pan' as CanvasTool, shortcut: 'H', label: text.tools.pan, icon: <DragOutlined />, hint: text.hints.pan }
           ].map((tool, index) => {
             const active = activeTool === tool.key;
             return (
-              <Tooltip key={tool.key} title={isCompact ? null : tool.hint} placement="bottom" mouseEnterDelay={0.2}>
+              <Tooltip
+                key={tool.key}
+                title={isCompact ? null : `${tool.label} (${tool.shortcut}) · ${tool.hint}`}
+                placement="bottom"
+                mouseEnterDelay={0.25}
+              >
                 <button
                   type="button"
                   className={`metro-tool-button ${active ? 'is-active' : ''}`}
@@ -2779,7 +2810,6 @@ const Canvas: React.FC<CanvasProps> = ({
                   aria-label={tool.label}
                   aria-pressed={active}
                 >
-                  {active ? <span className="metro-tool-button__dot" aria-hidden="true" /> : null}
                   <span className="metro-tool-button__icon">{tool.icon}</span>
                   <span className="metro-tool-button__label">{tool.label}</span>
                 </button>
@@ -3472,242 +3502,253 @@ const Canvas: React.FC<CanvasProps> = ({
           setCanvasContextMenu(prev => ({ ...prev, visible: false }));
         }} />
       ) : null}
-      {canvasContextMenu.visible && (
-        <div
-          className="canvas-context-menu"
-          onMouseDown={e => e.stopPropagation()}
-          style={{
-            position: 'absolute',
-            top: canvasContextMenu.y,
-            left: canvasContextMenu.x,
-            zIndex: 1002,
-            background: '#fff',
-            padding: '8px 12px',
-            borderRadius: '6px',
-            boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-            fontSize: '12px',
-            color: '#333',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8
-          }}
-        >
-          <Button size="small" onClick={openCanvasColorModal}>
-            更改画布颜色
-          </Button>
-          <Button size="small" onClick={triggerImageImport}>
-            导入图片
-          </Button>
-          <Button size="small" onClick={handleClearBackgroundImage} disabled={!canvasBackgroundImage}>
-            清除背景图片
-          </Button>
-          <Button size="small" onClick={handleResetCanvasColor}>
-            恢复默认画布颜色
-          </Button>
-        </div>
-      )}
-       {/* 区间右键菜单 */}
-       {sectionContextMenu.visible && sectionContextMenu.sectionKey ? (() => {
-         const sectionKey = sectionContextMenu.sectionKey!;
-         const pointIndex = sectionContextMenu.waypointIndex;
-         const sectionWaypoints = getSectionWaypoints(sectionKey);
-         const currentPoint = pointIndex === null ? null : sectionWaypoints[pointIndex];
-         const closeSectionMenu = () => {
-           setSectionContextMenu({ ...sectionContextMenu, visible: false, waypointOnly: false });
-           setSelectedSection(null);
-           setAddingWaypoint(false);
-         };
-
-         return (
-           <div
-             className="section-context-menu"
-             role="region" aria-label="区间操作"
-             onMouseDown={e => e.stopPropagation()}
-             style={{
-               position: 'absolute',
-               top: sectionContextMenu.y,
-               left: sectionContextMenu.x,
-               zIndex: 1000,
-               minWidth: 140,
-               background: canvasPalette.menuSurface,
-               padding: '8px 10px',
-               borderRadius: '8px',
-               boxShadow: canvasPalette.menuShadow,
-               fontSize: '12px',
-               color: canvasPalette.menuText,
-               display: 'flex',
-               flexDirection: 'column',
-               gap: 8,
-             }}
-           >
-             {sectionContextMenu.waypointOnly && currentPoint ? (
-               <>
-                 <div style={{ fontWeight: 700 }}>途经点管理</div>
-                 <Button
-                   size="small"
-                   onClick={() => {
-                     hideWaypoint(sectionKey, pointIndex!);
-                     closeSectionMenu();
-                   }}
-                 >
-                   隐藏途经点
-                 </Button>
-                 <Button
-                   size="small"
-                   danger
-                   onClick={() => {
-                     deleteWaypoint(sectionKey, pointIndex!);
-                     closeSectionMenu();
-                   }}
-                 >
-                   删除途经点
-                 </Button>
-                 <Button size="small" onClick={closeSectionMenu}>取消</Button>
-               </>
-             ) : (
-               <>
-                 <div style={{ fontWeight: 700 }}>区间途经点管理</div>
-                 {sectionWaypoints.length > 0 ? (
-                   sectionWaypoints.map((pt, idx) => (
-                     <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 6, alignItems: 'center' }}>
-                       <span style={{ color: canvasPalette.menuText }}>途经点 {idx + 1}</span>
-                       <Button
-                         size="small"
-                         onClick={() => {
-                           if (pt.hidden) {
-                             showWaypoint(sectionKey, idx);
-                           } else {
-                             hideWaypoint(sectionKey, idx);
-                           }
-                           closeSectionMenu();
-                         }}
-                       >
-                         {pt.hidden ? '显示' : '隐藏'}
-                       </Button>
-                       <Button
-                         size="small"
-                         danger
-                         onClick={() => {
-                           deleteWaypoint(sectionKey, idx);
-                           closeSectionMenu();
-                         }}
-                       >
-                         删除
-                       </Button>
-                     </div>
-                   ))
-                 ) : (
-                   <div style={{ color: canvasPalette.menuMuted }}>暂无途经点</div>
-                 )}
-                 {isCompact ? <Button size="small" onClick={() => {
-                   const section = sections.find(item => item.id === sectionKey);
-                   const startStation = stations.find(item => item.id === section?.startStationId);
-                   const endStation = stations.find(item => item.id === section?.endStationId);
-                   if (!section || !startStation || !endStation) return;
-                   setSectionContextMenu(prev => ({ ...prev, visible: false }));
-                   setCanvasTool('section');
-                   setSelectedSection({ sectionId: section.id, lineId: section.lineId, startStation, endStation });
-                 }}>调整区间走向</Button> : null}
-                 <Button
-                   size="small"
-                   danger
-                   onClick={() => {
-                     onDeleteSection(sectionKey);
-                     closeSectionMenu();
-                   }}
-                 >
-                   删除当前区间
-                 </Button>
-                 <Button size="small" onClick={closeSectionMenu}>取消</Button>
-               </>
-             )}
-           </div>
-         );
-       })() : null}
-
-       {/* 站点右键菜单 */}
-       {stationContextMenu.visible && (
-         <div
-            className="station-context-menu"
-            role="region" aria-label="站点操作"
-           style={{
-             position: 'absolute',
-             top: stationContextMenu.y,
-             left: stationContextMenu.x,
-             zIndex: 1000,
-             background: '#fff',
-             padding: '8px 12px',
-             borderRadius: '6px',
-             boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-             fontSize: '12px',
-             color: '#333',
-             display: 'flex',
-             flexDirection: 'column',
-             gap: 8,
-           }}
+      {canvasContextMenu.visible && (() => {
+        const menuLeft = Math.max(12, Math.min(canvasContextMenu.x, stageSize.width - 204));
+        const menuTop = Math.max(12, Math.min(canvasContextMenu.y, stageSize.height - 196));
+        return (
+          <div
+            className="canvas-context-menu metro-floating-menu"
+            role="menu"
+            aria-label="画布操作"
+            onMouseDown={e => e.stopPropagation()}
+            style={{ top: menuTop, left: menuLeft, zIndex: 1002 }}
           >
-            <div style={{ fontWeight: 'bold' }}>站点: {stationContextMenu.station?.name}</div>
+            <div className="metro-floating-menu__header">画布背景</div>
+            <button type="button" className="metro-floating-menu__item" onClick={openCanvasColorModal}>
+              <BgColorsOutlined />
+              <span>更改画布颜色</span>
+            </button>
+            <button type="button" className="metro-floating-menu__item" onClick={triggerImageImport}>
+              <PictureOutlined />
+              <span>导入参考底图</span>
+            </button>
+            <button
+              type="button"
+              className="metro-floating-menu__item"
+              onClick={handleClearBackgroundImage}
+              disabled={!canvasBackgroundImage}
+            >
+              <DeleteOutlined />
+              <span>清除参考底图</span>
+            </button>
+            <div className="metro-floating-menu__divider" />
+            <button type="button" className="metro-floating-menu__item" onClick={handleResetCanvasColor}>
+              <ReloadOutlined />
+              <span>恢复默认画布色</span>
+            </button>
+          </div>
+        );
+      })()}
+      {/* 区间右键菜单 */}
+      {sectionContextMenu.visible && sectionContextMenu.sectionKey ? (() => {
+        const sectionKey = sectionContextMenu.sectionKey!;
+        const pointIndex = sectionContextMenu.waypointIndex;
+        const sectionWaypoints = getSectionWaypoints(sectionKey);
+        const currentPoint = pointIndex === null ? null : sectionWaypoints[pointIndex];
+        const closeSectionMenu = () => {
+          setSectionContextMenu({ ...sectionContextMenu, visible: false, waypointOnly: false });
+          setSelectedSection(null);
+          setAddingWaypoint(false);
+        };
+        const menuLeft = Math.max(12, Math.min(sectionContextMenu.x, stageSize.width - 228));
+        const menuTop = Math.max(12, Math.min(sectionContextMenu.y, stageSize.height - 240));
+
+        return (
+          <div
+            className="section-context-menu metro-floating-menu"
+            role="region"
+            aria-label="区间操作"
+            onMouseDown={e => e.stopPropagation()}
+            style={{ top: menuTop, left: menuLeft, zIndex: 1000, minWidth: 204 }}
+          >
+            {sectionContextMenu.waypointOnly && currentPoint ? (
+              <>
+                <div className="metro-floating-menu__header">途经点 #{pointIndex! + 1}</div>
+                <button
+                  type="button"
+                  className="metro-floating-menu__item"
+                  onClick={() => {
+                    hideWaypoint(sectionKey, pointIndex!);
+                    closeSectionMenu();
+                  }}
+                >
+                  <EyeInvisibleOutlined />
+                  <span>隐藏途经点控制柄</span>
+                </button>
+                <div className="metro-floating-menu__divider" />
+                <button
+                  type="button"
+                  className="metro-floating-menu__item is-danger"
+                  onClick={() => {
+                    deleteWaypoint(sectionKey, pointIndex!);
+                    closeSectionMenu();
+                  }}
+                >
+                  <DeleteOutlined />
+                  <span>删除途经点</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="metro-floating-menu__header">区间走向管理</div>
+                {sectionWaypoints.length > 0 ? (
+                  <div className="metro-floating-menu__wp-list">
+                    {sectionWaypoints.map((pt, idx) => (
+                      <div key={idx} className="metro-floating-menu__wp-row">
+                        <span className="metro-floating-menu__wp-label">途经点 {idx + 1}</span>
+                        <button
+                          type="button"
+                          className="metro-floating-menu__mini-btn"
+                          onClick={() => {
+                            if (pt.hidden) showWaypoint(sectionKey, idx);
+                            else hideWaypoint(sectionKey, idx);
+                            closeSectionMenu();
+                          }}
+                        >
+                          {pt.hidden ? <><EyeOutlined /> 显示</> : <><EyeInvisibleOutlined /> 隐藏</>}
+                        </button>
+                        <button
+                          type="button"
+                          className="metro-floating-menu__mini-btn is-danger"
+                          onClick={() => {
+                            deleteWaypoint(sectionKey, idx);
+                            closeSectionMenu();
+                          }}
+                        >
+                          删除
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="metro-floating-menu__empty">暂无途经点（切至「区间」工具可添加）</div>
+                )}
+                {isCompact ? (
+                  <button
+                    type="button"
+                    className="metro-floating-menu__item"
+                    onClick={() => {
+                      const section = sections.find(item => item.id === sectionKey);
+                      const startStation = stations.find(item => item.id === section?.startStationId);
+                      const endStation = stations.find(item => item.id === section?.endStationId);
+                      if (!section || !startStation || !endStation) return;
+                      setSectionContextMenu(prev => ({ ...prev, visible: false }));
+                      setCanvasTool('section');
+                      setSelectedSection({ sectionId: section.id, lineId: section.lineId, startStation, endStation });
+                    }}
+                  >
+                    <LineOutlined />
+                    <span>调整区间走向</span>
+                  </button>
+                ) : null}
+                <div className="metro-floating-menu__divider" />
+                <button
+                  type="button"
+                  className="metro-floating-menu__item is-danger"
+                  onClick={() => {
+                    onDeleteSection(sectionKey);
+                    closeSectionMenu();
+                  }}
+                >
+                  <DeleteOutlined />
+                  <span>删除当前区间</span>
+                </button>
+              </>
+            )}
+          </div>
+        );
+      })() : null}
+
+      {/* 站点右键菜单 */}
+      {stationContextMenu.visible && (() => {
+        const menuLeft = Math.max(12, Math.min(stationContextMenu.x, stageSize.width - 236));
+        const menuTop = Math.max(12, Math.min(stationContextMenu.y, stageSize.height - 268));
+        const stationId = stationContextMenu.station?.id;
+        const canConnectOther = Boolean(currentLineId && getCurrentLineStationOptions(stationId).length > 0);
+        return (
+          <div
+            className="station-context-menu metro-floating-menu"
+            role="region"
+            aria-label="站点操作"
+            onMouseDown={e => e.stopPropagation()}
+            style={{ top: menuTop, left: menuLeft, zIndex: 1000, minWidth: 212 }}
+          >
+            <div className="metro-floating-menu__header">
+              <span
+                className="metro-floating-menu__dot"
+                style={{ backgroundColor: stationId ? getStationColor(stationId) : '#2563eb' }}
+              />
+              <span className="metro-floating-menu__title">{stationContextMenu.station?.name}</span>
+            </div>
             <div
               onMouseEnter={() => setShowConnectAction(true)}
               onMouseLeave={() => setShowConnectAction(false)}
-              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+              className="metro-floating-menu__group"
             >
-              <Button
-                size="small"
+              <button
+                type="button"
+                className="metro-floating-menu__item"
                 onClick={() => {
                   onAddStationToLine(stationContextMenu.station!.id, { mode: 'default' });
                   closeStationContextMenu();
                 }}
                 disabled={!currentLineId}
               >
-                {!isCompact && showConnectAction ? '添加到当前线路（建立默认连接）' : '添加到当前线路'}
-              </Button>
+                <PlusCircleOutlined />
+                <span>{!isCompact && showConnectAction ? '加入当前线路并顺延连线' : '加入当前线路'}</span>
+              </button>
               {(showConnectAction || isCompact) && (
-                <Button
-                  size="small"
-                  type="dashed"
-                  onClick={handleOpenConnectModal}
-                  disabled={!currentLineId || getCurrentLineStationOptions(stationContextMenu.station?.id).length === 0}
-                >
-                  与其他站点进行连接
-                </Button>
-              )}
-              {(showConnectAction || isCompact) && (
-                <Button
-                  size="small"
-                  onClick={() => {
-                    onAddStationToLine(stationContextMenu.station!.id, { mode: 'only' });
-                    closeStationContextMenu();
-                  }}
-                  disabled={!currentLineId}
-                >
-                  仅添加站点
-                </Button>
+                <>
+                  <button
+                    type="button"
+                    className="metro-floating-menu__item is-sub"
+                    onClick={handleOpenConnectModal}
+                    disabled={!canConnectOther}
+                  >
+                    <NodeIndexOutlined />
+                    <span>指定站点建立连接…</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="metro-floating-menu__item is-sub"
+                    onClick={() => {
+                      onAddStationToLine(stationContextMenu.station!.id, { mode: 'only' });
+                      closeStationContextMenu();
+                    }}
+                    disabled={!currentLineId}
+                  >
+                    <EnvironmentOutlined />
+                    <span>仅加入线路（不连线）</span>
+                  </button>
+                </>
               )}
             </div>
-            {isCompact ? <Button size="small" onClick={() => {
-              const station = stationContextMenu.station;
-              closeStationContextMenu();
-              if (station) setStationInfoModal({ visible: true, station, note: station.note || '' });
-            }}>站点详情与标注</Button> : null}
-            <Button size="small" onClick={handleOpenRenameStation}>
-              修改站点名称
-            </Button>
-            <Button
-              size="small"
-              onClick={handleDeleteStation}
-              danger
-           >
-             删除站点
-           </Button>
-           <Button
-             size="small"
-             onClick={closeStationContextMenu}
-           >
-             取消
-           </Button>
-         </div>
-       )}
+            <div className="metro-floating-menu__divider" />
+            {isCompact ? (
+              <button
+                type="button"
+                className="metro-floating-menu__item"
+                onClick={() => {
+                  const station = stationContextMenu.station;
+                  closeStationContextMenu();
+                  if (station) setStationInfoModal({ visible: true, station, note: station.note || '' });
+                }}
+              >
+                <EditOutlined />
+                <span>站点详情与标注</span>
+              </button>
+            ) : null}
+            <button type="button" className="metro-floating-menu__item" onClick={handleOpenRenameStation}>
+              <EditOutlined />
+              <span>修改站点名称</span>
+            </button>
+            <button type="button" className="metro-floating-menu__item is-danger" onClick={handleDeleteStation}>
+              <DeleteOutlined />
+              <span>删除站点</span>
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 };

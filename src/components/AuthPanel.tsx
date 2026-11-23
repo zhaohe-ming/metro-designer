@@ -33,6 +33,7 @@ type Mode =
 interface AuthPanelProps {
   onPreview?: () => void;
   embedded?: boolean;
+  contextHint?: string;
   // 验证邮箱 / 重置密码成功后父组件接管：保存 token + user 并卸载 AuthPanel
   onAuthenticated: (payload: { token: string; user: UserDto }) => void | Promise<void>;
 }
@@ -51,7 +52,7 @@ function readTokenFromUrl(): { kind: 'verify' | 'reset' | null; token: string } 
   return { kind: null, token: '' };
 }
 
-const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embedded = false }) => {
+const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embedded = false, contextHint }) => {
   const initialTokenInUrl = useMemo(readTokenFromUrl, []);
   const [mode, setMode] = useState<Mode>(() => {
     if (initialTokenInUrl.kind === 'verify') return 'verifying_url';
@@ -278,8 +279,14 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embed
 
         <section className="auth-card__form">
           <div className="auth-form-shell">
-            <Title id={embedded ? 'metro-guest-auth-title' : undefined} className="auth-form-title">{title}</Title>
-            {!(embedded && mode === 'login') && <Text className="auth-form-subtitle">{subtitle}</Text>}
+            {(!embedded || (mode !== 'login' && mode !== 'register')) && (
+              <Title id={embedded ? 'metro-guest-auth-title' : undefined} className="auth-form-title">{title}</Title>
+            )}
+            {embedded && (mode === 'login' || mode === 'register') && contextHint ? (
+              <Text className="auth-form-subtitle auth-form-subtitle--embedded">{contextHint}</Text>
+            ) : !(embedded && mode === 'login') ? (
+              <Text className="auth-form-subtitle">{subtitle}</Text>
+            ) : null}
             {!embedded && <AndroidDownloadLink />}
 
             {(mode === 'login' || mode === 'register') && (

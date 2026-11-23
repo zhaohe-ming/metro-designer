@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button, Dropdown, Tooltip } from 'antd';
 import {
+  AppstoreOutlined,
   DownloadOutlined,
   DownOutlined,
   PictureOutlined,
@@ -9,12 +10,12 @@ import {
   VideoCameraOutlined
 } from '@ant-design/icons';
 
-// 顶部 toolbar 重新定位为「跨方案的画布动作」：撤销/重做 + 导出。
-// 「新建线路 / 切换线路」属于线路管理，已经收回左侧 Sidebar；导出图片 / 视频两个按钮合并成一个 dropdown。
+// 顶部 toolbar 承载「跨方案画布动作 + 社区入口」：撤销/重做 + 导出 + 作品广场。
 interface ToolbarProps {
   language?: 'zh-CN' | 'en-US';
   onExportImage?: () => void;
   onOpenVideoModal?: () => void;
+  onOpenGallery?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
@@ -26,6 +27,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
   language = 'zh-CN',
   onExportImage,
   onOpenVideoModal,
+  onOpenGallery,
   onUndo,
   onRedo,
   canUndo,
@@ -36,12 +38,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
     ? {
         exportLabel: 'Export',
         exportImage: 'Image',
-        exportVideo: 'Demo video'
+        exportVideo: 'Demo video',
+        galleryLabel: 'Gallery'
       }
     : {
         exportLabel: '导出',
         exportImage: '导出图片',
-        exportVideo: '导出演示视频'
+        exportVideo: '导出演示视频',
+        galleryLabel: '作品广场'
       };
   const undoText = language === 'en-US' ? 'Undo (Ctrl+Z)' : '撤销 (Ctrl+Z)';
   const redoText = language === 'en-US' ? 'Redo (Ctrl+Shift+Z)' : '重做 (Ctrl+Shift+Z)';
@@ -97,6 +101,18 @@ const Toolbar: React.FC<ToolbarProps> = ({
               {text.exportLabel} <DownOutlined style={{ fontSize: 10 }} />
             </Button>
           </Dropdown>
+        ) : null}
+        {onOpenGallery ? (
+          <>
+            <span className="metro-toolbar__sep" aria-hidden="true" />
+            <Button
+              className="metro-toolbar__secondary metro-toolbar__gallery"
+              icon={<AppstoreOutlined />}
+              onClick={onOpenGallery}
+            >
+              {text.galleryLabel}
+            </Button>
+          </>
         ) : null}
       </div>
     </div>

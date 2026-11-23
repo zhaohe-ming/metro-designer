@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Progress, Radio, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
 import {
+  CheckOutlined,
   DownOutlined,
   FileAddOutlined,
   FolderOpenOutlined,
@@ -129,8 +130,9 @@ const INTERFACE_THEME_KEY = 'metro_interface_theme';
 
 const i18n = {
   'zh-CN': {
-    saveMap: '保存地图',
-    overwriteSave: '覆盖保存',
+    saveMap: '保存',
+    savedState: '已保存',
+    overwriteSave: '保存',
     viewMaps: '查看地图',
     profile: '个人中心',
     settings: '设置',
@@ -202,8 +204,9 @@ const i18n = {
     labelDensityKey: '仅关键'
   },
   'en-US': {
-    saveMap: 'Save map',
-    overwriteSave: 'Overwrite',
+    saveMap: 'Save',
+    savedState: 'Saved',
+    overwriteSave: 'Save',
     viewMaps: 'Maps',
     profile: 'Profile',
     settings: 'Settings',
@@ -1242,7 +1245,16 @@ const App: React.FC = () => {
   const handleOpenSaveMap = () => {
     if (!userProfile) { void persistGuestDraft(); requestGuestAuth('save'); return; }
     if (saveMapSaving) return;
-    setMapName(currentMap?.name || (guestDraftIdRef.current ? mapName : ''));
+    // 已保存过的云端地图：有改动时直接一键静默保存，不再每次打断弹出“覆盖保存”框；无改动时轻提示
+    if (currentMap) {
+      if (!dirtyRef.current) {
+        message.success(language === 'en-US' ? 'All changes saved' : '当前方案已是最新保存状态');
+        return;
+      }
+      void handleSaveMap();
+      return;
+    }
+    setMapName(guestDraftIdRef.current ? mapName : '');
     setSaveMapVisible(true);
   };
 
@@ -1292,7 +1304,7 @@ const App: React.FC = () => {
         try { localStorage.setItem(LAST_MAP_KEY, map.id); } catch { /* ignore */ }
         if (documentSessionRef.current.isUnchanged(ticket)) {
           clearDirty();
-          message.success({ content: targetMapId ? '地图已覆盖保存' : '地图已保存', key: 'save-map' });
+          message.success({ content: targetMapId ? '已保存最新修改' : '地图已保存', key: 'save-map' });
         } else {
           message.success({ content: '已保存提交时的版本，后续修改仍需保存', key: 'save-map' });
         }
@@ -2186,17 +2198,13 @@ const App: React.FC = () => {
   useEffect(() => {
     if (mapsVisible && userProfile) gallery.mine().then(r=>setMyPublications(r.works)).catch(()=>{});
   }, [mapsVisible,userProfile]);
-  const identityMenuItem = {
-    key: 'identity', disabled: true,
-    label: <span className="metro-user-menu__identity">{maskedEmail || '访客预览'}</span>
-  };
-  const newMapMenuItem = { key: 'new-map', icon: <FileAddOutlined />, label: '新建空白方案', onClick: handleNewMap };
+  const newMapMenuItem = { key: 'new-map', icon: <FileAddOutlined />, label: language === 'en-US' ? 'New blank map' : '新建空白方案', onClick: handleNewMap };
   const openGallery = () => {void persistGuestDraft();setGuestInitialViewport(guestViewport);navigatePublic('/gallery');};
   const settingsMenuItems = [
-    { key: 'gallery', icon: <AppstoreOutlined />, label: '作品广场', onClick: openGallery },
-    { key: 'settings', icon: <SettingOutlined />, label: '设置', onClick: () => setSettingsVisible(true) },
+    { key: 'gallery', className: 'metro-user-menu__mobile-only', icon: <AppstoreOutlined />, label: language === 'en-US' ? 'Gallery' : '作品广场', onClick: openGallery },
+    { key: 'settings', icon: <SettingOutlined />, label: language === 'en-US' ? 'Settings' : '设置', onClick: () => setSettingsVisible(true) },
     ...(!isAndroidClient ? [{ key: 'download-client', icon: <DownloadOutlined />,
-      label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">下载客户端</a> }] : []),
+      label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">{language === 'en-US' ? 'Download app' : '下载客户端'}</a> }] : []),
     { key: 'about', icon: <InfoCircleOutlined />, label: language === 'en-US' ? 'About us' : '关于我们', onClick: () => setAboutVisible(true) }
   ];
   const guestBackupMenuItems = guestStorageError ? [
@@ -2205,31 +2213,53 @@ const App: React.FC = () => {
     { key: 'retry-draft', label: '重试保存草稿', onClick: () => { void retryGuestStorage(); } },
     { key: 'backup-draft', label: '下载草稿备份', onClick: () => { void downloadGuestBackup(); } }
   ] : [];
-  // 访客解锁入口只做认证；顶部“登录并保存”继续承担保存当前作品的动作。
+  // 已登录与未登录共用统一尺寸与视觉语言的账号下拉菜单
   const userMenuItems = userProfile ? [
-    identityMenuItem,
+    {
+      key: 'identity',
+      disabled: true,
+      className: 'metro-user-menu__header',
+      label: (
+        <div className="metro-user-menu__account">
+          <span className="metro-user-menu__account-name">{displayName}</span>
+          {maskedEmail ? <span className="metro-user-menu__account-sub">{maskedEmail}</span> : null}
+        </div>
+      )
+    },
     { type: 'divider' as const },
     newMapMenuItem,
-    { key: 'maps', icon: <FolderOpenOutlined />, label: '我的地图', onClick: handleOpenMapList },
+    { key: 'maps', icon: <FolderOpenOutlined />, label: language === 'en-US' ? 'My maps' : '我的地图', onClick: handleOpenMapList },
     { type: 'divider' as const },
-    { key: 'profile', icon: <UserOutlined />, label: '个人中心', onClick: () => setProfileVisible(true) },
+    { key: 'profile', icon: <UserOutlined />, label: language === 'en-US' ? 'Account' : '个人中心', onClick: () => setProfileVisible(true) },
     ...settingsMenuItems,
     { type: 'divider' as const },
-    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true, onClick: handleLogout }
+    { key: 'logout', icon: <LogoutOutlined />, label: language === 'en-US' ? 'Sign out' : '退出登录', danger: true, onClick: handleLogout }
   ] : [
-    identityMenuItem,
-    { key: 'unlock', className: 'metro-user-menu__unlock',
-      label: <span className="metro-user-menu__unlock-content"><UserOutlined /><span className="metro-user-menu__unlock-label"><strong>登录解锁更多功能</strong>
-        <span>云端地图、AI 助手<br />视频导出、账号管理</span></span></span>,
-      onClick: () => requestGuestAuth(null) },
+    {
+      key: 'unlock',
+      className: 'metro-user-menu__unlock-card',
+      label: (
+        <div className="metro-user-menu__unlock-body">
+          <div className="metro-user-menu__unlock-title">
+            <UserOutlined />
+            <strong>{language === 'en-US' ? 'Sign in / Register' : '登录 / 注册账号'}</strong>
+          </div>
+          <span className="metro-user-menu__unlock-desc">
+            {language === 'en-US' ? 'Cloud maps · AI assistant · Video export' : '解锁云端存档 · AI 助手 · 视频导出'}
+          </span>
+        </div>
+      ),
+      onClick: () => requestGuestAuth(null)
+    },
     { type: 'divider' as const },
     newMapMenuItem,
-    { key: 'demo-animation', icon: <PlaySquareOutlined />, label: '观看动态示例', onClick: () => setGuestAnimationOpen(true) },
+    { key: 'maps-guest', icon: <FolderOpenOutlined />, label: language === 'en-US' ? 'My maps' : '我的地图', onClick: handleOpenMapList },
+    { key: 'demo-animation', icon: <PlaySquareOutlined />, label: language === 'en-US' ? 'Demo preview' : '观看动态示例', onClick: () => setGuestAnimationOpen(true) },
     { type: 'divider' as const },
     ...settingsMenuItems,
     ...guestBackupMenuItems,
     { type: 'divider' as const },
-    { key: 'return-login', icon: <LogoutOutlined />, label: '返回登录页', onClick: () => {
+    { key: 'return-login', icon: <LogoutOutlined />, label: language === 'en-US' ? 'Welcome page' : '返回欢迎页', onClick: () => {
       void persistGuestDraft(); setPreviewMode(false); if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     } }
   ];
@@ -2298,10 +2328,39 @@ const App: React.FC = () => {
       <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
     <PublishDialog source={publishSource} user={userProfile} onClose={()=>setPublishSource(null)} onDone={()=>{gallery.mine().then(r=>setMyPublications(r.works)).catch(()=>{});}}/>
     <GuestAnimationPreview open={guestAnimationOpen} onClose={() => setGuestAnimationOpen(false)} />
-    <Modal open={authVisible} onCancel={() => { setAuthVisible(false); setAuthAction(null); }}
-      footer={null} width={520} className="metro-guest-auth" destroyOnHidden aria-labelledby="metro-guest-auth-title">
-      <AuthPanel embedded onAuthenticated={handleAuthenticated} />
-    </Modal>
+    <DraggableModal
+      title={
+        authAction === 'save'
+          ? '登录以保存地图'
+          : authAction === 'maps'
+            ? '登录查看我的地图'
+            : authAction === 'ai'
+              ? '登录使用 AI 助手'
+              : authAction === 'video'
+                ? '登录导出动态视频'
+                : '登录或注册账号'
+      }
+      open={authVisible}
+      onCancel={() => { setAuthVisible(false); setAuthAction(null); }}
+      footer={null}
+      width={420}
+      className="metro-guest-auth"
+      destroyOnHidden
+    >
+      <AuthPanel
+        embedded
+        contextHint={
+          authAction === 'save'
+            ? '登录后当前画布草稿将自动保留，可直接保存至云端。'
+            : authAction === 'ai'
+              ? '登录后即可使用自然语言驱动 AI 规划与修改线网。'
+              : authAction === 'video'
+                ? '登录后即可导出高清线路建设历程动态视频。'
+                : '登录后自动同步云端地图并解锁全部专业能力。'
+        }
+        onAuthenticated={handleAuthenticated}
+      />
+    </DraggableModal>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
       <DesktopUpdateNotice />
       <Layout className="metro-workbench">
@@ -2342,6 +2401,7 @@ const App: React.FC = () => {
                 language={language}
                 onExportImage={handleExportImage}
                 onOpenVideoModal={() => userProfile ? setVideoModalOpen(true) : requestGuestAuth('video')}
+                onOpenGallery={openGallery}
                 onUndo={handleUndo}
                 onRedo={handleRedo}
                 canUndo={canUndo}
@@ -2351,8 +2411,7 @@ const App: React.FC = () => {
             </section>
 
             <section className="metro-user-panel">
-              <button type="button" className="metro-header-gallery" onClick={openGallery}><AppstoreOutlined/>作品广场</button>
-              {/* AI 助手按钮：圆形 + 边缘 conic-gradient 慢旋 + 微光晕，全平台一致 */}
+              {/* AI 助手按钮：32px 同色系极光环，与顶栏控件齐高 */}
               <Tooltip title="AI 助手 —— 用自然语言编辑线路图">
                 <button
                   type="button"
@@ -2365,41 +2424,49 @@ const App: React.FC = () => {
                   </span>
                 </button>
               </Tooltip>
-              <Button
-                type="primary"
-                className="metro-header-save-btn"
-                aria-label={!userProfile ? '登录并保存' : currentMap ? text.overwriteSave : text.saveMap}
-                icon={<SaveOutlined />}
-                loading={saveMapSaving}
-                onClick={handleOpenSaveMap}
-              >
-                <span className="metro-header-save-btn__label">
-                  {!userProfile ? '登录并保存' : currentMap ? text.overwriteSave : text.saveMap}
-                </span>
-                {dirty ? (
-                  <span
-                    title="有未保存的修改"
-                    style={{
-                      display: 'inline-block',
-                      width: 7,
-                      height: 7,
-                      marginLeft: 6,
-                      borderRadius: '50%',
-                      background: '#faad14',
-                      verticalAlign: 'middle'
-                    }}
-                  />
-                ) : null}
-              </Button>
+              {(() => {
+                const isCleanSaved = Boolean(userProfile && currentMap && !dirty && !saveMapSaving);
+                const saveLabel = isCleanSaved ? text.savedState : text.saveMap;
+                return (
+                  <Tooltip title={isCleanSaved ? (language === 'en-US' ? 'All changes saved · Click map name to rename' : '所有更改已保存 · 点击左上角方案名可重命名') : undefined}>
+                    <Button
+                      type={isCleanSaved ? 'default' : 'primary'}
+                      className={`metro-header-save-btn${isCleanSaved ? ' is-clean' : ''}`}
+                      aria-label={saveLabel}
+                      icon={isCleanSaved ? <CheckOutlined /> : <SaveOutlined />}
+                      loading={saveMapSaving}
+                      onClick={handleOpenSaveMap}
+                    >
+                      <span className="metro-header-save-btn__label">{saveLabel}</span>
+                      {dirty ? (
+                        <span
+                          title="有未保存的修改"
+                          className="metro-header-save-btn__dot"
+                        />
+                      ) : null}
+                    </Button>
+                  </Tooltip>
+                );
+              })()}
 
-              <Dropdown menu={{ items: userMenuItems }} overlayClassName={!userProfile ? 'metro-user-menu--guest' : undefined} trigger={['click']} placement="bottomRight">
-                <button type="button" className="user-chip user-chip--trigger">
-                  <Avatar size={28} src={userProfile?.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
-                    {userProfile?.avatar ? null : displayInitial}
-                  </Avatar>
-                  <span className="user-chip__name">{displayName}</span>
-                  <DownOutlined style={{ fontSize: 10, color: 'var(--color-text-muted)' }} />
-                </button>
+              <Dropdown menu={{ items: userMenuItems }} overlayClassName="metro-user-dropdown" trigger={['click']} placement="bottomRight">
+                {userProfile ? (
+                  <button type="button" className="user-chip user-chip--trigger">
+                    <Avatar size={24} src={userProfile?.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
+                      {userProfile?.avatar ? null : displayInitial}
+                    </Avatar>
+                    <span className="user-chip__name">{displayName}</span>
+                    <DownOutlined className="user-chip__chevron" />
+                  </button>
+                ) : (
+                  <button type="button" className="user-chip user-chip--trigger user-chip--guest">
+                    <span className="user-chip__guest-badge" aria-hidden="true">
+                      <UserOutlined />
+                    </span>
+                    <span className="user-chip__name">{language === 'en-US' ? 'Guest' : '访客模式'}</span>
+                    <DownOutlined className="user-chip__chevron" />
+                  </button>
+                )}
               </Dropdown>
             </section>
           </div>
@@ -2509,18 +2576,19 @@ const App: React.FC = () => {
         />
 
         <DraggableModal
-          title={currentMap ? '覆盖保存当前地图' : '保存地图'}
+          title="保存地图"
           open={saveMapVisible}
           onCancel={() => setSaveMapVisible(false)}
           onOk={handleSaveMap}
           confirmLoading={saveMapSaving}
-          okText={currentMap ? '覆盖保存' : '保存'}
+          okText="保存"
           cancelText="取消"
         >
           <Input
             value={mapName}
             onChange={(event) => setMapName(event.target.value)}
-            placeholder="请输入地图名称（可选）"
+            onPressEnter={handleSaveMap}
+            placeholder="请输入地图名称（留空将自动命名）"
             maxLength={40}
           />
         </DraggableModal>
@@ -2531,17 +2599,51 @@ const App: React.FC = () => {
           open={mapsVisible}
           onCancel={() => { setMapsVisible(false); setMapsSearchKeyword(''); }}
           footer={null}
-          width={1000}
+          width={920}
         >
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:18}}><span style={{color:"#64748b",fontSize:13}}>私人存档与公开作品独立保存</span><Button type="link" onClick={()=>{setMapsVisible(false);navigatePublic("/gallery?view=mine");}}>管理广场作品 →</Button></div>
-          <Radio.Group value={mapsPublicationFilter} onChange={e=>setMapsPublicationFilter(e.target.value)} optionType="button" options={[{value:"all",label:"全部"},{value:"private",label:"私人存档"},{value:"public",label:"广场作品"}]} style={{marginBottom:18}}/>
-          <Input.Search
-            allowClear
-            placeholder="按地图名称搜索"
-            value={mapsSearchKeyword}
-            onChange={(event) => setMapsSearchKeyword(event.target.value)}
-            style={{ marginBottom: 12 }}
-          />
+          <div className="metro-maps-subhead">
+            <span>私人存档与已发布的广场作品独立存储，互不影响</span>
+            <Button type="link" size="small" onClick={()=>{setMapsVisible(false);navigatePublic("/gallery?view=mine");}}>管理广场作品 →</Button>
+          </div>
+          {(() => {
+            const publishedIds = new Set(myPublications.map((w) => w.sourceMapId));
+            const publicCount = savedMaps.filter((m) => publishedIds.has(m.id)).length;
+            const privateCount = savedMaps.length - publicCount;
+            const filterItems = [
+              { key: 'all', label: '全部', count: savedMaps.length },
+              { key: 'private', label: '私人存档', count: privateCount },
+              { key: 'public', label: '广场作品', count: publicCount }
+            ];
+            return (
+              <div className="metro-maps-toolbar">
+                <div className="metro-pill-filter-group" role="tablist" aria-label="地图类型筛选">
+                  {filterItems.map((f) => {
+                    const active = mapsPublicationFilter === f.key;
+                    return (
+                      <button
+                        key={f.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        className={`metro-pill-filter${active ? ' is-active' : ''}`}
+                        onClick={() => setMapsPublicationFilter(f.key)}
+                      >
+                        <span>{f.label}</span>
+                        <span className="metro-pill-filter__count">{f.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <Input.Search
+                  allowClear
+                  className="metro-maps-search"
+                  placeholder="搜索地图名称…"
+                  value={mapsSearchKeyword}
+                  onChange={(event) => setMapsSearchKeyword(event.target.value)}
+                />
+              </div>
+            );
+          })()}
           {mapsLoading ? (
             // Skeleton 取代默认的 spinner，加载体感更平滑
             <div className="metro-maps-skeleton">
