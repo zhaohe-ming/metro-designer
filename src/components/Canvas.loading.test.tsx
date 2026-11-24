@@ -24,7 +24,7 @@ jest.mock('antd', () => {
 });
 jest.mock('react-konva', () => {
   const React = require('react');
-  const node = (kind: string) => (props:any) => {if(kind==='group')mockGroupProps.push(props);return React.createElement('div', { 'data-node': kind }, props.children);};
+  const node = (kind: string) => React.forwardRef((props:any, _ref:any) => {if(kind==='group')mockGroupProps.push(props);return React.createElement('div', { 'data-node': kind }, props.children);});
   const Stage = React.forwardRef(({ children, style }: any, ref: any) => {
     React.useImperativeHandle(ref, () => ({ scale() {}, position() {}, batchDraw() {}, find: () => [],
       x: () => 0, y: () => 0, scaleX: () => 1, scaleY: () => 1 }));

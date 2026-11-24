@@ -3267,6 +3267,7 @@ const App: React.FC = () => {
                 onUpdateSection={handleUpdateSection}
                 onApplyGraphTransaction={handleApplyGraphTransaction}
                 onSelectLine={setCurrentLineId}
+                onRemoveStationFromLine={handleRemoveStationFromLine}
                 onBeginInteraction={pushHistory}
                 onMapSettingsChange={(settings) => setMapSettings(normalizeMapSettings(settings))}
                 onStageReady={(stage) => {

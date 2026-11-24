@@ -16,6 +16,7 @@ import {
   CheckOutlined,
   CloseOutlined,
   DeleteOutlined,
+  DisconnectOutlined,
   DownOutlined,
   DragOutlined,
   EditOutlined,
@@ -66,6 +67,7 @@ import { AppAction } from '../lib/commandParser';
 import { useAmapViewport } from '../lib/useAmapViewport';
 import { createId } from '../utils/id';
 import DraggableModal from './DraggableModal';
+import ElasticCapsuleTabs from './ElasticCapsuleTabs';
 import CanvasStartPrompt from './CanvasStartPrompt';
 import CanvasOnboardingModal, {
   hasSeenCanvasOnboarding,
@@ -102,6 +104,7 @@ const __perfMarkRender = (componentName: string, prevRef: { current: number }) =
 const GUIDE_THRESHOLD_DEG = 8;
 const SNAP_THRESHOLD_DEG = 3.5;
 const SNAP_MAX_PERP_SCREEN_PX = 12;
+const DRAW_STATION_SNAP_SCREEN_PX = 16;
 const SNAP_ANGLES = [0, 45, 90, 135];
 const SECTION_HIT_STROKE_WIDTH = 24;
 const ZOOM_MIN = 0.1;
@@ -188,17 +191,6 @@ function generateNextStationName(stations: ReadonlyArray<Station>): string {
   return `站点 ${idx}`;
 }
 
-function generateAutoLineSpec(lines: ReadonlyArray<LineType>): { name: string; color: string } {
-  const existingNames = new Set(lines.map((l) => l.name.trim()));
-  let num = lines.length + 1;
-  while (existingNames.has(`${num}号线`)) {
-    num += 1;
-  }
-  const usedColors = new Set(lines.map((l) => l.color.toLowerCase()));
-  const freeColor = LINE_COLORS.find((c) => !usedColors.has(c.toLowerCase())) || LINE_COLORS[(num - 1) % LINE_COLORS.length];
-  return { name: `${num}号线`, color: freeColor };
-}
-
 interface CanvasProps {
   readOnly?: boolean;
   currentLineId: string | null;
@@ -261,6 +253,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onUpdateSection,
   onApplyGraphTransaction,
   onSelectLine,
+  onRemoveStationFromLine,
   onMapSettingsChange,
   onStageReady,
   onBeginInteraction,
@@ -278,14 +271,11 @@ const Canvas: React.FC<CanvasProps> = ({
   const text = isEn
     ? {
         tools: { select: 'Select', draw: 'Draw', pan: 'Pan' },
-        hints: {
-          select: 'Drag track to add 360° bend · Click bend for arc · Drag blank to box-select · Double-click to edit',
-          drawIdle: 'Click blank to place first station · Click any station to extend or pull a branch',
-          drawActive: (name: string, wpMode: boolean) =>
-            wpMode
-              ? `From ${name}: click blank to drop 360° waypoints · Click station to finish · Right-click to lift pen`
-              : `From ${name}: click blank to add station · Shift+click for 360° bend · Right-click / Esc to lift pen`,
-          pan: 'Drag canvas to pan · Scroll to zoom · Hold Space anytime to grab-pan'
+        touchHints: {
+          select: 'Tap station to edit · Drag track for bend · 2 fingers to navigate',
+          drawIdle: 'Tap blank to place station · Tap station to extend',
+          drawActive: (name: string) => `From ${name}: tap blank to add station`,
+          pan: '1 finger pan · 2 fingers zoom · Long-press station to edit'
         },
         zoomIn: 'Zoom in',
         zoomOut: 'Zoom out',
@@ -297,14 +287,11 @@ const Canvas: React.FC<CanvasProps> = ({
       }
     : {
         tools: { select: '选择', draw: '绘制', pan: '移动' },
-        hints: {
-          select: '拖线段拉出 360° 拐点 · 单击拐点调圆弧 · 空白拉框整片平移 · 双击站点改名 / 双击线段补站',
-          drawIdle: '点空白建新站起笔 · 点任意已有站从该端延伸或拉支线',
-          drawActive: (name: string, wpMode: boolean) =>
-            wpMode
-              ? `从「${name}」出发：点空白连续打 360° 拐点 · 点站点收尾连入 · 右键抬笔`
-              : `从「${name}」连笔：左键落站 · Shift+左键打自由拐点 · 右键/Esc 抬笔换方向`,
-          pan: '拖拽平移视图 · 滚轮定档缩放 · 任意模式下按住空格键均可随时抓手平移'
+        touchHints: {
+          select: '点站点编辑 · 拖线段拉拐点 · 双指缩放平移',
+          drawIdle: '点空白建站起笔 · 点已有站延伸或拉支线',
+          drawActive: (name: string) => `从「${name}」连笔：点空白落站 · 点已有站连入`,
+          pan: '单指平移 · 双指缩放 · 长按站点唤出菜单'
         },
         zoomIn: '放大',
         zoomOut: '缩小',
@@ -333,7 +320,7 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   }, [isCompact]);
 
-  // 三态核心工具：只读/移动端默认 pan；空画布默认 draw（一点即画），已有地图默认 select（防误触）
+  // 默认工具：只读与移动端为 pan，桌面端统一为 select（由用户手动建线/选线后再进入绘制）
   const [activeTool, setActiveTool] = useState<CanvasTool>(() => {
     if (readOnly) return 'pan';
     if (
@@ -342,19 +329,24 @@ const Canvas: React.FC<CanvasProps> = ({
     ) {
       return 'pan';
     }
-    return stations.length === 0 ? 'draw' : 'select';
+    return 'select';
   });
 
   // 连续绘制钢笔状态机
   const [drawAnchorStationId, setDrawAnchorStationId] = useState<string | null>(null);
   const [drawPendingWaypoints, setDrawPendingWaypoints] = useState<Waypoint[]>([]);
   const [drawWaypointSubmode, setDrawWaypointSubmode] = useState(false);
+  const [drawSnapStationId, setDrawSnapStationId] = useState<string | null>(null);
+  const drawSnapStationIdRef = useRef<string | null>(null);
   const drawingPointsRef = useRef<number[]>([]);
 
-  // 选中态：多选站点、选中区间、选中途经点（用于原地调圆弧）
+  // 选中态与圆弧编辑器彻底分离：
+  // selectedWaypoint 仅用于选中高亮或按 Delete 删除；
+  // arcEditorWaypoint 仅在右键途经点一级菜单点击「调整圆弧」后才打开，绝不与一级菜单同时弹出！
   const [selectedStationIds, setSelectedStationIds] = useState<Set<string>>(() => new Set());
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [selectedWaypoint, setSelectedWaypoint] = useState<{ sectionId: string; waypointIndex: number } | null>(null);
+  const [arcEditorWaypoint, setArcEditorWaypoint] = useState<{ sectionId: string; waypointIndex: number } | null>(null);
   const [mergeTargetStationId, setMergeTargetStationId] = useState<string | null>(null);
   const [highlightedStationId, setHighlightedStationId] = useState<string | null>(null);
 
@@ -440,7 +432,34 @@ const Canvas: React.FC<CanvasProps> = ({
   const touchTapAllowedRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
   const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null);
-  const [activeCalibrationGuides, setActiveCalibrationGuides] = useState<number[][]>([]);
+
+  // 直接节点引用表（彻底消灭 stage.findOne 递归全树查找导致的跟随延迟）
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const amapContainerRef = useRef<HTMLDivElement | null>(null);
+  const cursorDotDomRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<any>(null);
+  const overlayLayerRef = useRef<any>(null);
+  const drawingPreviewLineRef = useRef<any>(null);
+  const tempDragWaypointRef = useRef<any>(null);
+  const guideLineRefs = useRef<Array<any>>([null, null, null, null]);
+  const sectionVisNodeMapRef = useRef<Map<string, any>>(new Map());
+  const sectionHitNodeMapRef = useRef<Map<string, any>>(new Map());
+  const stationGroupNodeMapRef = useRef<Map<string, any>>(new Map());
+
+  const syncZoomElementSizesRef = useRef<(viewportScale: number) => void>(() => {});
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
+  const canvasInteractionEndTimerRef = useRef<number | null>(null);
+  const wheelStepLockRef = useRef(0);
+  const __perfRenderRef = useRef(performance.now());
+  __perfMarkRender('Canvas', __perfRenderRef);
+  const lastPointerPositionRef = useRef({ x: 0, y: 0 });
+  const latestMapSettingsRef = useRef(mapSettings);
+  const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
+  const [isMapInteracting, setIsMapInteracting] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isDraggingNode, setIsDraggingNode] = useState(false);
+  const isAmapMode = mapSettings.baseMap.mode === 'amap';
 
   // O(1) 主键与拓扑缓存表
   const lineOrderMap = useMemo(() => {
@@ -497,42 +516,7 @@ const Canvas: React.FC<CanvasProps> = ({
     return map;
   }, [lines, sections, stations]);
 
-  // 当切换文档或站点被删除时清理悬空的绘制锚点与选中集
-  useEffect(() => {
-    if (drawAnchorStationId && !stationById.has(drawAnchorStationId)) {
-      setDrawAnchorStationId(null);
-      setDrawPendingWaypoints([]);
-    }
-  }, [drawAnchorStationId, stationById]);
-
-  useEffect(() => {
-    setDrawAnchorStationId(null);
-    setDrawPendingWaypoints([]);
-    setSelectedStationIds(new Set());
-    setSelectedSectionId(null);
-    setSelectedWaypoint(null);
-    setInlineRename(null);
-  }, [documentKey]);
-
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const amapContainerRef = useRef<HTMLDivElement | null>(null);
-  const stageRef = useRef<any>(null);
-  const syncZoomElementSizesRef = useRef<(viewportScale: number) => void>(() => {});
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
-  const [stageSize, setStageSize] = useState({ width: 960, height: 640 });
-  const canvasInteractionEndTimerRef = useRef<number | null>(null);
-  const wheelStepLockRef = useRef(0);
-  const __perfRenderRef = useRef(performance.now());
-  __perfMarkRender('Canvas', __perfRenderRef);
-  const lastPointerPositionRef = useRef({ x: 0, y: 0 });
-  const latestMapSettingsRef = useRef(mapSettings);
-  const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
-  const [isMapInteracting, setIsMapInteracting] = useState(false);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isDraggingNode, setIsDraggingNode] = useState(false);
-  const isAmapMode = mapSettings.baseMap.mode === 'amap';
-
-  // 拖拽草稿 refs（60fps 零 React 重渲）
+  // 拖拽草稿 refs（全程 60fps 零 React 重渲）
   const dragStationDraftRef = useRef<{
     primaryId: string;
     dx: number;
@@ -555,26 +539,58 @@ const Canvas: React.FC<CanvasProps> = ({
     downPointer: { x: number; y: number };
     downWorld: { x: number; y: number };
     insertedWaypointIndex: number | null;
+    baseWaypoints: Waypoint[];
   } | null>(null);
   const sectionParallelOffsetRef = useRef<Map<string, number>>(new Map());
 
+  const hideCursorDot = useCallback(() => {
+    if (cursorDotDomRef.current) {
+      cursorDotDomRef.current.style.opacity = '0';
+    }
+    if (drawSnapStationIdRef.current !== null) {
+      drawSnapStationIdRef.current = null;
+      setDrawSnapStationId(null);
+    }
+  }, []);
+
+  const clearImperativeGuides = useCallback(() => {
+    for (let i = 0; i < 4; i += 1) {
+      const g = guideLineRefs.current[i];
+      if (g) {
+        g.points([]);
+        g.visible(false);
+      }
+    }
+    overlayLayerRef.current?.batchDraw?.();
+  }, []);
+
   const liftDrawingPen = useCallback(() => {
     drawingPointsRef.current = [];
-    const previewNode = stageRef.current?.findOne?.('#metro-drawing-preview');
-    if (previewNode) {
-      previewNode.points([]);
-      previewNode.visible(false);
+    if (drawingPreviewLineRef.current) {
+      drawingPreviewLineRef.current.points([]);
+      drawingPreviewLineRef.current.visible(false);
     }
-    const ghostDot = stageRef.current?.findOne?.('#metro-drawing-ghost-dot');
-    if (ghostDot) {
-      ghostDot.visible(false);
-      ghostDot.getLayer?.()?.batchDraw?.();
-    }
+    clearImperativeGuides();
     setDrawAnchorStationId(null);
     setDrawPendingWaypoints([]);
     setDrawWaypointSubmode(false);
-    setActiveCalibrationGuides([]);
-  }, []);
+  }, [clearImperativeGuides]);
+
+  useEffect(() => {
+    if (drawAnchorStationId && !stationById.has(drawAnchorStationId)) {
+      liftDrawingPen();
+    }
+  }, [drawAnchorStationId, stationById, liftDrawingPen]);
+
+  useEffect(() => {
+    liftDrawingPen();
+    hideCursorDot();
+    setSelectedStationIds(new Set());
+    setSelectedSectionId(null);
+    setSelectedWaypoint(null);
+    setArcEditorWaypoint(null);
+    setInlineRename(null);
+  }, [documentKey, hideCursorDot, liftDrawingPen]);
 
   const commitInlineRenameIfNeeded = useCallback(() => {
     setInlineRename((current) => {
@@ -593,13 +609,14 @@ const Canvas: React.FC<CanvasProps> = ({
       setActiveTool(tool);
       if (tool !== 'draw') {
         liftDrawingPen();
-      }
-      if (tool === 'draw') {
+        hideCursorDot();
+      } else {
         setSelectedWaypoint(null);
+        setArcEditorWaypoint(null);
         setSelectedStationIds(new Set());
       }
     },
-    [commitInlineRenameIfNeeded, liftDrawingPen]
+    [commitInlineRenameIfNeeded, hideCursorDot, liftDrawingPen]
   );
 
   const toolGroupRef = useElasticToolbar(
@@ -641,10 +658,8 @@ const Canvas: React.FC<CanvasProps> = ({
   });
   const canvasSceneReady = !isDocumentLoading && (!isAmapMode || amapReady);
 
-  // 首次访问温和弹出 4 步交互微动画引导（延迟 700ms 避免影响首屏及自动化同步单测）
   useEffect(() => {
     if (readOnly || !canvasSceneReady || hasSeenCanvasOnboarding()) return;
-    // 空画布正在展示欢迎大卡片时，等用户开始第一笔或已有内容时再自动引导，不叠两层卡片
     const showingStartCard =
       lines.length === 0 &&
       stations.length === 0 &&
@@ -676,7 +691,6 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   }, [onStageReady]);
 
-  // 自动聚焦行内改名框或搜站框
   useEffect(() => {
     if (!inlineRename) return;
     const raf = window.requestAnimationFrame(() => {
@@ -725,11 +739,18 @@ const Canvas: React.FC<CanvasProps> = ({
       setSelectedWaypoint((prev) =>
         prev && prev.sectionId === sectionId && prev.waypointIndex === waypointIndex ? null : prev
       );
+      setArcEditorWaypoint((prev) =>
+        prev && prev.sectionId === sectionId && prev.waypointIndex === waypointIndex ? null : prev
+      );
     },
     [getSectionWaypoints, onBeginInteraction, writeSectionWaypoints]
   );
 
   const deleteSelectedItems = useCallback(() => {
+    if (arcEditorWaypoint) {
+      deleteWaypoint(arcEditorWaypoint.sectionId, arcEditorWaypoint.waypointIndex);
+      return;
+    }
     if (selectedWaypoint) {
       deleteWaypoint(selectedWaypoint.sectionId, selectedWaypoint.waypointIndex);
       return;
@@ -743,9 +764,15 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     setSelectedStationIds(new Set());
     message.success?.(ids.length > 1 ? `已删除 ${ids.length} 个站点` : '站点已删除');
-  }, [deleteWaypoint, onApplyGraphTransaction, onDeleteStation, selectedStationIds, selectedWaypoint]);
+  }, [
+    arcEditorWaypoint,
+    deleteWaypoint,
+    onApplyGraphTransaction,
+    onDeleteStation,
+    selectedStationIds,
+    selectedWaypoint
+  ]);
 
-  // 全局键盘快捷键：Space 抓手、Esc 抬笔/退回选择、V/D/H 切模式、Delete 批量删除、Ctrl+F 搜站、? 手势指南
   useEffect(() => {
     const isInputTarget = (target: EventTarget | null) => {
       const el = target as HTMLElement | null;
@@ -767,6 +794,7 @@ const Canvas: React.FC<CanvasProps> = ({
         if (!isSpaceHeldRef.current) {
           isSpaceHeldRef.current = true;
           setIsSpaceHeld(true);
+          hideCursorDot();
         }
         e.preventDefault();
         return;
@@ -781,6 +809,10 @@ const Canvas: React.FC<CanvasProps> = ({
         }
         if (inlineRename) {
           setInlineRename(null);
+          return;
+        }
+        if (arcEditorWaypoint) {
+          setArcEditorWaypoint(null);
           return;
         }
         if (selectedWaypoint) {
@@ -810,7 +842,10 @@ const Canvas: React.FC<CanvasProps> = ({
         return;
       }
 
-      if ((e.key === 'Delete' || e.key === 'Backspace') && (selectedStationIds.size > 0 || selectedWaypoint)) {
+      if (
+        (e.key === 'Delete' || e.key === 'Backspace') &&
+        (selectedStationIds.size > 0 || selectedWaypoint || arcEditorWaypoint)
+      ) {
         e.preventDefault();
         deleteSelectedItems();
         return;
@@ -840,6 +875,7 @@ const Canvas: React.FC<CanvasProps> = ({
     const handleWindowBlur = () => {
       isSpaceHeldRef.current = false;
       setIsSpaceHeld(false);
+      hideCursorDot();
     };
 
     const handleGlobalPointerDown = (e: MouseEvent) => {
@@ -869,10 +905,12 @@ const Canvas: React.FC<CanvasProps> = ({
     };
   }, [
     activeTool,
+    arcEditorWaypoint,
     closeAllFloatingMenus,
     deleteSelectedItems,
     drawAnchorStationId,
     drawPendingWaypoints.length,
+    hideCursorDot,
     inlineRename,
     liftDrawingPen,
     readOnly,
@@ -1016,7 +1054,7 @@ const Canvas: React.FC<CanvasProps> = ({
       setScale(1);
       setPosition({ x: 0, y: 0 });
       setIsMapInteracting(false);
-      setActiveCalibrationGuides([]);
+      clearImperativeGuides();
       closeAllFloatingMenus();
     }
     previousBaseMapModeRef.current = mapSettings.baseMap.mode;
@@ -1091,7 +1129,7 @@ const Canvas: React.FC<CanvasProps> = ({
     stage.batchDraw();
   };
 
-  // 轻柔 360° 辅助吸附（绝不强掰角度：仅在靠近 0/45/90/135° 且屏幕法向偏差 <= 12px 时柔和吸附，按住 Alt 完全关闭）
+  // 轻柔 360° 轴向辅助吸附
   const getDirectionalSnap = (
     x1: number,
     y1: number,
@@ -1162,17 +1200,11 @@ const Canvas: React.FC<CanvasProps> = ({
     return { x: snappedX, y: snappedY, guides: guides.slice(0, 4) };
   };
 
+  // O(1) 直接写辅助层虚线，彻底消除 stage.findOne 递归全树扫描
   const updateImperativeGuides = (guides: number[][]) => {
-    const stage = stageRef.current;
-    if (!stage?.findOne) {
-      setActiveCalibrationGuides(guides);
-      return;
-    }
-    let layer: any = null;
     for (let i = 0; i < 4; i += 1) {
-      const node = stage.findOne(`#imperative_guide_${i}`);
+      const node = guideLineRefs.current[i];
       if (!node) continue;
-      layer = layer || node.getLayer?.();
       if (guides[i]) {
         node.points(guides[i]);
         node.visible(true);
@@ -1181,19 +1213,42 @@ const Canvas: React.FC<CanvasProps> = ({
         node.visible(false);
       }
     }
-    layer?.batchDraw?.();
+    overlayLayerRef.current?.batchDraw?.();
+  };
+
+  // 查找绘制模式下鼠标是否靠近既有站点（16px 屏幕半径内磁吸锁定，防止误建重叠站点并给出动作提示）
+  const findNearestStationInDrawCapture = (
+    rawWorld: { x: number; y: number },
+    bypassCapture: boolean
+  ): Station | null => {
+    if (bypassCapture || stations.length === 0) return null;
+    const viewScale = isAmapMode ? 1 : stageRef.current?.scaleX?.() || scale;
+    const captureWorldRadius = DRAW_STATION_SNAP_SCREEN_PX / Math.max(0.25, viewScale);
+    let nearest: Station | null = null;
+    let minD = captureWorldRadius;
+    for (let i = 0; i < stations.length; i += 1) {
+      const st = stations[i];
+      const pt = getDisplayPoint(st);
+      const d = Math.hypot(pt.x - rawWorld.x, pt.y - rawWorld.y);
+      if (d <= minD) {
+        minD = d;
+        nearest = st;
+      }
+    }
+    return nearest;
   };
 
   const lineCornerRadius = Math.max(0, mapSettings.cornerRadius || 0);
 
-  // 命令式更新区间几何（与静态渲染 100% 共享平行角平分线偏移与单点圆弧计算，松手零跳变）
+  // O(1) 命令式更新某条区间 Konva 线条坐标（直取 Map 引用，零全树搜索）
   const updateSectionKonvaLineImperative = (
     section: Section,
     stationOverrides?: Map<string, { x: number; y: number }>,
     overrideWaypoints?: Waypoint[]
   ) => {
-    const stage = stageRef.current;
-    if (!stage?.findOne) return;
+    const visNode = sectionVisNodeMapRef.current.get(section.id);
+    const hitNode = sectionHitNodeMapRef.current.get(section.id);
+    if (!visNode && !hitNode) return;
     const start = stationById.get(section.startStationId);
     const end = stationById.get(section.endStationId);
     if (!start || !end) return;
@@ -1215,13 +1270,10 @@ const Canvas: React.FC<CanvasProps> = ({
     ];
     const directedOffset = sectionParallelOffsetRef.current.get(section.id) || 0;
     const { renderFlat } = buildSectionRenderGeometry(controlPoints, directedOffset, lineCornerRadius);
-    const visNode = stage.findOne(`#sec_vis_${section.id}`);
-    const hitNode = stage.findOne(`#sec_hit_${section.id}`);
     visNode?.points?.(renderFlat);
     hitNode?.points?.(renderFlat);
   };
 
-  // 更新某途经点坐标（支持 360° 全自由拖动 + 靠近轴向时柔和吸附）
   const updateWaypointImperativeOrState = (
     sectionId: string,
     waypointIndex: number,
@@ -1236,9 +1288,10 @@ const Canvas: React.FC<CanvasProps> = ({
     const endStation = stationById.get(section.endStationId);
     if (!startStation || !endStation) return;
 
-    const current = dragWaypointDraftRef.current?.sectionId === sectionId
-      ? dragWaypointDraftRef.current.waypoints
-      : section.waypoints || [];
+    const current =
+      dragWaypointDraftRef.current?.sectionId === sectionId
+        ? dragWaypointDraftRef.current.waypoints
+        : section.waypoints || [];
     if (!current[waypointIndex]) return;
     const next = [...current];
 
@@ -1258,9 +1311,12 @@ const Canvas: React.FC<CanvasProps> = ({
 
     dragWaypointDraftRef.current = { sectionId, waypoints: next };
 
-    if (stageRef.current?.findOne) {
+    if (stageRef.current) {
       if (circleNode && !isAmapMode) {
         circleNode.position?.({ x: snapped.x, y: snapped.y });
+      }
+      if (tempDragWaypointRef.current?.visible?.()) {
+        tempDragWaypointRef.current.position({ x: snapped.x, y: snapped.y });
       }
       updateImperativeGuides(snapped.guides);
       updateSectionKonvaLineImperative(section, undefined, next);
@@ -1272,8 +1328,10 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const commitWaypointDrag = () => {
-    updateImperativeGuides([]);
-    setActiveCalibrationGuides([]);
+    if (tempDragWaypointRef.current) {
+      tempDragWaypointRef.current.visible(false);
+    }
+    clearImperativeGuides();
     setIsDraggingNode(false);
     const draft = dragWaypointDraftRef.current;
     dragWaypointDraftRef.current = null;
@@ -1282,10 +1340,28 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
 
-  // ==================== 连续绘制动作 ====================
+  // ==================== 连续绘制动作（不自动偷偷建线，尊重手动建线/选线） ====================
 
-  const placeNewStationInDrawMode = (worldPos: { x: number; y: number }, containerPointer: { x: number; y: number }) => {
+  const requireSelectedLineForDraw = (): LineType | null => {
+    const line = currentLineId ? lineById.get(currentLineId) || null : null;
+    if (line) return line;
+    if (lines.length === 0) {
+      message.info?.(isEn ? 'Please create a line on the left first' : '请先在左侧新建一条线路');
+      onCreateLine?.();
+    } else {
+      message.warning?.(isEn ? 'Please select a line on the left first' : '请先在左侧选择要绘制的线路');
+    }
+    return null;
+  };
+
+  const placeNewStationInDrawMode = (
+    worldPos: { x: number; y: number },
+    containerPointer: { x: number; y: number }
+  ) => {
     commitInlineRenameIfNeeded();
+    const targetLine = requireSelectedLineForDraw();
+    if (!targetLine) return;
+
     const lngLat = getLngLatFromContainerPoint(containerPointer) || {};
     const newStationId = createId();
     const defaultName = generateNextStationName(stations);
@@ -1298,60 +1374,30 @@ const Canvas: React.FC<CanvasProps> = ({
     };
 
     if (onApplyGraphTransaction) {
-      let resolvedLineId = currentLineId;
-      onApplyGraphTransaction(
-        (graph) => {
-          let workingLines = graph.lines;
-          let targetLineId =
-            resolvedLineId && workingLines.some((l) => l.id === resolvedLineId)
-              ? resolvedLineId
-              : workingLines[0]?.id || null;
+      onApplyGraphTransaction((graph) => {
+        const baseGraph: MapGraph = {
+          lines: graph.lines.map((l) =>
+            l.id === targetLine.id && !l.stationIds.includes(newStationId)
+              ? { ...l, stationIds: [...l.stationIds, newStationId], lastAddedStationId: newStationId }
+              : l
+          ),
+          stations: [...graph.stations, newStationObj],
+          sections: graph.sections
+        };
 
-          if (!targetLineId) {
-            const spec = generateAutoLineSpec(workingLines);
-            targetLineId = createId();
-            workingLines = [
-              ...workingLines,
-              {
-                id: targetLineId,
-                name: spec.name,
-                color: spec.color,
-                stationIds: [newStationId],
-                sectionIds: [],
-                lastAddedStationId: newStationId
-              }
-            ];
-          }
-          resolvedLineId = targetLineId;
-
-          const baseGraph: MapGraph = {
-            lines: workingLines.map((l) =>
-              l.id === targetLineId && !l.stationIds.includes(newStationId)
-                ? { ...l, stationIds: [...l.stationIds, newStationId], lastAddedStationId: newStationId }
-                : l
-            ),
-            stations: [...graph.stations, newStationObj],
-            sections: graph.sections
-          };
-
-          if (drawAnchorStationId && drawAnchorStationId !== newStationId) {
-            return connectStationsOnLine(baseGraph, {
-              lineId: targetLineId,
-              fromStationId: drawAnchorStationId,
-              toStationId: newStationId,
-              waypoints: drawPendingWaypoints
-            }).graph;
-          }
-          return baseGraph;
-        },
-        { selectLineId: resolvedLineId || currentLineId }
-      );
-      if (resolvedLineId && resolvedLineId !== currentLineId) {
-        onSelectLine?.(resolvedLineId);
-      }
+        if (drawAnchorStationId && drawAnchorStationId !== newStationId) {
+          return connectStationsOnLine(baseGraph, {
+            lineId: targetLine.id,
+            fromStationId: drawAnchorStationId,
+            toStationId: newStationId,
+            waypoints: drawPendingWaypoints
+          }).graph;
+        }
+        return baseGraph;
+      });
     } else {
       onAddStation(newStationObj);
-      if (currentLineId && drawAnchorStationId) {
+      if (drawAnchorStationId) {
         onAddStationToLine(newStationId, { mode: 'connect', connectToStationId: drawAnchorStationId });
       }
     }
@@ -1364,63 +1410,47 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const handleStationClickInDrawMode = (station: Station) => {
     commitInlineRenameIfNeeded();
-    // 未起笔：直接从该站起笔（可延伸另一端，或从中间站拉支线）
+    // 未起笔：若尚未选中线路但该站已归属某条线，顺手选中该线；否则检查当前是否已选线路
     if (!drawAnchorStationId) {
       if (!currentLineId) {
-        const owningLine = lines.find((l) => l.stationIds.includes(station.id)) || lines[0];
-        if (owningLine) onSelectLine?.(owningLine.id);
+        const owningLine = lines.find((l) => l.stationIds.includes(station.id));
+        if (owningLine) {
+          onSelectLine?.(owningLine.id);
+        } else if (!requireSelectedLineForDraw()) {
+          return;
+        }
       }
       setDrawAnchorStationId(station.id);
       setDrawPendingWaypoints([]);
       return;
     }
 
-    // 再次点击当前起笔站 = 抬笔
     if (drawAnchorStationId === station.id) {
       liftDrawingPen();
       return;
     }
 
-    // 已起笔，点击另一已有站：建立换乘连接或闭合环线
+    const targetLine = requireSelectedLineForDraw();
+    if (!targetLine) return;
+
     if (onApplyGraphTransaction) {
       let closedLoop = false;
-      let resolvedLineId = currentLineId;
-      onApplyGraphTransaction(
-        (graph) => {
-          let workingLines = graph.lines;
-          let targetLineId =
-            resolvedLineId && workingLines.some((l) => l.id === resolvedLineId)
-              ? resolvedLineId
-              : workingLines[0]?.id || null;
-          if (!targetLineId) {
-            const spec = generateAutoLineSpec(workingLines);
-            targetLineId = createId();
-            workingLines = [
-              ...workingLines,
-              { id: targetLineId, name: spec.name, color: spec.color, stationIds: [], sectionIds: [] }
-            ];
-          }
-          resolvedLineId = targetLineId;
-          const res = connectStationsOnLine(
-            { ...graph, lines: workingLines },
-            {
-              lineId: targetLineId,
-              fromStationId: drawAnchorStationId,
-              toStationId: station.id,
-              waypoints: drawPendingWaypoints
-            }
-          );
-          closedLoop = res.closedLoop;
-          return res.graph;
-        },
-        { selectLineId: resolvedLineId || currentLineId }
-      );
+      onApplyGraphTransaction((graph) => {
+        const res = connectStationsOnLine(graph, {
+          lineId: targetLine.id,
+          fromStationId: drawAnchorStationId,
+          toStationId: station.id,
+          waypoints: drawPendingWaypoints
+        });
+        closedLoop = res.closedLoop;
+        return res.graph;
+      });
 
       setDrawPendingWaypoints([]);
       setDrawWaypointSubmode(false);
       if (closedLoop) {
         liftDrawingPen();
-        message.success?.('已闭合环线连接（已自动抬笔）');
+        message.success?.('已闭合连接（已自动抬笔）');
       } else {
         setDrawAnchorStationId(station.id);
       }
@@ -1497,15 +1527,17 @@ const Canvas: React.FC<CanvasProps> = ({
   const beginStationDrag = (stationId: string) => {
     onBeginInteraction?.();
     commitInlineRenameIfNeeded();
+    setArcEditorWaypoint(null);
     setIsDraggingNode(true);
     setMergeTargetStationId(null);
 
     const originStation = stationById.get(stationId);
     if (!originStation) return;
 
-    const movingSet = selectedStationIds.has(stationId) && selectedStationIds.size > 1
-      ? new Set(selectedStationIds)
-      : new Set([stationId]);
+    const movingSet =
+      selectedStationIds.has(stationId) && selectedStationIds.size > 1
+        ? new Set(selectedStationIds)
+        : new Set([stationId]);
 
     const stationOrigins = new Map<string, { x: number; y: number }>();
     movingSet.forEach((id) => {
@@ -1545,13 +1577,11 @@ const Canvas: React.FC<CanvasProps> = ({
     const updatedStation = stationById.get(id);
     if (!updatedStation || !base) return;
 
-    // 多选群组平移
     if (base.selectedIds.size > 1) {
       const dx = pos.x - base.primaryStart.x;
       const dy = pos.y - base.primaryStart.y;
       const stationOverrides = new Map<string, { x: number; y: number }>();
       const movedStationsDraft: Array<{ id: string; x: number; y: number; lng?: number; lat?: number }> = [];
-      const stage = stageRef.current;
 
       base.stationOrigins.forEach((origin, sid) => {
         const nx = origin.x + dx;
@@ -1559,9 +1589,8 @@ const Canvas: React.FC<CanvasProps> = ({
         stationOverrides.set(sid, { x: nx, y: ny });
         const lngLat = getLngLatFromContainerPoint({ x: nx, y: ny });
         movedStationsDraft.push({ id: sid, x: nx, y: ny, ...(lngLat || {}) });
-        if (sid !== id && stage?.findOne) {
-          const otherGroup = stage.findOne(`#${sid}`);
-          otherGroup?.position?.({ x: nx, y: ny });
+        if (sid !== id) {
+          stationGroupNodeMapRef.current.get(sid)?.position?.({ x: nx, y: ny });
         }
       });
 
@@ -1598,7 +1627,6 @@ const Canvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    // 单站点拖动：检测换乘叠放合并目标 + 相邻途经点/站点八向柔和吸附
     let snappedX = pos.x;
     let snappedY = pos.y;
     let guides: number[][] = [];
@@ -1664,7 +1692,7 @@ const Canvas: React.FC<CanvasProps> = ({
     updateImperativeGuides(guides);
 
     const overrides = new Map<string, { x: number; y: number }>([[id, { x: snappedX, y: snappedY }]]);
-    if (stageRef.current?.findOne) {
+    if (stageRef.current) {
       base.affectedSections.forEach((sec) => updateSectionKonvaLineImperative(sec, overrides));
       groupNode?.getLayer?.()?.batchDraw?.();
     } else {
@@ -1673,8 +1701,7 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const commitStationDrag = () => {
-    updateImperativeGuides([]);
-    setActiveCalibrationGuides([]);
+    clearImperativeGuides();
     setIsDraggingNode(false);
     setMergeTargetStationId(null);
     groupDragBaseRef.current = null;
@@ -1682,7 +1709,6 @@ const Canvas: React.FC<CanvasProps> = ({
     dragStationDraftRef.current = null;
     if (!draft) return;
 
-    // 叠放到另一站点上松手 → 合并为换乘站（开始拖拽时已调用过 onBeginInteraction，因此 recordHistory: false）
     if (draft.mergeTargetId && onApplyGraphTransaction) {
       const targetName = stationById.get(draft.mergeTargetId)?.name || '目标站';
       onApplyGraphTransaction(
@@ -1742,6 +1768,97 @@ const Canvas: React.FC<CanvasProps> = ({
     }
   };
 
+  // ==================== 0ms 原生容器级 PointerMove 预览（彻底消除 Konva 拾取延迟） ====================
+
+  const handleContainerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (readOnly || activeTool !== 'draw' || isSpaceHeldRef.current || e.pointerType === 'touch') {
+      hideCursorDot();
+      return;
+    }
+    const container = containerRef.current;
+    const stage = stageRef.current;
+    if (!container || !stage) return;
+
+    // 悬停在顶部工具栏、搜索框、右键菜单等浮层上时隐藏画布跟随圆点
+    const targetEl = e.target as HTMLElement | null;
+    if (targetEl && targetEl.tagName !== 'CANVAS') {
+      hideCursorDot();
+      return;
+    }
+
+    const rect = container.getBoundingClientRect();
+    const localX = e.clientX - rect.left;
+    const localY = e.clientY - rect.top;
+    const rawWorld = getPointerWorldPosition(stage, { x: localX, y: localY });
+
+    const placingWaypoint = Boolean(drawAnchorStationId && (e.shiftKey || drawWaypointSubmode));
+    const snapStation = placingWaypoint
+      ? null
+      : findNearestStationInDrawCapture(rawWorld, Boolean(e.altKey));
+
+    if ((snapStation?.id || null) !== drawSnapStationIdRef.current) {
+      drawSnapStationIdRef.current = snapStation?.id || null;
+      setDrawSnapStationId(snapStation?.id || null);
+    }
+
+    const anchorSt = drawAnchorStationId ? stationById.get(drawAnchorStationId) : null;
+    let lastRefPoint: { x: number; y: number } | null = null;
+    if (drawPendingWaypoints.length > 0) {
+      lastRefPoint = getWaypointDisplayPoint(drawPendingWaypoints[drawPendingWaypoints.length - 1]);
+    } else if (anchorSt) {
+      lastRefPoint = getDisplayPoint(anchorSt);
+    }
+
+    let finalWorldX = rawWorld.x;
+    let finalWorldY = rawWorld.y;
+    let guides: number[][] = [];
+
+    if (snapStation) {
+      const sp = getDisplayPoint(snapStation);
+      finalWorldX = sp.x;
+      finalWorldY = sp.y;
+    } else if (lastRefPoint) {
+      const snapped = snapWorldPointRelativeTo(rawWorld, [lastRefPoint], Boolean(e.altKey));
+      finalWorldX = snapped.x;
+      finalWorldY = snapped.y;
+      guides = snapped.guides;
+    }
+
+    // 1) 直接以 GPU translate3d 更新跟随小圆点（0ms 延迟；重合到既有站点时隐藏实心新建圆点，改由站点磁吸环+提示标接管）
+    const dotEl = cursorDotDomRef.current;
+    if (dotEl) {
+      if (snapStation) {
+        dotEl.style.opacity = '0';
+      } else {
+        const screenPt = worldToScreenPoint({ x: finalWorldX, y: finalWorldY });
+        const dotDiameter = placingWaypoint ? 11 : 14;
+        const half = dotDiameter / 2;
+        const lineColor = (currentLineId && lineById.get(currentLineId)?.color) || LINE_COLORS[0];
+        dotEl.style.width = `${dotDiameter}px`;
+        dotEl.style.height = `${dotDiameter}px`;
+        dotEl.style.background = placingWaypoint ? '#ffffff' : lineColor;
+        dotEl.style.border = placingWaypoint ? `2.2px solid ${lineColor}` : '2px solid #ffffff';
+        dotEl.style.boxShadow = '0 2px 6px rgba(15, 23, 42, 0.22)';
+        dotEl.style.opacity = '0.86';
+        dotEl.style.transform = `translate3d(${screenPt.x - half}px, ${screenPt.y - half}px, 0)`;
+      }
+    }
+
+    // 2) O(1) 直接更新顶层轻量辅助层的橡皮筋连线与校准虚线
+    if (anchorSt && drawingPreviewLineRef.current) {
+      const anchorPt = getDisplayPoint(anchorSt);
+      const wpCoords = drawPendingWaypoints.flatMap((wp) => {
+        const p = getWaypointDisplayPoint(wp);
+        return [p.x, p.y];
+      });
+      const nextPts = [anchorPt.x, anchorPt.y, ...wpCoords, finalWorldX, finalWorldY];
+      drawingPointsRef.current = nextPts;
+      drawingPreviewLineRef.current.points(nextPts);
+      drawingPreviewLineRef.current.visible(true);
+    }
+    updateImperativeGuides(guides);
+  };
+
   // ==================== 触屏与鼠标 Stage 事件 ====================
 
   const clearLongPress = () => {
@@ -1760,6 +1877,46 @@ const Canvas: React.FC<CanvasProps> = ({
     }));
   };
 
+  const beginOrMovePendingSectionWaypoint = (stage: any, pointer: { x: number; y: number }, altKey: boolean) => {
+    const pending = pendingSectionDragRef.current;
+    if (!pending) return;
+    const worldPos = getPointerWorldPosition(stage, pointer);
+    if (pending.insertedWaypointIndex === null) {
+      const sec = sectionById.get(pending.sectionId);
+      const sSt = sec ? stationById.get(sec.startStationId) : null;
+      const eSt = sec ? stationById.get(sec.endStationId) : null;
+      if (!sec || !sSt || !eSt) return;
+
+      onBeginInteraction?.();
+      setArcEditorWaypoint(null);
+      setIsDraggingNode(true);
+      const curWps = pending.baseWaypoints;
+      const { insertIndex } = findWaypointInsertIndex(
+        getDisplayPoint(sSt),
+        curWps.map((wp) => ({ ...getWaypointDisplayPoint(wp), mode: wp.mode })),
+        getDisplayPoint(eSt),
+        pending.downWorld
+      );
+      const newWp: Waypoint = {
+        x: worldPos.x,
+        y: worldPos.y,
+        ...(getLngLatFromContainerPoint(pointer) || {})
+      };
+      const nextWps = [...curWps.slice(0, insertIndex), newWp, ...curWps.slice(insertIndex)];
+      pending.insertedWaypointIndex = insertIndex;
+      dragWaypointDraftRef.current = { sectionId: sec.id, waypoints: nextWps };
+      if (tempDragWaypointRef.current) {
+        tempDragWaypointRef.current.position({ x: worldPos.x, y: worldPos.y });
+        tempDragWaypointRef.current.visible(true);
+      }
+      updateSectionKonvaLineImperative(sec, undefined, nextWps);
+      stage.batchDraw?.();
+      return;
+    }
+
+    updateWaypointImperativeOrState(pending.sectionId, pending.insertedWaypointIndex, worldPos.x, worldPos.y, altKey);
+  };
+
   const handleTouchStart = (e: any) => {
     e.evt.preventDefault();
     const points = readTouchPoints(e);
@@ -1772,7 +1929,7 @@ const Canvas: React.FC<CanvasProps> = ({
       stageRef.current?.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
       pendingSectionDragRef.current = null;
       setIsDraggingNode(false);
-      setActiveCalibrationGuides([]);
+      clearImperativeGuides();
       setIsDragging(false);
       startCanvasInteraction();
       return;
@@ -1790,6 +1947,7 @@ const Canvas: React.FC<CanvasProps> = ({
       gesture.consume();
       stationNode?.stopDrag();
       pendingSectionDragRef.current = null;
+      setArcEditorWaypoint(null);
       if (station) {
         setStationContextMenu({ visible: true, station, ...point });
       } else if (sectionId) {
@@ -1818,40 +1976,11 @@ const Canvas: React.FC<CanvasProps> = ({
     }
     if (!gesture.canLongPress) clearLongPress();
 
-    // 选择模式下单指按在线段上直接拖出 360° 途经点
     if (points.length === 1 && pendingSectionDragRef.current && activeTool === 'select' && !readOnly) {
       const pending = pendingSectionDragRef.current;
       const pointer = points[0];
       if (Math.hypot(pointer.x - pending.downPointer.x, pointer.y - pending.downPointer.y) >= 8) {
-        const worldPos = getPointerWorldPosition(stage, pointer);
-        if (pending.insertedWaypointIndex === null) {
-          const sec = sectionById.get(pending.sectionId);
-          const sSt = sec ? stationById.get(sec.startStationId) : null;
-          const eSt = sec ? stationById.get(sec.endStationId) : null;
-          if (sec && sSt && eSt) {
-            onBeginInteraction?.();
-            const curWps = sec.waypoints || [];
-            const { insertIndex } = findWaypointInsertIndex(
-              getDisplayPoint(sSt),
-              curWps.map((wp) => ({ ...getWaypointDisplayPoint(wp), mode: wp.mode })),
-              getDisplayPoint(eSt),
-              pending.downWorld
-            );
-            const newWp: Waypoint = {
-              x: worldPos.x,
-              y: worldPos.y,
-              ...(getLngLatFromContainerPoint(pointer) || {})
-            };
-            const nextWps = [...curWps.slice(0, insertIndex), newWp, ...curWps.slice(insertIndex)];
-            pending.insertedWaypointIndex = insertIndex;
-            dragWaypointDraftRef.current = { sectionId: sec.id, waypoints: nextWps };
-            setSelectedWaypoint({ sectionId: sec.id, waypointIndex: insertIndex });
-            setIsDraggingNode(true);
-            writeSectionWaypoints(sec.id, nextWps);
-          }
-        } else {
-          updateWaypointImperativeOrState(pending.sectionId, pending.insertedWaypointIndex, worldPos.x, worldPos.y, false);
-        }
+        beginOrMovePendingSectionWaypoint(stage, pointer, false);
         return;
       }
     }
@@ -1898,7 +2027,10 @@ const Canvas: React.FC<CanvasProps> = ({
     if (remaining.length) return;
     if (pendingSectionDragRef.current) {
       if (pendingSectionDragRef.current.insertedWaypointIndex !== null) {
+        const secId = pendingSectionDragRef.current.sectionId;
+        const idx = pendingSectionDragRef.current.insertedWaypointIndex;
         commitWaypointDrag();
+        setSelectedWaypoint({ sectionId: secId, waypointIndex: idx });
       }
       pendingSectionDragRef.current = null;
     }
@@ -1914,10 +2046,11 @@ const Canvas: React.FC<CanvasProps> = ({
     touchGestureRef.current.cancel();
     touchTapAllowedRef.current = false;
     pendingSectionDragRef.current = null;
+    if (tempDragWaypointRef.current) tempDragWaypointRef.current.visible(false);
     stageRef.current?.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
     setIsDragging(false);
     setIsDraggingNode(false);
-    setActiveCalibrationGuides([]);
+    clearImperativeGuides();
     scheduleCanvasInteractionEnd(0);
   };
 
@@ -1930,7 +2063,6 @@ const Canvas: React.FC<CanvasProps> = ({
 
     closeAllFloatingMenus();
 
-    // 鼠标中键或按住空格左键：任何工具下随时抓手平移
     if (button === 1 || (button === 0 && isSpaceHeldRef.current)) {
       e.evt?.preventDefault?.();
       isMiddlePanningRef.current = true;
@@ -1950,7 +2082,6 @@ const Canvas: React.FC<CanvasProps> = ({
         setIsDragging(true);
         if (!isAmapMode) startCanvasInteraction();
       } else if (activeTool === 'select' && !readOnly) {
-        // 准备在空白处拉框多选
         const worldPos = getPointerWorldPosition(stage, pointer);
         setMarqueeWorldRect({
           x1: worldPos.x,
@@ -1969,7 +2100,6 @@ const Canvas: React.FC<CanvasProps> = ({
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
 
-    // 1. 抓手平移（pan 模式 / 空格键 / 鼠标中键）
     if (isDragging && (activeTool === 'pan' || isMiddlePanningRef.current || isSpaceHeldRef.current)) {
       const last = lastPointerPositionRef.current;
       const dx = pointer.x - last.x;
@@ -1986,96 +2116,19 @@ const Canvas: React.FC<CanvasProps> = ({
       return;
     }
 
-    // 2. 选择模式下按住区间线条直接拖出 360° 途经点（点哪小段就插哪小段）
+    // 选择模式按住区间线条拖出 360° 途经点（全程命令式 60fps 零全树重渲，松手才提交）
     if (pendingSectionDragRef.current && activeTool === 'select' && !readOnly) {
       const pending = pendingSectionDragRef.current;
       const distPx = Math.hypot(pointer.x - pending.downPointer.x, pointer.y - pending.downPointer.y);
       if (distPx >= 4) {
-        const worldPos = getPointerWorldPosition(stage, pointer);
-        if (pending.insertedWaypointIndex === null) {
-          const sec = sectionById.get(pending.sectionId);
-          const sSt = sec ? stationById.get(sec.startStationId) : null;
-          const eSt = sec ? stationById.get(sec.endStationId) : null;
-          if (sec && sSt && eSt) {
-            onBeginInteraction?.();
-            const curWps = sec.waypoints || [];
-            const { insertIndex } = findWaypointInsertIndex(
-              getDisplayPoint(sSt),
-              curWps.map((wp) => ({ ...getWaypointDisplayPoint(wp), mode: wp.mode })),
-              getDisplayPoint(eSt),
-              pending.downWorld
-            );
-            const newWp: Waypoint = {
-              x: worldPos.x,
-              y: worldPos.y,
-              ...(getLngLatFromContainerPoint(pointer) || {})
-            };
-            const nextWps = [...curWps.slice(0, insertIndex), newWp, ...curWps.slice(insertIndex)];
-            pending.insertedWaypointIndex = insertIndex;
-            dragWaypointDraftRef.current = { sectionId: sec.id, waypoints: nextWps };
-            setSelectedWaypoint({ sectionId: sec.id, waypointIndex: insertIndex });
-            setSelectedSectionId(sec.id);
-            setIsDraggingNode(true);
-            writeSectionWaypoints(sec.id, nextWps);
-          }
-        } else {
-          updateWaypointImperativeOrState(
-            pending.sectionId,
-            pending.insertedWaypointIndex,
-            worldPos.x,
-            worldPos.y,
-            Boolean(e.evt?.altKey)
-          );
-        }
+        beginOrMovePendingSectionWaypoint(stage, pointer, Boolean(e.evt?.altKey));
         return;
       }
     }
 
-    // 3. 选择模式下空白处矩形框选
     if (marqueeWorldRect && activeTool === 'select') {
       const worldPos = getPointerWorldPosition(stage, pointer);
       setMarqueeWorldRect((prev) => (prev ? { ...prev, x2: worldPos.x, y2: worldPos.y } : null));
-      return;
-    }
-
-    // 4. 连续绘制模式下 60fps 幽灵连线与站点预览
-    if (activeTool === 'draw' && !readOnly) {
-      const rawWorld = getPointerWorldPosition(stage, pointer);
-      const anchorSt = drawAnchorStationId ? stationById.get(drawAnchorStationId) : null;
-      let lastRefPoint: { x: number; y: number } | null = null;
-      if (drawPendingWaypoints.length > 0) {
-        lastRefPoint = getWaypointDisplayPoint(drawPendingWaypoints[drawPendingWaypoints.length - 1]);
-      } else if (anchorSt) {
-        lastRefPoint = getDisplayPoint(anchorSt);
-      }
-
-      const snapped = lastRefPoint
-        ? snapWorldPointRelativeTo(rawWorld, [lastRefPoint], Boolean(e.evt?.altKey))
-        : { x: rawWorld.x, y: rawWorld.y, guides: [] };
-
-      updateImperativeGuides(snapped.guides);
-
-      const ghostDot = stage.findOne?.('#metro-drawing-ghost-dot');
-      if (ghostDot) {
-        ghostDot.position({ x: snapped.x, y: snapped.y });
-        ghostDot.visible(true);
-      }
-
-      if (anchorSt) {
-        const anchorPt = getDisplayPoint(anchorSt);
-        const wpCoords = drawPendingWaypoints.flatMap((wp) => {
-          const p = getWaypointDisplayPoint(wp);
-          return [p.x, p.y];
-        });
-        const nextPts = [anchorPt.x, anchorPt.y, ...wpCoords, snapped.x, snapped.y];
-        drawingPointsRef.current = nextPts;
-        const previewNode = stage.findOne?.('#metro-drawing-preview');
-        if (previewNode) {
-          previewNode.points(nextPts);
-          previewNode.visible(true);
-        }
-      }
-      ghostDot?.getLayer?.()?.batchDraw?.();
     }
   };
 
@@ -2091,11 +2144,23 @@ const Canvas: React.FC<CanvasProps> = ({
       setSelectedStationIds(new Set());
       setSelectedSectionId(null);
       setSelectedWaypoint(null);
+      setArcEditorWaypoint(null);
       return;
     }
 
     if (activeTool === 'draw') {
       const rawWorld = getPointerWorldPosition(stage, pointer);
+      const placingWaypoint = Boolean(drawAnchorStationId && (e.evt?.shiftKey || drawWaypointSubmode));
+
+      // 若处于磁吸捕获站点圈内（16px），直接走站点起笔/连入逻辑，彻底避免在既有站边缘误建重叠站点
+      if (!placingWaypoint) {
+        const capturedStation = findNearestStationInDrawCapture(rawWorld, Boolean(e.evt?.altKey));
+        if (capturedStation) {
+          handleStationClickInDrawMode(capturedStation);
+          return;
+        }
+      }
+
       const anchorSt = drawAnchorStationId ? stationById.get(drawAnchorStationId) : null;
       const lastRefPoint =
         drawPendingWaypoints.length > 0
@@ -2107,8 +2172,7 @@ const Canvas: React.FC<CanvasProps> = ({
         ? snapWorldPointRelativeTo(rawWorld, [lastRefPoint], Boolean(e.evt?.altKey))
         : { x: rawWorld.x, y: rawWorld.y };
 
-      // 若已起笔且按住 Shift 或开启「拐点」子开关：打 360° 自由途经点（严格按点击顺序排列）
-      if (drawAnchorStationId && (e.evt?.shiftKey || drawWaypointSubmode)) {
+      if (placingWaypoint) {
         const lngLat = getLngLatFromContainerPoint(pointer) || {};
         setDrawPendingWaypoints((prev) => [...prev, { x: snapped.x, y: snapped.y, ...lngLat }]);
         return;
@@ -2135,23 +2199,24 @@ const Canvas: React.FC<CanvasProps> = ({
     setIsDragging(false);
     setMouseDownPosition(null);
 
-    // 完成线段拖出途经点或单击选中区间
     if (pendingSectionDragRef.current) {
       const pending = pendingSectionDragRef.current;
       pendingSectionDragRef.current = null;
       if (pending.insertedWaypointIndex !== null) {
         commitWaypointDrag();
+        setSelectedWaypoint({ sectionId: pending.sectionId, waypointIndex: pending.insertedWaypointIndex });
+        setSelectedSectionId(pending.sectionId);
       } else {
         commitInlineRenameIfNeeded();
         setSelectedSectionId(pending.sectionId);
         setSelectedStationIds(new Set());
         setSelectedWaypoint(null);
+        setArcEditorWaypoint(null);
         onSelectLine?.(pending.lineId);
       }
       return;
     }
 
-    // 完成矩形框选
     if (marqueeWorldRect) {
       const rect = marqueeWorldRect;
       setMarqueeWorldRect(null);
@@ -2169,6 +2234,7 @@ const Canvas: React.FC<CanvasProps> = ({
         });
         setSelectedStationIds(hits);
         setSelectedWaypoint(null);
+        setArcEditorWaypoint(null);
         return;
       }
     }
@@ -2392,6 +2458,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (activeTool === 'select') {
       commitInlineRenameIfNeeded();
       setSelectedWaypoint(null);
+      setArcEditorWaypoint(null);
       if (e?.evt?.shiftKey) {
         setSelectedStationIds((prev) => {
           const next = new Set(prev);
@@ -2410,6 +2477,7 @@ const Canvas: React.FC<CanvasProps> = ({
     e?.evt?.preventDefault?.();
     e.cancelBubble = true;
     commitInlineRenameIfNeeded();
+    setArcEditorWaypoint(null);
     setInlineRename({ stationId: station.id, value: station.name, originalName: station.name });
   };
 
@@ -2421,7 +2489,6 @@ const Canvas: React.FC<CanvasProps> = ({
     e.evt.preventDefault();
     e.cancelBubble = true;
 
-    // 绘制连笔中右键任意处 = 抬笔（不弹右键菜单）
     if (activeTool === 'draw' && (drawAnchorStationId || drawPendingWaypoints.length > 0)) {
       liftDrawingPen();
       return;
@@ -2430,6 +2497,7 @@ const Canvas: React.FC<CanvasProps> = ({
     const stage = e.target.getStage();
     const pointer = stage?.getPointerPosition?.();
     if (pointer) {
+      setArcEditorWaypoint(null);
       setSectionContextMenu((prev) => ({ ...prev, visible: false }));
       setCanvasContextMenu((prev) => ({ ...prev, visible: false }));
       setStationContextMenu({ visible: true, x: pointer.x, y: pointer.y, station });
@@ -2449,6 +2517,7 @@ const Canvas: React.FC<CanvasProps> = ({
     if (activeTool === 'pan') return;
     const pointer = e.target.getStage()?.getPointerPosition();
     if (pointer) {
+      setArcEditorWaypoint(null);
       setStationContextMenu({ visible: true, station, x: pointer.x, y: pointer.y });
     }
   };
@@ -2492,6 +2561,7 @@ const Canvas: React.FC<CanvasProps> = ({
     const stage = e.target.getStage();
     if (!stage || e.target !== stage) return;
     const pointer = stage.getPointerPosition();
+    setArcEditorWaypoint(null);
     closeAllFloatingMenus();
     setCanvasContextMenu({ visible: true, x: pointer?.x || 0, y: pointer?.y || 0 });
   };
@@ -2616,7 +2686,6 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const isLargeGraph = stations.length > 200 || sections.length > 200;
 
-  // 预计算共线平行角平分线偏移与单点圆弧采样几何（彻底修复反向重叠与折角交叉）
   const preparedLineSegments = useMemo(() => {
     if (!canvasSceneReady) {
       sectionParallelOffsetRef.current = new Map();
@@ -2936,7 +3005,6 @@ const Canvas: React.FC<CanvasProps> = ({
     amapRef
   ]);
 
-  // 线路名称胶囊布局（原生适配闭合环线与 Y 型多支线端点）
   const lineNamePlacementsCacheRef = useRef<
     Array<{ key: string; line: LineType; labelText: string; x: number; y: number; width: number; height: number }>
   >([]);
@@ -3080,12 +3148,12 @@ const Canvas: React.FC<CanvasProps> = ({
     stationDisplayPoints
   ]);
 
-  // 当前选中途经点的圆弧控制手柄几何
+  // 仅当用户通过右键菜单明确点击「调整圆弧」时才计算并显示圆弧控制拉杆与弹窗
   const activeWaypointArcGeometry = useMemo(() => {
-    if (!selectedWaypoint) return null;
-    const sec = sectionById.get(selectedWaypoint.sectionId);
-    if (!sec || !sec.waypoints || !sec.waypoints[selectedWaypoint.waypointIndex]) return null;
-    const idx = selectedWaypoint.waypointIndex;
+    if (!arcEditorWaypoint) return null;
+    const sec = sectionById.get(arcEditorWaypoint.sectionId);
+    if (!sec || !sec.waypoints || !sec.waypoints[arcEditorWaypoint.waypointIndex]) return null;
+    const idx = arcEditorWaypoint.waypointIndex;
     const wps = sec.waypoints;
     const wp = wps[idx];
     const startSt = stationById.get(sec.startStationId);
@@ -3108,9 +3176,8 @@ const Canvas: React.FC<CanvasProps> = ({
       effectiveRadius,
       handleInfo
     };
-  }, [selectedWaypoint, sectionById, stationById, stationDisplayPoints, lineCornerRadius, scale, isAmapMode, mapRenderTick]);
+  }, [arcEditorWaypoint, sectionById, stationById, stationDisplayPoints, lineCornerRadius, scale, isAmapMode, mapRenderTick]);
 
-  // 搜索匹配结果
   const searchResults = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return stations.slice(0, 8);
@@ -3147,7 +3214,8 @@ const Canvas: React.FC<CanvasProps> = ({
             lineId: seg.line.id,
             downPointer: { x: pointer.x, y: pointer.y },
             downWorld: getPointerWorldPosition(stage, pointer),
-            insertedWaypointIndex: null
+            insertedWaypointIndex: null,
+            baseWaypoints: [...(seg.section.waypoints || [])]
           };
         }
       };
@@ -3162,7 +3230,8 @@ const Canvas: React.FC<CanvasProps> = ({
             lineId: seg.line.id,
             downPointer: points[0],
             downWorld: getPointerWorldPosition(stage, points[0]),
-            insertedWaypointIndex: null
+            insertedWaypointIndex: null,
+            baseWaypoints: [...(seg.section.waypoints || [])]
           };
         }
       };
@@ -3179,12 +3248,18 @@ const Canvas: React.FC<CanvasProps> = ({
         if (activeTool === 'draw') {
           e.cancelBubble = true;
           const worldPos = getPointerWorldPosition(stage, pointer);
+          const captured = findNearestStationInDrawCapture(worldPos, Boolean(e.evt?.altKey));
+          if (captured) {
+            handleStationClickInDrawMode(captured);
+            return;
+          }
           insertStationIntoSectionAt(seg.section, worldPos, pointer, Boolean(drawAnchorStationId));
           return;
         }
 
         if (isCompact && activeTool === 'select') {
           e.cancelBubble = true;
+          setArcEditorWaypoint(null);
           setSectionContextMenu({
             visible: true,
             x: pointer.x,
@@ -3222,6 +3297,7 @@ const Canvas: React.FC<CanvasProps> = ({
         const stage = e.target.getStage();
         const pointer = stage?.getPointerPosition?.();
         if (!pointer) return;
+        setArcEditorWaypoint(null);
         closeAllFloatingMenus();
         setSectionContextMenu({
           visible: true,
@@ -3237,6 +3313,10 @@ const Canvas: React.FC<CanvasProps> = ({
         <Line
           key={`${seg.section.id}_${slotIndex}_hit`}
           id={`sec_hit_${seg.section.id}`}
+          ref={(node) => {
+            if (node) sectionHitNodeMapRef.current.set(seg.section.id, node);
+            else sectionHitNodeMapRef.current.delete(seg.section.id);
+          }}
           points={renderFlat}
           stroke="rgba(0,0,0,0.001)"
           strokeWidth={hitStroke}
@@ -3244,6 +3324,7 @@ const Canvas: React.FC<CanvasProps> = ({
           lineCap="round"
           lineJoin="round"
           perfectDrawEnabled={false}
+          listening={activeTool !== 'pan' && !isSpaceHeld}
           sectionId={seg.section.id}
           onMouseDown={handleSectionMouseDown}
           onTouchStart={handleSectionTouchStart}
@@ -3255,6 +3336,10 @@ const Canvas: React.FC<CanvasProps> = ({
         <Line
           key={`${seg.section.id}_${slotIndex}`}
           id={`sec_vis_${seg.section.id}`}
+          ref={(node) => {
+            if (node) sectionVisNodeMapRef.current.set(seg.section.id, node);
+            else sectionVisNodeMapRef.current.delete(seg.section.id);
+          }}
           name="zoom-sized-stroke"
           points={renderFlat}
           stroke={seg.line.color}
@@ -3275,22 +3360,16 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const anchorStation = drawAnchorStationId ? stationById.get(drawAnchorStationId) || null : null;
-  const activeHintText =
-    isSpaceHeld
-      ? isEn
-        ? 'Space held: drag anywhere to pan canvas'
-        : '空格抓手已激活：按住左键拖拽即可平移画布'
-      : selectedWaypoint
-        ? isEn
-          ? 'Drag orange handle to adjust arc radius · Switch pure arc · Double-click bend to remove'
-          : '拖动橙色手柄调圆弧大小 · 可切过点圆弧 · 双击拐点直接删除'
-        : activeTool === 'draw'
-          ? anchorStation
-            ? text.hints.drawActive(anchorStation.name, drawWaypointSubmode)
-            : text.hints.drawIdle
-          : activeTool === 'pan'
-            ? text.hints.pan
-            : text.hints.select;
+  const drawSnapStation = drawSnapStationId ? stationById.get(drawSnapStationId) || null : null;
+
+  const mobileTouchHintText =
+    activeTool === 'draw'
+      ? anchorStation
+        ? text.touchHints.drawActive(anchorStation.name)
+        : text.touchHints.drawIdle
+      : activeTool === 'pan'
+        ? text.touchHints.pan
+        : text.touchHints.select;
 
   const activeCanvasCursor =
     isSpaceHeld || activeTool === 'pan'
@@ -3304,6 +3383,8 @@ const Canvas: React.FC<CanvasProps> = ({
   return (
     <div
       ref={containerRef}
+      onPointerMove={handleContainerPointerMove}
+      onPointerLeave={hideCursorDot}
       onTouchCancel={handleTouchCancel}
       className={`metro-canvas-surface ${isDarkCanvas ? 'is-canvas-dark' : ''}`}
       data-map-mode={mapSettings.baseMap.mode}
@@ -3321,6 +3402,36 @@ const Canvas: React.FC<CanvasProps> = ({
         } as React.CSSProperties
       }
     >
+      {/* 0ms GPU 硬件直连跟随小圆点（仅在绘制模式空白区激活，重合既有站时自动隐身让位） */}
+      <div ref={cursorDotDomRef} className="metro-draw-cursor-dot" style={{ opacity: 0 }} aria-hidden="true" />
+
+      {/* 绘制模式下靠近既有站点的重合动作提示标 */}
+      {!readOnly && activeTool === 'draw' && drawSnapStation && (() => {
+        const screen = worldToScreenPoint(getDisplayPoint(drawSnapStation));
+        const left = Math.max(72, Math.min(screen.x, stageSize.width - 72));
+        const top = Math.max(54, screen.y - 18);
+        let label = '';
+        let dotColor = currentLine?.color || '#3b82f6';
+        if (!drawAnchorStationId) {
+          label = isEn ? `Start from "${drawSnapStation.name}"` : `从「${drawSnapStation.name}」起笔`;
+        } else if (drawAnchorStationId === drawSnapStation.id) {
+          label = isEn ? 'Click to lift pen' : '点击抬笔结束当前段';
+          dotColor = '#f59e0b';
+        } else if (currentLine?.stationIds.includes(drawSnapStation.id)) {
+          label = isEn ? `Close loop to "${drawSnapStation.name}"` : `连接闭合至「${drawSnapStation.name}」`;
+          dotColor = '#10b981';
+        } else {
+          label = isEn ? `Transfer at "${drawSnapStation.name}"` : `接入「${drawSnapStation.name}」换乘`;
+          dotColor = '#3b82f6';
+        }
+        return (
+          <div className="metro-draw-snap-badge" style={{ left, top }}>
+            <span className="metro-draw-snap-badge__dot" style={{ backgroundColor: dotColor }} />
+            <span>{label}</span>
+          </div>
+        );
+      })()}
+
       {lines.length === 0 &&
         stations.length === 0 &&
         sections.length === 0 &&
@@ -3365,7 +3476,7 @@ const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
 
-      {/* 顶部三态灵动工具栏 + 绘制子控制条 + 实时手势上下文轻提示 */}
+      {/* 左上角三态主工具栏 + 绘制子控制栏 + 多选批量栏（彻底移除冗长常驻灰字提示） */}
       <div className="metro-canvas-tools">
         <div
           ref={toolGroupRef}
@@ -3405,32 +3516,47 @@ const Canvas: React.FC<CanvasProps> = ({
 
         {!readOnly && activeTool === 'draw' && (
           <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
-            <span className="metro-draw-subbar__line" title={currentLine?.name || '落笔自动建 1号线'}>
-              <span
-                className="metro-draw-subbar__swatch"
-                style={{ backgroundColor: currentLine?.color || LINE_COLORS[0] }}
-              />
-              {currentLine?.name || (isEn ? 'Auto Line 1' : '自动建 1号线')}
-            </span>
+            {currentLine ? (
+              <span className="metro-draw-subbar__line" title={currentLine.name}>
+                <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
+                {currentLine.name}
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="metro-draw-subbar__pill"
+                onClick={() => {
+                  if (lines.length === 0) onCreateLine?.();
+                  else onSelectLine?.(lines[0].id);
+                }}
+              >
+                {lines.length === 0
+                  ? isEn
+                    ? '+ Create a line first'
+                    : '+ 先在左侧新建线路'
+                  : isEn
+                    ? 'Select a line on left'
+                    : '请在左侧选择线路'}
+              </button>
+            )}
             {anchorStation ? (
               <>
                 <span className="metro-draw-subbar__sep" />
-                <button
-                  type="button"
-                  className={`metro-draw-subbar__pill${!drawWaypointSubmode ? ' is-active' : ''}`}
-                  onClick={() => setDrawWaypointSubmode(false)}
-                >
-                  {isEn ? 'Station' : '落站点'}
-                </button>
-                <button
-                  type="button"
-                  className={`metro-draw-subbar__pill${drawWaypointSubmode ? ' is-active' : ''}`}
-                  onClick={() => setDrawWaypointSubmode((v) => !v)}
-                  title="连笔途中按住 Shift+左键或开启此项可连续打 360° 途经点"
-                >
-                  {isEn ? 'Bend (Shift)' : '打拐点'}
-                  {drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''}
-                </button>
+                <ElasticCapsuleTabs<'station' | 'bend'>
+                  size="sm"
+                  ariaLabel="落点模式切换"
+                  value={drawWaypointSubmode ? 'bend' : 'station'}
+                  onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
+                  options={[
+                    { value: 'station', label: isEn ? 'Station' : '落站点' },
+                    {
+                      value: 'bend',
+                      label: `${isEn ? 'Bend' : '打拐点'}${
+                        drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
+                      }`
+                    }
+                  ]}
+                />
                 <button
                   type="button"
                   className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
@@ -3444,12 +3570,34 @@ const Canvas: React.FC<CanvasProps> = ({
           </div>
         )}
 
-        {!readOnly && !isCompact && <div className="metro-gesture-status">{activeHintText}</div>}
+        {!readOnly && selectedStationIds.size > 1 && (
+          <div className="metro-multiselect-bar" onMouseDown={(e) => e.stopPropagation()}>
+            <span>
+              {isEn
+                ? `${selectedStationIds.size} selected`
+                : `已选 ${selectedStationIds.size} 站`}
+            </span>
+            <button
+              type="button"
+              className="metro-multiselect-bar__btn metro-multiselect-bar__btn--danger"
+              onClick={deleteSelectedItems}
+            >
+              {isEn ? 'Delete' : '删除'}
+            </button>
+            <button
+              type="button"
+              className="metro-multiselect-bar__btn"
+              onClick={() => setSelectedStationIds(new Set())}
+            >
+              {isEn ? 'Clear' : '取消'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 移动端顶部轻提示条 */}
       <div className="metro-touch-hint" aria-live="polite">
-        <span>{activeHintText}</span>
+        <span>{mobileTouchHintText}</span>
         {anchorStation ? (
           <button type="button" onClick={liftDrawingPen}>
             {isEn ? 'Lift Pen' : '抬笔'}
@@ -3514,32 +3662,7 @@ const Canvas: React.FC<CanvasProps> = ({
         </div>
       )}
 
-      {/* 多选批量操作条 */}
-      {!readOnly && selectedStationIds.size > 1 && (
-        <div className="metro-multiselect-bar" onMouseDown={(e) => e.stopPropagation()}>
-          <span>
-            {isEn
-              ? `${selectedStationIds.size} stations selected · Drag any to move together`
-              : `已选 ${selectedStationIds.size} 个站点 · 拖动任一站可整片平移`}
-          </span>
-          <button
-            type="button"
-            className="metro-multiselect-bar__btn metro-multiselect-bar__btn--danger"
-            onClick={deleteSelectedItems}
-          >
-            {isEn ? 'Delete' : '删除选中'}
-          </button>
-          <button
-            type="button"
-            className="metro-multiselect-bar__btn"
-            onClick={() => setSelectedStationIds(new Set())}
-          >
-            {isEn ? 'Clear' : '取消选择'}
-          </button>
-        </div>
-      )}
-
-      {/* 右下角画布 HUD（含缩放、适应视图、搜站与 ? 手势速查入口） */}
+      {/* 右下角画布 HUD（右侧按钮统一 topRight 对齐，彻底防止 Tooltip 越过视口右边界撑出滚动条） */}
       {isCompact && mobileViewControlsHost ? (
         createPortal(
           <MobileViewControls
@@ -3560,7 +3683,7 @@ const Canvas: React.FC<CanvasProps> = ({
         )
       ) : !isCompact ? (
         <div className="metro-canvas-hud">
-          <Tooltip title={text.zoomOut}>
+          <Tooltip title={text.zoomOut} placement="top">
             <button type="button" className="metro-canvas-hud__btn" onClick={zoomOut} aria-label={text.zoomOut}>
               −
             </button>
@@ -3586,24 +3709,24 @@ const Canvas: React.FC<CanvasProps> = ({
               {text.zoom} {(amapRef.current?.getZoom?.() || mapSettings.baseMap.amap?.zoom || 11).toFixed(1)}
             </span>
           )}
-          <Tooltip title={text.zoomIn}>
+          <Tooltip title={text.zoomIn} placement="top">
             <button type="button" className="metro-canvas-hud__btn" onClick={zoomIn} aria-label={text.zoomIn}>
               +
             </button>
           </Tooltip>
           <span className="metro-canvas-hud__divider" />
-          <Tooltip title={text.fitView}>
+          <Tooltip title={text.fitView} placement="topRight">
             <button type="button" className="metro-canvas-hud__btn" onClick={() => fitView()} aria-label={text.fitView}>
               □
             </button>
           </Tooltip>
-          <Tooltip title={text.resetView}>
+          <Tooltip title={text.resetView} placement="topRight">
             <button type="button" className="metro-canvas-hud__btn" onClick={resetView} aria-label={text.resetView}>
               ⌂
             </button>
           </Tooltip>
           <span className="metro-canvas-hud__divider" />
-          <Tooltip title={text.search}>
+          <Tooltip title={text.search} placement="topRight">
             <button
               type="button"
               className="metro-canvas-hud__btn"
@@ -3614,7 +3737,7 @@ const Canvas: React.FC<CanvasProps> = ({
             </button>
           </Tooltip>
           {!readOnly && (
-            <Tooltip title={text.guide}>
+            <Tooltip title={text.guide} placement="topRight">
               <button
                 type="button"
                 className="metro-canvas-hud__btn"
@@ -3646,7 +3769,7 @@ const Canvas: React.FC<CanvasProps> = ({
           cursor: activeCanvasCursor
         }}
       >
-        <Layer listening={canvasSceneReady}>
+        <Layer listening={canvasSceneReady && activeTool !== 'pan' && !isSpaceHeld}>
           {canvasSceneReady && (
             <>
               <Rect
@@ -3658,10 +3781,8 @@ const Canvas: React.FC<CanvasProps> = ({
                 listening={false}
               />
 
-              {/* 线路区间（含平行角平分线偏移与单点圆弧） */}
               {renderLines(suppressShadows)}
 
-              {/* 终端/环线胶囊名 */}
               {lineNamePlacements.map((label) => (
                 <Group
                   key={`line_label_${label.key}`}
@@ -3697,7 +3818,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 </Group>
               ))}
 
-              {/* 途经点控制柄（单击唤出圆弧拉杆，双击直接删除） */}
+              {/* 途经点控制柄：左键点击仅选中/拖动，右键先弹一级菜单，菜单里点「调整圆弧」再弹圆弧框 */}
               {sections.map((section) => {
                 const points = section.waypoints || [];
                 const visiblePoints = points
@@ -3707,16 +3828,18 @@ const Canvas: React.FC<CanvasProps> = ({
                 return visiblePoints.map(({ pt, idx }) => {
                   const waypointPoint = getWaypointDisplayPoint(pt);
                   const isSelectedWp =
-                    selectedWaypoint?.sectionId === section.id && selectedWaypoint?.waypointIndex === idx;
+                    (selectedWaypoint?.sectionId === section.id && selectedWaypoint?.waypointIndex === idx) ||
+                    (arcEditorWaypoint?.sectionId === section.id && arcEditorWaypoint?.waypointIndex === idx);
                   return (
                     <Circle
                       key={`wp_${section.id}_${idx}`}
                       x={waypointPoint.x}
                       y={waypointPoint.y}
-                      radius={isSelectedWp ? scaledWaypointRadius * 1.25 : scaledWaypointRadius}
+                      radius={isSelectedWp ? scaledWaypointRadius * 1.22 : scaledWaypointRadius}
                       fill={isSelectedWp ? '#eff6ff' : canvasPalette.waypointFill}
                       stroke={pt.mode === 'arc' ? '#f59e0b' : canvasPalette.waypointStroke}
                       strokeWidth={isSelectedWp ? scaledWaypointStrokeWidth * 1.35 : scaledWaypointStrokeWidth}
+                      hitStrokeWidth={14 / Math.max(0.35, viewportScaleForHit)}
                       shadowColor={canvasPalette.waypointShadow}
                       shadowBlur={suppressShadows ? 0 : 5}
                       perfectDrawEnabled={false}
@@ -3727,6 +3850,7 @@ const Canvas: React.FC<CanvasProps> = ({
                       dragDistance={isCompact ? 8 : 3}
                       onClick={(e) => {
                         if (readOnly) return;
+                        if (e.evt && e.evt.button !== undefined && e.evt.button !== 0) return;
                         e.cancelBubble = true;
                         commitInlineRenameIfNeeded();
                         setSelectedWaypoint({ sectionId: section.id, waypointIndex: idx });
@@ -3735,7 +3859,18 @@ const Canvas: React.FC<CanvasProps> = ({
                       onTap={(e) => {
                         if (readOnly) return;
                         e.cancelBubble = true;
-                        setSelectedWaypoint({ sectionId: section.id, waypointIndex: idx });
+                        const pointer = e.target.getStage()?.getPointerPosition?.();
+                        if (pointer) {
+                          setArcEditorWaypoint(null);
+                          setSectionContextMenu({
+                            visible: true,
+                            x: pointer.x,
+                            y: pointer.y,
+                            sectionKey: section.id,
+                            waypointIndex: idx,
+                            waypointOnly: true
+                          });
+                        }
                       }}
                       onDblClick={(e) => {
                         if (readOnly) return;
@@ -3766,6 +3901,8 @@ const Canvas: React.FC<CanvasProps> = ({
                         const stage = e.target.getStage();
                         const pointer = stage?.getPointerPosition?.();
                         if (!pointer) return;
+                        // 右键只弹一级菜单，先收起圆弧调整浮窗，避免两个弹窗叠在一起
+                        setArcEditorWaypoint(null);
                         closeAllFloatingMenus();
                         setSectionContextMenu({
                           visible: true,
@@ -3781,7 +3918,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 });
               })}
 
-              {/* 选中途经点的圆弧半径拖拽拉杆（Arc Radius Handle） */}
+              {/* 仅在一级菜单选择「调整圆弧」后才挂载圆弧半径拖拽拉杆 */}
               {!readOnly && activeWaypointArcGeometry && (
                 <>
                   <Line
@@ -3821,6 +3958,7 @@ const Canvas: React.FC<CanvasProps> = ({
                         fill="#f59e0b"
                         stroke="#ffffff"
                         strokeWidth={2 / Math.max(0.45, viewportScaleForHit)}
+                        hitStrokeWidth={12 / Math.max(0.45, viewportScaleForHit)}
                         draggable
                         onDragStart={(e) => {
                           e.cancelBubble = true;
@@ -3839,7 +3977,6 @@ const Canvas: React.FC<CanvasProps> = ({
                             activeWaypointArcGeometry.nextPt,
                             worldPointer
                           );
-                          // 锁定手柄自身到角平分线位置，避免自由飞离
                           const updatedInfo = computeCornerHandleInfo(
                             activeWaypointArcGeometry.prevPt,
                             activeWaypointArcGeometry.currPt,
@@ -3877,7 +4014,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 </>
               )}
 
-              {/* 站点与换乘符号（统一专业线网 dot-label 模式） */}
+              {/* 站点与换乘符号 */}
               {stations.map((station) => {
                 const stationColor = getStationColor(station.id);
                 const labelRect = labelPlacements[station.id];
@@ -3885,6 +4022,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 const stationPoint = getDisplayPoint(station);
                 const isSelected = selectedStationIds.has(station.id);
                 const isDrawAnchor = drawAnchorStationId === station.id && activeTool === 'draw';
+                const isDrawSnapped = drawSnapStationId === station.id && activeTool === 'draw';
                 const isMergeTarget = mergeTargetStationId === station.id;
                 const isHighlighted = highlightedStationId === station.id;
                 const baseR = isInterchangeStation ? scaledInterchangeRadius : scaledNormalStationRadius;
@@ -3893,6 +4031,10 @@ const Canvas: React.FC<CanvasProps> = ({
                   <Group
                     key={station.id}
                     id={station.id}
+                    ref={(node) => {
+                      if (node) stationGroupNodeMapRef.current.set(station.id, node);
+                      else stationGroupNodeMapRef.current.delete(station.id);
+                    }}
                     name="touch-edit-node touch-station zoom-sized-element"
                     dragDistance={isCompact ? 8 : 3}
                     x={stationPoint.x}
@@ -3927,13 +4069,12 @@ const Canvas: React.FC<CanvasProps> = ({
                       />
                     ) : null}
 
-                    {/* 起笔锚点光环 / 选中光环 / 换乘合并磁吸光环 / 搜站定位高亮环 */}
-                    {(isDrawAnchor || isSelected || isMergeTarget || isHighlighted) && (
+                    {(isDrawAnchor || isDrawSnapped || isSelected || isMergeTarget || isHighlighted) && (
                       <Circle
-                        radius={baseR + (isMergeTarget || isHighlighted ? 7 : 5) * dotScale}
+                        radius={baseR + (isMergeTarget || isHighlighted || isDrawSnapped ? 7 : 5) * dotScale}
                         fill={
-                          isMergeTarget
-                            ? 'rgba(16, 185, 129, 0.18)'
+                          isMergeTarget || isDrawSnapped
+                            ? 'rgba(37, 99, 235, 0.14)'
                             : isHighlighted
                               ? 'rgba(245, 158, 11, 0.2)'
                               : 'transparent'
@@ -3943,12 +4084,14 @@ const Canvas: React.FC<CanvasProps> = ({
                             ? '#10b981'
                             : isHighlighted
                               ? '#f59e0b'
-                              : isDrawAnchor
+                              : isDrawSnapped
                                 ? currentLine?.color || '#2563eb'
-                                : '#3b82f6'
+                                : isDrawAnchor
+                                  ? currentLine?.color || '#2563eb'
+                                  : '#3b82f6'
                         }
-                        strokeWidth={2 * dotScale}
-                        dash={isDrawAnchor ? [4, 3] : undefined}
+                        strokeWidth={2.2 * dotScale}
+                        dash={isDrawAnchor && !isDrawSnapped ? [4, 3] : undefined}
                         listening={false}
                         perfectDrawEnabled={false}
                       />
@@ -4104,16 +4247,18 @@ const Canvas: React.FC<CanvasProps> = ({
           )}
         </Layer>
 
-        {/* 顶层轻量交互辅助层：校准虚线、连笔橡皮筋预览、待提交拐点、幽灵落点与框选框 */}
-        <Layer listening={false}>
+        {/* 顶层纯命令式交互辅助层（直接 ref 引用，仅含极少辅助节点，重绘耗时 < 0.1ms） */}
+        <Layer ref={overlayLayerRef} listening={false}>
           {canvasSceneReady && (
             <>
               {[0, 1, 2, 3].map((idx) => (
                 <Line
                   key={`imp_guide_${idx}`}
-                  id={`imperative_guide_${idx}`}
-                  points={activeCalibrationGuides[idx] || []}
-                  visible={Boolean(activeCalibrationGuides[idx])}
+                  ref={(node) => {
+                    guideLineRefs.current[idx] = node;
+                  }}
+                  points={[]}
+                  visible={false}
                   stroke={canvasPalette.activeGuide}
                   strokeWidth={1 / Math.max(0.4, viewportScaleForHit)}
                   dash={[6, 6]}
@@ -4123,10 +4268,23 @@ const Canvas: React.FC<CanvasProps> = ({
                 />
               ))}
 
+              <Circle
+                ref={tempDragWaypointRef}
+                x={0}
+                y={0}
+                visible={false}
+                radius={scaledWaypointRadius * 1.15}
+                fill="#eff6ff"
+                stroke={canvasPalette.waypointStroke}
+                strokeWidth={scaledWaypointStrokeWidth}
+                listening={false}
+                perfectDrawEnabled={false}
+              />
+
               {activeTool === 'draw' && (
                 <>
                   <Line
-                    id="metro-drawing-preview"
+                    ref={drawingPreviewLineRef}
                     points={drawingPointsRef.current}
                     visible={Boolean(drawAnchorStationId && drawingPointsRef.current.length >= 4)}
                     stroke={currentLine?.color || canvasPalette.drawingLine}
@@ -4154,19 +4312,6 @@ const Canvas: React.FC<CanvasProps> = ({
                       />
                     );
                   })}
-                  <Circle
-                    id="metro-drawing-ghost-dot"
-                    x={0}
-                    y={0}
-                    visible={false}
-                    radius={drawWaypointSubmode ? scaledWaypointRadius : scaledNormalStationRadius}
-                    fill={drawWaypointSubmode ? '#ffffff' : currentLine?.color || LINE_COLORS[0]}
-                    stroke={drawWaypointSubmode ? currentLine?.color || '#2563eb' : '#ffffff'}
-                    strokeWidth={2}
-                    opacity={0.55}
-                    listening={false}
-                    perfectDrawEnabled={false}
-                  />
                 </>
               )}
 
@@ -4242,17 +4387,20 @@ const Canvas: React.FC<CanvasProps> = ({
         );
       })()}
 
-      {/* 途经点就地圆弧控制器（不用去全局设置调） */}
+      {/* 途经点圆弧调节弹窗（仅在一级菜单点击「调整圆弧」后弹出，顶部切换已统一为标准弹性胶囊） */}
       {!readOnly && activeWaypointArcGeometry && (() => {
         const screen = worldToScreenPoint(activeWaypointArcGeometry.currPt);
-        const left = Math.max(14, Math.min(screen.x + 18, stageSize.width - 266));
-        const top = Math.max(58, Math.min(screen.y - 26, stageSize.height - 148));
+        const left = Math.max(14, Math.min(screen.x + 18, stageSize.width - 276));
+        const top = Math.max(58, Math.min(screen.y - 26, stageSize.height - 156));
         const wp = activeWaypointArcGeometry.waypoint;
         const secId = activeWaypointArcGeometry.section.id;
         const wpIdx = activeWaypointArcGeometry.waypointIndex;
         const isArcMode = wp.mode === 'arc';
         const curRadius = Math.round(activeWaypointArcGeometry.effectiveRadius);
-        const maxSliderR = Math.max(120, Math.min(600, Math.round(activeWaypointArcGeometry.handleInfo?.maxRadius || 180)));
+        const maxSliderR = Math.max(
+          120,
+          Math.min(600, Math.round(activeWaypointArcGeometry.handleInfo?.maxRadius || 180))
+        );
 
         const applyWpPatch = (patch: Partial<Waypoint>, record = true) => {
           if (record) onBeginInteraction?.();
@@ -4270,22 +4418,19 @@ const Canvas: React.FC<CanvasProps> = ({
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="metro-wp-arc-bar__top">
-              <div className="metro-wp-arc-bar__modes">
-                <button
-                  type="button"
-                  className={`metro-wp-arc-bar__mode${!isArcMode ? ' is-active' : ''}`}
-                  onClick={() => applyWpPatch({ mode: 'corner', radius: curRadius || 28 })}
-                >
-                  {isEn ? 'Fillet Arc' : '相切圆弧'}
-                </button>
-                <button
-                  type="button"
-                  className={`metro-wp-arc-bar__mode${isArcMode ? ' is-active' : ''}`}
-                  onClick={() => applyWpPatch({ mode: 'arc' })}
-                >
-                  {isEn ? '3-Pt Arc' : '过点正圆弧'}
-                </button>
-              </div>
+              <ElasticCapsuleTabs<'corner' | 'arc'>
+                size="sm"
+                ariaLabel="圆弧模式切换"
+                value={isArcMode ? 'arc' : 'corner'}
+                onChange={(mode) => {
+                  if (mode === 'arc') applyWpPatch({ mode: 'arc' });
+                  else applyWpPatch({ mode: 'corner', radius: curRadius || 28 });
+                }}
+                options={[
+                  { value: 'corner', label: isEn ? 'Fillet Arc' : '相切圆弧' },
+                  { value: 'arc', label: isEn ? '3-Pt Arc' : '过点正圆弧' }
+                ]}
+              />
               <div className="metro-wp-arc-bar__actions">
                 <button
                   type="button"
@@ -4293,7 +4438,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   title="隐藏该途经点圆点手柄"
                   onClick={() => {
                     applyWpPatch({ hidden: true });
-                    setSelectedWaypoint(null);
+                    setArcEditorWaypoint(null);
                   }}
                 >
                   <EyeInvisibleOutlined />
@@ -4301,7 +4446,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 <button
                   type="button"
                   className="metro-wp-arc-bar__icon-btn is-danger"
-                  title="删除该途经点 (双击)"
+                  title="删除该途经点"
                   onClick={() => deleteWaypoint(secId, wpIdx)}
                 >
                   <DeleteOutlined />
@@ -4310,7 +4455,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   type="button"
                   className="metro-wp-arc-bar__icon-btn"
                   title="关闭"
-                  onClick={() => setSelectedWaypoint(null)}
+                  onClick={() => setArcEditorWaypoint(null)}
                 >
                   <CloseOutlined style={{ fontSize: 11 }} />
                 </button>
@@ -4354,7 +4499,7 @@ const Canvas: React.FC<CanvasProps> = ({
               <div className="metro-wp-arc-bar__hint">
                 {isEn
                   ? 'Pure circular arc passing through prev → this point → next. Drag point 360° to sculpt.'
-                  : '已生成穿过该点的标准正圆弧，直接 360° 拖动圆点即可调整弧度曲率。'}
+                  : '已生成穿过该点的标准正圆弧，直接 360° 拖动圆点即可调整曲率。'}
               </div>
             )}
           </div>
@@ -4429,7 +4574,7 @@ const Canvas: React.FC<CanvasProps> = ({
         style={{ display: 'none' }}
       />
 
-      {/* 站点详情与附加标注弹窗（保持对公开只读预览与测试的完整兼容） */}
+      {/* 站点详情与附加标注弹窗 */}
       <DraggableModal
         title="站点信息"
         open={stationInfoModal.visible}
@@ -4574,7 +4719,7 @@ const Canvas: React.FC<CanvasProps> = ({
           );
         })()}
 
-      {/* 区间与途经点右键菜单 */}
+      {/* 区间与途经点一级右键菜单（点击「调整圆弧」后才打开二级圆弧面板） */}
       {sectionContextMenu.visible && sectionContextMenu.sectionKey
         ? (() => {
             const sectionKey = sectionContextMenu.sectionKey!;
@@ -4599,8 +4744,9 @@ const Canvas: React.FC<CanvasProps> = ({
                       type="button"
                       className="metro-floating-menu__item"
                       onClick={() => {
-                        setSelectedWaypoint({ sectionId: sectionKey, waypointIndex: pointIndex });
                         closeAllFloatingMenus();
+                        setSelectedWaypoint({ sectionId: sectionKey, waypointIndex: pointIndex });
+                        setArcEditorWaypoint({ sectionId: sectionKey, waypointIndex: pointIndex });
                       }}
                     >
                       <EditOutlined />
@@ -4670,6 +4816,17 @@ const Canvas: React.FC<CanvasProps> = ({
                               type="button"
                               className="metro-floating-menu__mini-btn"
                               onClick={() => {
+                                closeAllFloatingMenus();
+                                setSelectedWaypoint({ sectionId: sectionKey, waypointIndex: idx });
+                                setArcEditorWaypoint({ sectionId: sectionKey, waypointIndex: idx });
+                              }}
+                            >
+                              圆弧
+                            </button>
+                            <button
+                              type="button"
+                              className="metro-floating-menu__mini-btn"
+                              onClick={() => {
                                 onBeginInteraction?.();
                                 writeSectionWaypoints(
                                   sectionKey,
@@ -4725,14 +4882,15 @@ const Canvas: React.FC<CanvasProps> = ({
           })()
         : null}
 
-      {/* 站点右键菜单（一键从该站起笔延伸/拉支线 + 站名八向方位固定 + 备注/重命名/删除） */}
+      {/* 站点右键菜单 */}
       {stationContextMenu.visible &&
         stationContextMenu.station &&
         (() => {
           const st = stationContextMenu.station!;
           const menuLeft = Math.max(12, Math.min(stationContextMenu.x, stageSize.width - 248));
-          const menuTop = Math.max(12, Math.min(stationContextMenu.y, stageSize.height - 320));
+          const menuTop = Math.max(12, Math.min(stationContextMenu.y, stageSize.height - 340));
           const curLabelPos: StationLabelPosition = st.labelPosition || 'auto';
+          const inCurrentLine = Boolean(currentLine && currentLine.stationIds.includes(st.id));
 
           return (
             <div
@@ -4740,7 +4898,7 @@ const Canvas: React.FC<CanvasProps> = ({
               role="region"
               aria-label="站点操作"
               onMouseDown={(e) => e.stopPropagation()}
-              style={{ top: menuTop, left: menuLeft, zIndex: 1000, width: 232 }}
+              style={{ top: menuTop, left: menuLeft, zIndex: 1000, width: 236 }}
             >
               <div className="metro-floating-menu__header">
                 <span className="metro-floating-menu__dot" style={{ backgroundColor: getStationColor(st.id) }} />
@@ -4753,8 +4911,9 @@ const Canvas: React.FC<CanvasProps> = ({
                 onClick={() => {
                   closeAllFloatingMenus();
                   if (!currentLineId) {
-                    const owning = lines.find((l) => l.stationIds.includes(st.id)) || lines[0];
+                    const owning = lines.find((l) => l.stationIds.includes(st.id));
                     if (owning) onSelectLine?.(owning.id);
+                    else if (!requireSelectedLineForDraw()) return;
                   }
                   setActiveTool('draw');
                   setDrawAnchorStationId(st.id);
@@ -4811,6 +4970,20 @@ const Canvas: React.FC<CanvasProps> = ({
               </div>
 
               <div className="metro-floating-menu__divider" />
+              {inCurrentLine && currentLine && onRemoveStationFromLine && (
+                <button
+                  type="button"
+                  className="metro-floating-menu__item"
+                  onClick={() => {
+                    onRemoveStationFromLine(currentLine.id, st.id);
+                    closeAllFloatingMenus();
+                    message.success?.(`已将「${st.name}」移出${currentLine.name}`);
+                  }}
+                >
+                  <DisconnectOutlined />
+                  <span>从「{currentLine.name}」移除</span>
+                </button>
+              )}
               <button
                 type="button"
                 className="metro-floating-menu__item is-danger"

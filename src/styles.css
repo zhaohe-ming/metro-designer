@@ -126,8 +126,8 @@ body {
 .metro-command-bar {
   position: absolute;
   left: 14px;
-  /* 右边界左移，给右下角的缩放 HUD 让位，避免重叠（240 仍贴住，加到 290 留明显间隙） */
-  right: 290px;
+  /* 右边界左移，给右下角的缩放 + 搜站 + 指南 HUD 留足间隙，避免重叠 */
+  right: 336px;
   bottom: 14px;
   z-index: 30;
   display: flex;
@@ -2771,9 +2771,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 /* ===== 画布 HUD：底部右侧一条胶囊 ===== */
 .metro-canvas-hud {
   position: absolute;
-  /* 回到右下角，与命令栏同底排列（命令栏右边界已左移让位，见 .metro-command-bar） */
   bottom: 16px;
-  right: 16px;
+  right: 24px;
   z-index: 1000;
   display: inline-flex;
   align-items: center;
@@ -7474,24 +7473,63 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   line-height: 1.4;
 }
 
-/* 多选浮动操作栏 */
+/* 多选浮动操作栏（置于左上角主工具栏右侧，不遮挡底部命令行） */
 .metro-multiselect-bar {
-  position: absolute;
-  bottom: 22px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 30;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 6px 12px;
+  gap: 8px;
+  height: 40px;
+  padding: 0 12px;
   border-radius: 999px;
-  border: 1px solid rgba(59, 130, 246, 0.35);
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.32);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.09);
   font-size: 12.5px;
   font-weight: 600;
   color: #0f172a;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+/* 绘制模式：0ms GPU 硬件合成层实时跟随小圆点 + 站点重合动作提示标 */
+.metro-draw-cursor-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 18;
+  border-radius: 50%;
+  box-sizing: border-box;
+  pointer-events: none;
+  will-change: transform;
+  transform: translate3d(-9999px, -9999px, 0);
+}
+
+.metro-draw-snap-badge {
+  position: absolute;
+  z-index: 25;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.88);
+  color: #ffffff;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+}
+
+.metro-draw-snap-badge__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .metro-multiselect-bar__btn {
@@ -7614,34 +7652,42 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   font-weight: 700;
 }
 
-/* 新手微动画引导与手势速查弹窗 */
+/* 新手微动画引导与手势速查弹窗（舒展排版 + 全局统一弹性胶囊） */
+@media (min-width: 769px) {
+  html:has(.metro-app-shell),
+  body:has(.metro-app-shell) {
+    overflow: hidden;
+  }
+}
+
 .metro-onboarding-backdrop {
   position: fixed;
   inset: 0;
   z-index: 2100;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 20px;
   background: rgba(15, 23, 42, 0.42);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
 }
 
 .metro-onboard-dialog {
-  width: min(500px, 100%);
-  border-radius: 20px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  width: min(532px, 100%);
+  border-radius: 22px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
   background: #ffffff;
-  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.2);
   overflow: hidden;
+  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .metro-onboard-dialog.is-wide {
-  width: min(640px, 100%);
+  width: min(784px, 100%);
 }
 
 .metro-onboard {
-  padding: 18px 22px 20px;
+  padding: 24px 28px 26px;
   color: #0f172a;
 }
 
@@ -7649,42 +7695,16 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.metro-onboard__tabs {
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 999px;
-  background: #f1f5f9;
-  gap: 2px;
-}
-
-.metro-onboard__tab {
-  height: 28px;
-  padding: 0 13px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: #475569;
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.metro-onboard__tab.is-active {
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+  gap: 16px;
+  margin-bottom: 20px;
 }
 
 .metro-onboard__close {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 32px;
+  height: 32px;
   border: 0;
   border-radius: 50%;
   background: transparent;
@@ -7701,9 +7721,9 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 12px;
+  border-radius: 14px;
   border: 1px solid #e2e8f0;
-  margin-bottom: 14px;
+  margin-bottom: 18px;
 }
 
 @keyframes metroOnbDash {
@@ -7748,32 +7768,32 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
 
 .metro-onboard__badge {
   display: inline-block;
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 999px;
   background: #eff6ff;
   color: #1d4ed8;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 .metro-onboard__title {
-  margin: 0 0 10px;
-  font-size: 16.5px;
+  margin: 0 0 12px;
+  font-size: 17px;
   font-weight: 700;
   color: #0f172a;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .metro-onboard__list {
-  margin: 0 0 18px;
+  margin: 0 0 22px;
   padding-left: 18px;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 9px;
   color: #334155;
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: 13.5px;
+  line-height: 1.65;
 }
 
 .metro-onboard__footer {
@@ -7781,13 +7801,13 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding-top: 12px;
+  padding-top: 16px;
   border-top: 1px solid #f1f5f9;
 }
 
 .metro-onboard__dots {
   display: inline-flex;
-  gap: 6px;
+  gap: 7px;
 }
 
 .metro-onboard__dot {
@@ -7802,21 +7822,21 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
 }
 
 .metro-onboard__dot.is-active {
-  width: 22px;
+  width: 24px;
   background: #2563eb;
 }
 
 .metro-onboard__actions {
   display: inline-flex;
-  gap: 8px;
+  gap: 10px;
 }
 
 .metro-onboard__btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  height: 34px;
-  padding: 0 15px;
+  height: 36px;
+  padding: 0 18px;
   border-radius: 999px;
   border: 1px solid transparent;
   font-size: 13px;
@@ -7846,45 +7866,61 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
 
 .metro-onboard__grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(256px, 1fr));
-  gap: 14px;
-  margin-bottom: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+  margin-bottom: 20px;
 }
 
 .metro-onboard__group {
-  padding: 12px 14px;
-  border-radius: 14px;
+  padding: 18px 20px;
+  border-radius: 16px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 12px;
 }
 
 .metro-onboard__group-title {
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 700;
   color: #0f172a;
   margin-bottom: 2px;
 }
 
+.metro-onboard__rows {
+  display: flex;
+  flex-direction: column;
+}
+
 .metro-onboard__row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  font-size: 12px;
+  gap: 14px;
+  padding: 9px 0;
+  border-bottom: 1px dashed rgba(203, 213, 225, 0.65);
+  font-size: 12.5px;
+}
+
+.metro-onboard__row:first-child {
+  padding-top: 4px;
+}
+
+.metro-onboard__row:last-child {
+  padding-bottom: 2px;
+  border-bottom: 0;
 }
 
 .metro-onboard__kbd {
   flex-shrink: 0;
-  padding: 2px 7px;
-  border-radius: 6px;
+  padding: 3px 9px;
+  border-radius: 7px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
   color: #0f172a;
   font-family: inherit;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
 }
@@ -7892,13 +7928,13 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
 .metro-onboard__desc {
   color: #475569;
   text-align: right;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .metro-onboard__sheet-footer {
   display: flex;
   justify-content: flex-end;
-  padding-top: 10px;
+  padding-top: 14px;
   border-top: 1px solid #f1f5f9;
 }
 
@@ -7994,6 +8030,24 @@ body[data-interface-theme="dark"] .metro-onboard__group {
 body[data-interface-theme="dark"] .metro-onboard__tab.is-active {
   background: #334155;
   color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__row {
+  border-bottom-color: rgba(148, 163, 184, 0.18);
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-elastic-tabs {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(148, 163, 184, 0.24);
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-elastic-tabs__btn {
+  color: #cbd5e1;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-elastic-tabs:not([data-has-preview="true"]) .metro-elastic-tabs__btn.is-active,
+.metro-canvas-surface.is-canvas-dark .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn[data-preview-active="true"] {
+  color: #ffffff;
 }
 
 body[data-interface-theme="dark"] .metro-onboard__kbd {
