@@ -1,14 +1,16 @@
 {
   "name": "metro-designer-desktop",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Metro Designer Windows 客户端",
   "author": "Metro Designer",
   "private": true,
   "main": "main.cjs",
   "scripts": {
-    "start": "electron .",
+    "prepare:web": "node scripts/prepare-web.cjs",
+    "start": "node scripts/prepare-web.cjs && electron .",
+    "start:fast": "electron .",
     "test": "node --test *.test.cjs",
-    "dist": "electron-builder --win nsis --x64 --publish never"
+    "dist": "node scripts/build-dist.cjs"
   },
   "devDependencies": {
     "electron": "45.3.3",
@@ -19,15 +21,27 @@
     "productName": "Metro Designer",
     "artifactName": "Metro-Designer-Setup-${version}-${arch}.${ext}",
     "directories": {
-      "output": "../outputs/windows-app-v1.1.0"
+      "output": "../outputs/windows-app-v1.2.0"
     },
     "files": [
       "main.cjs",
+      "preload.cjs",
+      "localProtocol.cjs",
+      "projectIo.cjs",
       "updates.cjs",
       "policy.cjs",
       "offline.html",
+      "web/**/*",
       "assets/icon.ico",
       "assets/icon.png"
+    ],
+    "fileAssociations": [
+      {
+        "ext": "metro",
+        "name": "Metro Designer Project",
+        "description": "Metro Designer 线路图工程文件",
+        "icon": "assets/icon.ico"
+      }
     ],
     "asar": true,
     "win": {

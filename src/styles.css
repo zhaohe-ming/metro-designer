@@ -7149,3 +7149,42 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   background: rgba(255, 255, 255, 0.1);
   color: #94a3b8;
 }
+
+/* 顶部本机工程标识与离线可用胶囊 */
+.metro-header-mapchip__tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  margin-left: 4px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.metro-header-offline-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  white-space: nowrap;
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-header-mapchip__tag {
+  color: #93c5fd;
+  background: rgba(59, 130, 246, 0.2);
+}
+
+.metro-app-shell[data-interface-theme="dark"] .metro-header-offline-pill {
+  color: #fcd34d;
+  background: rgba(245, 158, 11, 0.16);
+  border-color: rgba(245, 158, 11, 0.3);
+}

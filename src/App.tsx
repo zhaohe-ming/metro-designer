@@ -56,6 +56,19 @@ import { DocumentSession } from './lib/documentSession';
 import { interpretCommand, ResolvedCommand, AppAction } from './lib/commandParser';
 import CommandBar from './components/CommandBar';
 import { isAndroidClient, isAndroidDevice, saveAndroidExport } from './lib/androidClient';
+import {
+  DesktopMenuCommand,
+  hasDesktopBridge,
+  isDesktopClient,
+  saveDesktopExport
+} from './lib/desktopClient';
+import {
+  MetroProjectData,
+  parseMetroProjectJson,
+  sanitizeProjectFilename,
+  serializeMetroProject,
+  stripProjectExtension
+} from './lib/projectFile';
 import { compressImageDataUrl } from './utils/imageCompress';
 
 // 头像 dataURL 体积阈值：超过即认为是"需要压缩的大头像"。
@@ -415,6 +428,24 @@ const App: React.FC = () => {
   const [currentMap, setCurrentMap] = useState<MapSummaryState | null>(null);
   const currentMapRef = useRef(currentMap);
   useLayoutEffect(() => { currentMapRef.current = currentMap; }, [currentMap]);
+  const [localProject, setLocalProject] = useState<{ id: string; name: string; filePath: string | null } | null>(null);
+  const localProjectRef = useRef(localProject);
+  useLayoutEffect(() => { localProjectRef.current = localProject; }, [localProject]);
+  const launchProjectClaimedRef = useRef(false);
+  const localFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine !== false
+  );
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
   // "我的地图"列表的搜索 / 行内重命名 / 复制状态
   const [mapsSearchKeyword, setMapsSearchKeyword] = useState('');
   const [renameMapModal, setRenameMapModal] = useState<{ visible: boolean; mapId: string | null; name: string; saving: boolean }>({
@@ -706,7 +737,7 @@ const App: React.FC = () => {
         // 自动恢复上次编辑的方案。任何一步失败就清掉指针并保持空白工作台。
         let lastMapId: string | null = null;
         try { lastMapId = localStorage.getItem(LAST_MAP_KEY); } catch { /* ignore */ }
-        if (lastMapId && !guestPreviewRequestedRef.current && !hasGuestSession()) {
+        if (lastMapId && !launchProjectClaimedRef.current && !guestPreviewRequestedRef.current && !hasGuestSession()) {
           const openingRequest = ++mapOpeningRequestRef.current;
           setIsMapOpening(true);
           try {
@@ -1155,6 +1186,11 @@ const App: React.FC = () => {
     const blob = new Blob([JSON.stringify(draftSnapshotRef.current, null, 2)], { type: 'application/json' });
     const filename = 'metro-designer-草稿备份.json';
     if (isAndroidClient) { await saveAndroidExport(blob, filename); return; }
+    if (hasDesktopBridge()) {
+      const saved = await saveDesktopExport(blob, filename);
+      if (saved) message.success('草稿备份已保存');
+      return;
+    }
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a'); link.href = url; link.download = filename;
     link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -1219,6 +1255,8 @@ const App: React.FC = () => {
     setStations([]);
     setCurrentLineId(null);
     setCurrentMap(null);
+    localProjectRef.current = null;
+    setLocalProject(null);
     setSavedMaps([]);
     setMapSettings(DEFAULT_MAP_SETTINGS);
     setProfileVisible(false);
@@ -1239,6 +1277,8 @@ const App: React.FC = () => {
     const hasContent = dirtyRef.current || lines.length > 0 || sections.length > 0 || stations.length > 0;
     const doReset = () => {
       gallerySourceRef.current = undefined;
+      localProjectRef.current = null;
+      setLocalProject(null);
       // 用户当前的 labelDensity 选择会带到新方案里，不被默认值覆盖
       // (跨 session 也用 localStorage 兜底，所以 readLabelDensity 也能 fallback)
       const stickyLabelDensity = mapSettingsRef.current.labelDensity || readLabelDensity();
@@ -1267,9 +1307,11 @@ const App: React.FC = () => {
     }
     Modal.confirm({
       title: '新建空白方案？',
-      content: dirtyRef.current || !currentMap
+      content: dirtyRef.current || (!currentMap && !localProject?.filePath)
         ? '当前方案有尚未保存的内容，新建后将丢失。是否继续？'
-        : '当前方案已保存在「我的地图」，需要时可重新打开。画布即将清空。',
+        : localProject?.filePath
+          ? '当前本地工程文件已保存在磁盘中，需要时可随时重新打开。画布即将清空。'
+          : '当前方案已保存在「我的地图」，需要时可重新打开。画布即将清空。',
       okText: '新建',
       cancelText: '取消',
       onOk: doReset
@@ -1280,6 +1322,10 @@ const App: React.FC = () => {
     if (nextMode === mapSettings.baseMap.mode) return;
 
     if (nextMode === 'amap') {
+      if (!isOnline) {
+        message.info('高德在线地理底图需要联网加载，离线状态下可使用纯画布自由绘制');
+        return;
+      }
       let style = mapSettings.baseMap.amap?.style || 'normal';
       try {
         const remembered = localStorage.getItem('metro_amap_style');
@@ -1381,7 +1427,198 @@ const App: React.FC = () => {
     refreshSavedMaps(true);
   };
 
+  const applyLoadedProjectData = (project: MetroProjectData, filePath: string | null) => {
+    gallerySourceRef.current = undefined;
+    guestDraftIdRef.current = null;
+    setGuestDraftId(null);
+    setGuestSession(false);
+    setPreviewMode(false);
+    if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) {
+      window.history.replaceState({}, '', '/');
+    }
+    const nextLocal = { id: createId(), name: project.name, filePath };
+    localProjectRef.current = nextLocal;
+    setLocalProject(nextLocal);
+    setCurrentMap(null);
+
+    const loadedLines = normalizeLoadedLines(project.lines || []);
+    setLines(loadedLines);
+    setSections(normalizeSections(project.sections));
+    setStations(Array.isArray(project.stations) ? project.stations : []);
+    setMapSettings(normalizeMapSettings(project.mapSettings));
+    setCurrentLineId(project.currentLineId || loadedLines[0]?.id || null);
+    setMapName(project.name);
+    setGuestInitialViewport(project.viewport);
+    setGuestViewport(project.viewport);
+    resetHistory();
+    setGuestReady(true);
+    setIsMapOpening(false);
+    setVideoModalOpen(false);
+  };
+
+  const openRawProjectContent = (
+    rawText: string,
+    filename: string,
+    filePath: string | null,
+    skipConfirm = false
+  ) => {
+    let parsed: MetroProjectData;
+    try {
+      parsed = parseMetroProjectJson(rawText, filename);
+    } catch (err: any) {
+      message.error(err?.message || '工程文件解析失败');
+      return;
+    }
+    const doApply = () => {
+      applyLoadedProjectData(parsed, filePath);
+      message.success(`已打开本地工程「${parsed.name}」`);
+    };
+    if (!dirtyRef.current || skipConfirm) {
+      doApply();
+      return;
+    }
+    Modal.confirm({
+      title: '打开本地工程？',
+      content: '当前画布有尚未保存的修改，打开新工程后将丢失。是否继续？',
+      okText: '继续打开',
+      cancelText: '取消',
+      onOk: doApply
+    });
+  };
+
+  const handleOpenLocalProject = async () => {
+    if (hasDesktopBridge() && window.metroDesktop) {
+      try {
+        const res = await window.metroDesktop.openProjectDialog();
+        if (res.canceled || typeof res.content !== 'string') return;
+        openRawProjectContent(res.content, res.name || '', res.filePath || null);
+      } catch (err: any) {
+        message.error(err?.message || '打开本地工程失败');
+      }
+      return;
+    }
+    localFileInputRef.current?.click();
+  };
+
+  const handleLocalFileInputChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const content = await file.text();
+      openRawProjectContent(content, file.name, null);
+    } catch (err: any) {
+      message.error(err?.message || '读取本地文件失败');
+    }
+  };
+
+  const handleSaveLocalProject = async (saveAs = false): Promise<boolean> => {
+    const rawTitle =
+      mapName.trim() ||
+      localProjectRef.current?.name ||
+      currentMapRef.current?.name ||
+      text.unnamedMap;
+    const cleanTitle = stripProjectExtension(rawTitle) || text.unnamedMap;
+    const content = serializeMetroProject({
+      name: cleanTitle,
+      lines: linesRef.current,
+      stations: stationsRef.current,
+      sections: sectionsRef.current,
+      mapSettings: mapSettingsRef.current,
+      currentLineId: currentLineIdRef.current,
+      viewport: guestViewport
+    });
+
+    if (hasDesktopBridge() && window.metroDesktop) {
+      try {
+        const existingPath = localProjectRef.current?.filePath || null;
+        const result = await window.metroDesktop.saveProjectFile({
+          filePath: existingPath,
+          suggestedName: sanitizeProjectFilename(cleanTitle),
+          content,
+          saveAs
+        });
+        if (result.canceled || !result.filePath) return false;
+        const savedName = stripProjectExtension(result.name || cleanTitle) || cleanTitle;
+        const nextLocal = {
+          id: localProjectRef.current?.id || createId(),
+          name: savedName,
+          filePath: result.filePath
+        };
+        localProjectRef.current = nextLocal;
+        setLocalProject(nextLocal);
+        setCurrentMap(null);
+        if (guestDraftIdRef.current) {
+          guestDraftIdRef.current = null;
+          setGuestDraftId(null);
+          setGuestSession(false);
+          setPreviewMode(false);
+        }
+        setMapName(savedName);
+        setSaveMapVisible(false);
+        clearDirty();
+        message.success(
+          existingPath && !saveAs
+            ? '已保存最新修改到本机文件'
+            : `已保存本机工程「${savedName}.metro」`
+        );
+        return true;
+      } catch (err: any) {
+        message.error(err?.message || '保存本机文件失败');
+        return false;
+      }
+    }
+
+    // 浏览器环境兜底下载 .metro 工程文件
+    try {
+      const filename = `${sanitizeProjectFilename(cleanTitle)}.metro`;
+      const blob = new Blob([content], { type: 'application/json' });
+      if (isAndroidClient) {
+        const saved = await saveAndroidExport(blob, filename);
+        if (saved) {
+          clearDirty();
+          message.success('工程文件已保存');
+        }
+        return saved;
+      }
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSaveMapVisible(false);
+      clearDirty();
+      message.success(`已导出工程文件「${filename}」`);
+      return true;
+    } catch (err: any) {
+      message.error(err?.message || '导出工程文件失败');
+      return false;
+    }
+  };
+
   const handleOpenSaveMap = () => {
+    // 1) 当前已绑定本机 .metro 文件路径：直接一键原地写盘，无需弹窗、无需登录
+    if (localProjectRef.current?.filePath && hasDesktopBridge()) {
+      if (!dirtyRef.current) {
+        message.success(language === 'en-US' ? 'Local file is up to date' : '本机工程文件已是最新保存状态');
+        return;
+      }
+      void handleSaveLocalProject(false);
+      return;
+    }
+
+    // 2) 桌面客户端处于未登录或离线状态：直接弹出系统保存框保存为本机 .metro 文件，不强制拦截登录
+    if (hasDesktopBridge() && (!userProfile || !isOnline)) {
+      if (currentMap && !isOnline) {
+        message.info('当前处于离线状态，先为你另存为本机 .metro 工程文件');
+      }
+      void handleSaveLocalProject(true);
+      return;
+    }
+
     if (!userProfile) { void persistGuestDraft(); requestGuestAuth('save'); return; }
     if (saveMapSaving) return;
     // 已保存过的云端地图：有改动时直接一键静默保存，不再每次打断弹出“覆盖保存”框；无改动时轻提示
@@ -1393,7 +1630,7 @@ const App: React.FC = () => {
       void handleSaveMap();
       return;
     }
-    setMapName(guestDraftIdRef.current ? mapName : '');
+    setMapName(localProjectRef.current?.name || (guestDraftIdRef.current ? mapName : ''));
     setSaveMapVisible(true);
   };
 
@@ -1434,6 +1671,8 @@ const App: React.FC = () => {
           migrateDraftAISessions(userProfile.id, savingGuestId || 'draft', map.id, name);
         }
         setCurrentMap({ ...map, ...counts });
+        localProjectRef.current = null;
+        setLocalProject(null);
         if (savingGuestId && guestDraftIdRef.current === savingGuestId) {
           guestDraftIdRef.current = null;
           setGuestDraftId(null);
@@ -1479,6 +1718,8 @@ const App: React.FC = () => {
   // 把服务端返回的 map 应用到本地状态，纯 setter 操作，便于复用（boot 自动加载也调它）
   const applyLoadedMap = (map: any) => {
     gallerySourceRef.current = undefined;
+    localProjectRef.current = null;
+    setLocalProject(null);
     guestDraftIdRef.current = null;
     setGuestDraftId(null);
     setGuestSession(false);
@@ -1642,7 +1883,7 @@ const App: React.FC = () => {
   };
 
   const handleConfirmSegments = async (config: VideoExportConfig) => {
-    if (!userProfile) { requestGuestAuth('video'); return; }
+    if (!userProfile && !isDesktopClient && !hasDesktopBridge()) { requestGuestAuth('video'); return; }
     if (videoAbortRef.current) return;
     if (!stageRef.current) {
       message.error('画布尚未准备好');
@@ -1688,6 +1929,16 @@ const App: React.FC = () => {
         const saved = await saveAndroidExport(blob, filename);
         if (saved) message.success('视频已保存');
         else message.info('已取消保存');
+      } else if (hasDesktopBridge()) {
+        if (exportedVideoUrlRef.current) {
+          URL.revokeObjectURL(exportedVideoUrlRef.current);
+        }
+        const url = URL.createObjectURL(blob);
+        exportedVideoUrlRef.current = url;
+        setExportedVideo({ url, filename, format: isMp4 ? 'MP4' : 'WebM' });
+        const saved = await saveDesktopExport(blob, filename);
+        if (saved) message.success(`视频已保存到本机（${isMp4 ? 'MP4' : 'WebM'}）`);
+        else message.info('已取消文件保存，仍可在预览窗口查看或重新保存');
       } else {
         if (exportedVideoUrlRef.current) {
           URL.revokeObjectURL(exportedVideoUrlRef.current);
@@ -2421,6 +2672,11 @@ const App: React.FC = () => {
         const saved = await saveAndroidExport(blob, filename);
         if (saved) message.success('图片已保存');
         else message.info('已取消保存');
+      } else if (hasDesktopBridge()) {
+        const blob = await (await fetch(dataUrl)).blob();
+        const saved = await saveDesktopExport(blob, filename);
+        if (saved) message.success('图片已保存到本机');
+        else message.info('已取消保存');
       } else {
         const link = document.createElement('a');
         link.download = filename; link.href = dataUrl;
@@ -2433,7 +2689,91 @@ const App: React.FC = () => {
   const isSignedInView = Boolean(userProfile) || authBooting;
   const displayName = userProfile?.username || (authBooting ? (language === 'en-US' ? 'Syncing…' : '同步中…') : '访客预览');
   const displayInitial = (userProfile?.username || userProfile?.email || userProfile?.phone || 'M').charAt(0).toUpperCase();
-  const mapDisplayName = currentMap?.name || (guestDraftId ? mapName : '') || text.unnamedMap;
+  const mapDisplayName = currentMap?.name || localProject?.name || (guestDraftId ? mapName : '') || text.unnamedMap;
+
+  const desktopDispatchRef = useRef({
+    newMap: handleNewMap,
+    openLocal: handleOpenLocalProject,
+    save: handleOpenSaveMap,
+    saveAsLocal: () => handleSaveLocalProject(true),
+    exportPng: handleExportImage,
+    openVideo: () => {
+      if (userProfile || isDesktopClient || hasDesktopBridge()) setVideoModalOpen(true);
+      else requestGuestAuth('video');
+    },
+    openProjectContent: openRawProjectContent
+  });
+  desktopDispatchRef.current = {
+    newMap: handleNewMap,
+    openLocal: handleOpenLocalProject,
+    save: handleOpenSaveMap,
+    saveAsLocal: () => handleSaveLocalProject(true),
+    exportPng: handleExportImage,
+    openVideo: () => {
+      if (userProfile || isDesktopClient || hasDesktopBridge()) setVideoModalOpen(true);
+      else requestGuestAuth('video');
+    },
+    openProjectContent: openRawProjectContent
+  };
+
+  useEffect(() => {
+    const bridge = window.metroDesktop;
+    if (!bridge) return;
+    let cancelled = false;
+    void bridge.consumeLaunchProject().then((launched) => {
+      if (cancelled || !launched) return;
+      launchProjectClaimedRef.current = true;
+      desktopDispatchRef.current.openProjectContent(
+        launched.content,
+        launched.name,
+        launched.filePath,
+        true
+      );
+    }).catch(() => {});
+
+    const unsubscribe = bridge.onMenuCommand((cmd: DesktopMenuCommand) => {
+      if (cmd.type === 'new') desktopDispatchRef.current.newMap();
+      else if (cmd.type === 'open') void desktopDispatchRef.current.openLocal();
+      else if (cmd.type === 'save') desktopDispatchRef.current.save();
+      else if (cmd.type === 'save-as') void desktopDispatchRef.current.saveAsLocal();
+      else if (cmd.type === 'export-png') void desktopDispatchRef.current.exportPng();
+      else if (cmd.type === 'export-video') desktopDispatchRef.current.openVideo();
+      else if (cmd.type === 'open-project-data') {
+        desktopDispatchRef.current.openProjectContent(cmd.content, cmd.name, cmd.filePath);
+      }
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    window.metroDesktop?.setDocumentWindowState({
+      title: mapDisplayName,
+      dirty,
+      filePath: localProject?.filePath || null
+    });
+  }, [mapDisplayName, dirty, localProject?.filePath]);
+
+  useEffect(() => {
+    const onShortcut = (event: KeyboardEvent) => {
+      if (/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) return;
+      const accel = event.ctrlKey || event.metaKey;
+      if (!accel || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 's') {
+        event.preventDefault();
+        if (event.shiftKey) void desktopDispatchRef.current.saveAsLocal();
+        else desktopDispatchRef.current.save();
+      } else if (key === 'o' && !event.shiftKey) {
+        event.preventDefault();
+        void desktopDispatchRef.current.openLocal();
+      }
+    };
+    window.addEventListener('keydown', onShortcut);
+    return () => window.removeEventListener('keydown', onShortcut);
+  }, []);
 
   // 邮箱脱敏：dro****@example.com 这种，dropdown 展示用。
   // 没邮箱的 legacy 账号兜底展示已脱敏的手机号。
@@ -2458,6 +2798,8 @@ const App: React.FC = () => {
   const handleClickMapNameChip = () => {
     if (currentMap) {
       openRenameMapModal(currentMap);
+    } else if (localProject?.filePath && hasDesktopBridge()) {
+      void handleSaveLocalProject(true);
     } else {
       handleOpenSaveMap();
     }
@@ -2467,11 +2809,35 @@ const App: React.FC = () => {
     if (mapsVisible && userProfile) gallery.mine().then(r=>setMyPublications(r.works)).catch(()=>{});
   }, [mapsVisible,userProfile]);
   const newMapMenuItem = { key: 'new-map', icon: <FileAddOutlined />, label: language === 'en-US' ? 'New blank map' : '新建空白方案', onClick: handleNewMap };
-  const openGallery = () => {void persistGuestDraft();setGuestInitialViewport(guestViewport);navigatePublic('/gallery');};
+  const localProjectMenuItems = [
+    {
+      key: 'open-local-project',
+      icon: <FolderOpenOutlined />,
+      label: language === 'en-US' ? 'Open local project…' : '打开本地工程…',
+      onClick: () => { void handleOpenLocalProject(); }
+    },
+    {
+      key: 'save-local-project',
+      icon: <SaveOutlined />,
+      label: language === 'en-US'
+        ? (hasDesktopBridge() ? 'Save as local project…' : 'Export .metro file')
+        : (hasDesktopBridge() ? '另存为本地工程…' : '导出本地工程 (.metro)'),
+      onClick: () => { void handleSaveLocalProject(true); }
+    }
+  ];
+  const openGallery = () => {
+    if (!isOnline) {
+      message.info(language === 'en-US' ? 'Works gallery requires an internet connection' : '作品广场需要联网浏览');
+      return;
+    }
+    void persistGuestDraft();
+    setGuestInitialViewport(guestViewport);
+    navigatePublic('/gallery');
+  };
   const settingsMenuItems = [
     { key: 'gallery', className: 'metro-user-menu__mobile-only', icon: <AppstoreOutlined />, label: language === 'en-US' ? 'Gallery' : '作品广场', onClick: openGallery },
     { key: 'settings', icon: <SettingOutlined />, label: language === 'en-US' ? 'Settings' : '设置', onClick: () => setSettingsVisible(true) },
-    ...(!isAndroidClient ? [{ key: 'download-client', icon: <DownloadOutlined />,
+    ...(!isAndroidClient && !isDesktopClient ? [{ key: 'download-client', icon: <DownloadOutlined />,
       label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">{language === 'en-US' ? 'Download app' : '下载客户端'}</a> }] : []),
     { key: 'about', icon: <InfoCircleOutlined />, label: language === 'en-US' ? 'About us' : '关于我们', onClick: () => setAboutVisible(true) }
   ];
@@ -2496,6 +2862,7 @@ const App: React.FC = () => {
     },
     { type: 'divider' as const },
     newMapMenuItem,
+    ...localProjectMenuItems,
     { key: 'maps', icon: <FolderOpenOutlined />, label: language === 'en-US' ? 'My maps' : '我的地图', onClick: handleOpenMapList },
     { type: 'divider' as const },
     { key: 'profile', icon: <UserOutlined />, label: language === 'en-US' ? 'Account' : '个人中心', onClick: () => setProfileVisible(true) },
@@ -2521,6 +2888,7 @@ const App: React.FC = () => {
     },
     { type: 'divider' as const },
     newMapMenuItem,
+    ...localProjectMenuItems,
     { key: 'maps-guest', icon: <FolderOpenOutlined />, label: language === 'en-US' ? 'My maps' : '我的地图', onClick: handleOpenMapList },
     { key: 'demo-animation', icon: <PlaySquareOutlined />, label: language === 'en-US' ? 'Demo preview' : '观看动态示例', onClick: () => setGuestAnimationOpen(true) },
     { type: 'divider' as const },
@@ -2630,6 +2998,13 @@ const App: React.FC = () => {
       />
     </DraggableModal>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
+      <input
+        ref={localFileInputRef}
+        type="file"
+        accept=".metro,.json,application/json"
+        onChange={handleLocalFileInputChange}
+        style={{ display: 'none' }}
+      />
       <DesktopUpdateNotice />
       <Layout className="metro-workbench">
         <Header className="metro-header">
@@ -2652,7 +3027,7 @@ const App: React.FC = () => {
               </div>
               {/* 方案名 chip 从画布顶部挪到 header 这里：
                   既保留"我在编辑哪张图"的视觉锚，又不占用画布空间 */}
-              <Tooltip title={currentMap ? '点击重命名当前方案' : '点击保存为新方案'}>
+              <Tooltip title={currentMap ? '点击重命名当前方案' : localProject?.filePath ? `本机工程：${localProject.filePath}（点击另存为）` : '点击保存方案'}>
                 <button
                   type="button"
                   className="metro-header-mapchip"
@@ -2660,15 +3035,23 @@ const App: React.FC = () => {
                 >
                   <EditOutlined className="metro-header-mapchip__icon" />
                   <span className="metro-header-mapchip__name">{mapDisplayName}</span>
+                  {localProject?.filePath ? (
+                    <span className="metro-header-mapchip__tag">{language === 'en-US' ? 'Local' : '本机'}</span>
+                  ) : null}
                 </button>
               </Tooltip>
+              {!isOnline ? (
+                <span className="metro-header-offline-pill" title="当前无网络连接，纯画布绘图、本地工程读写与图片/MP4 导出均可正常离线使用">
+                  {language === 'en-US' ? 'Offline' : '离线可用'}
+                </span>
+              ) : null}
             </section>
 
             <section className={`metro-toolbar-panel${isMobileSidebarOpen ? ' is-mobile-obscured' : ''}`}>
               <Toolbar
                 language={language}
                 onExportImage={handleExportImage}
-                onOpenVideoModal={() => userProfile ? setVideoModalOpen(true) : requestGuestAuth('video')}
+                onOpenVideoModal={() => (userProfile || isDesktopClient || hasDesktopBridge()) ? setVideoModalOpen(true) : requestGuestAuth('video')}
                 onOpenGallery={openGallery}
                 onUndo={handleUndo}
                 onRedo={handleRedo}
@@ -2680,12 +3063,19 @@ const App: React.FC = () => {
 
             <section className="metro-user-panel">
               {/* AI 助手按钮：32px 同色系极光环，与顶栏控件齐高 */}
-              <Tooltip title="AI 助手 —— 用自然语言编辑线路图">
+              <Tooltip title={!isOnline ? '离线状态：联网后可使用 AI 助手' : 'AI 助手 —— 用自然语言编辑线路图'}>
                 <button
                   type="button"
                   className="metro-header-ai-btn"
                   aria-label="打开 AI 助手"
-                  onClick={() => userProfile ? setAiModalOpen(true) : requestGuestAuth('ai')}
+                  onClick={() => {
+                    if (!isOnline) {
+                      message.info('当前处于离线状态，联网后可使用 AI 线网助手');
+                      return;
+                    }
+                    if (userProfile) setAiModalOpen(true);
+                    else requestGuestAuth('ai');
+                  }}
                 >
                   <span className="metro-header-ai-btn__icon">
                     <ThunderboltOutlined />
@@ -2693,7 +3083,9 @@ const App: React.FC = () => {
                 </button>
               </Tooltip>
               {(() => {
-                const isCleanSaved = Boolean(userProfile && currentMap && !dirty && !saveMapSaving);
+                const isCleanSaved = Boolean(
+                  ((userProfile && currentMap) || localProject?.filePath) && !dirty && !saveMapSaving
+                );
                 const saveLabel = isCleanSaved ? text.savedState : text.saveMap;
                 return (
                   <Tooltip title={isCleanSaved ? (language === 'en-US' ? 'All changes saved · Click map name to rename' : '所有更改已保存 · 点击左上角方案名可重命名') : undefined}>
@@ -2774,7 +3166,7 @@ const App: React.FC = () => {
             <div className="metro-canvas-stage">
 
               {(!previewMode || guestReady) ? <Canvas
-                documentKey={currentMap?.id || guestDraftId || 'draft'}
+                documentKey={currentMap?.id || localProject?.id || guestDraftId || 'draft'}
                 isDocumentLoading={isMapOpening}
                 initialViewport={guestInitialViewport}
                 fitOnMount={!guestInitialViewport}
@@ -2819,13 +3211,13 @@ const App: React.FC = () => {
         </Layout>
 
         <VideoExportModal
-          key={currentMap?.id || 'unsaved'}
+          key={currentMap?.id || localProject?.id || 'unsaved'}
           open={videoModalOpen}
           lines={lines}
           stations={stations}
           sections={sections}
           settings={mapSettings}
-          defaultTitle={currentMap?.name || '城市轨道线网历程'}
+          defaultTitle={currentMap?.name || localProject?.name || '城市轨道线网历程'}
           config={mapSettings.videoExport}
           onChange={(config) => {
             if (JSON.stringify(mapSettingsRef.current.videoExport) === JSON.stringify(config)) return;
@@ -2840,7 +3232,7 @@ const App: React.FC = () => {
           open={aiModalOpen}
           busy={aiBusy}
           userId={userProfile?.id || null}
-          mapKey={currentMap?.id || guestDraftId || 'draft'}
+          mapKey={currentMap?.id || localProject?.id || guestDraftId || 'draft'}
           mapName={mapDisplayName}
           lines={lines}
           stations={stations}
@@ -2859,6 +3251,19 @@ const App: React.FC = () => {
           confirmLoading={saveMapSaving}
           okText="保存"
           cancelText="取消"
+          footer={
+            hasDesktopBridge() ? (
+              <Space>
+                <Button onClick={() => setSaveMapVisible(false)}>取消</Button>
+                <Button onClick={() => { void handleSaveLocalProject(true); }}>
+                  保存到本机 (.metro)
+                </Button>
+                <Button type="primary" loading={saveMapSaving} onClick={handleSaveMap}>
+                  保存到云端
+                </Button>
+              </Space>
+            ) : undefined
+          }
         >
           <Input
             value={mapName}
@@ -3583,7 +3988,13 @@ const App: React.FC = () => {
                   </Button>
                   <Button
                     type="primary"
-                    onClick={() => {
+                    onClick={async () => {
+                      if (hasDesktopBridge()) {
+                        const blob = await (await fetch(exportedVideo.url)).blob();
+                        const saved = await saveDesktopExport(blob, exportedVideo.filename);
+                        if (saved) message.success('视频已保存到本机');
+                        return;
+                      }
                       const a = document.createElement('a');
                       a.href = exportedVideo.url;
                       a.download = exportedVideo.filename;

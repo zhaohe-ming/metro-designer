@@ -14,6 +14,7 @@ test('external handler accepts HTTPS and email only', () => {
 test('only site-owned blobs and supported data exports are recognized', () => {
   assert.equal(isExport('blob:https://www.metro-designer.com/123'), true);
   assert.equal(isExport('data:image/png;base64,AAAA'), true);
+  assert.equal(isExport('data:video/mp4;base64,AAAA'), true);
   assert.equal(isExport('data:video/webm;base64,AAAA'), true);
   assert.equal(isExport('blob:https://evil.test/123'), false);
   assert.equal(isExport('data:text/html,<script></script>'), false);
