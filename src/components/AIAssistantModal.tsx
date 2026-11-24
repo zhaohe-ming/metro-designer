@@ -1,17 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, Button, Input, Tooltip, message } from 'antd';
+import { Alert, Button, Input, Switch, Tooltip, message } from 'antd';
 import {
   ArrowUpOutlined,
   CheckOutlined,
-  CloseOutlined,
   CopyOutlined,
   DeleteOutlined,
   EditOutlined,
   HistoryOutlined,
   PlusOutlined,
   ReloadOutlined,
-  RollbackOutlined,
-  ThunderboltOutlined
+  RollbackOutlined
 } from '@ant-design/icons';
 import DraggableModal from './DraggableModal';
 import { AIOperation } from '../api';
@@ -58,7 +56,8 @@ interface AIAssistantModalProps {
 const AUTO_APPLY_KEY = 'metro_ai_auto_apply';
 
 interface StarterPrompt {
-  tag: string;
+  id: string;
+  color: string;
   prompt: string;
 }
 
@@ -66,26 +65,31 @@ function buildContextualPrompts(lines: Line[], stations: Station[]): StarterProm
   if (lines.length === 0 || stations.length === 0) {
     return [
       {
-        tag: '从零生成干线',
-        prompt: '创建红色的 1 号线（东西向），包含西站、市民中心、人民广场、大剧院、科技园、东站 6 个站点'
+        id: 'blank-1',
+        color: '#dc2626',
+        prompt: '创建红色 1 号线（东西向），包含西站、市民中心、人民广场、科技园、东站'
       },
       {
-        tag: '十字换乘骨架',
-        prompt: '帮我规划 1 号线（红 #e11d48）与 2 号线（蓝 #2563eb）两条在「人民广场」十字换乘的骨干地铁线'
+        id: 'blank-2',
+        color: '#2563eb',
+        prompt: '新建 1 号线（#e11d48）与 2 号线（#2563eb），在「人民广场」十字换乘'
       },
       {
-        tag: '机场市域快线',
-        prompt: '新建一条青色（#0891b2）机场快线，依次连接火车北站、中央商务区、会展中心与国际机场'
+        id: 'blank-3',
+        color: '#0891b2',
+        prompt: '新建机场快线（#0891b2），连接火车北站、中央商务区、会展中心与国际机场'
       },
       {
-        tag: '多轮渐进设计',
-        prompt: '先建一条紫色 3 号线连接大学城、软件园、南站，稍后我再继续追问延伸支线'
+        id: 'blank-4',
+        color: '#7c3aed',
+        prompt: '新建紫色 3 号线，连接大学城、软件园与南站'
       }
     ];
   }
 
   const stationById = new Map(stations.map((s) => [s.id, s]));
   const firstLine = lines[0];
+  const secondLine = lines[1] || firstLine;
   const lineStations = firstLine.stationIds.map((id) => stationById.get(id)).filter(Boolean) as Station[];
   const pivotStation = lineStations[Math.floor(lineStations.length / 2)] || stations[0];
   const stA = lineStations[0];
@@ -93,30 +97,35 @@ function buildContextualPrompts(lines: Line[], stations: Station[]): StarterProm
 
   const prompts: StarterPrompt[] = [
     {
-      tag: '端点继续延伸',
-      prompt: `将「${firstLine.name}」向终点方向继续延伸 3 个新站点`
+      id: 'ext',
+      color: firstLine.color || '#2563eb',
+      prompt: `将「${firstLine.name}」向终点方向延伸 3 个新站点`
     },
     {
-      tag: '新建换乘支线',
-      prompt: `新建一条与「${firstLine.name}」在「${pivotStation.name}」换乘的蓝色新线路，向外延伸 4 个新站点`
+      id: 'branch',
+      color: '#2563eb',
+      prompt: `新建蓝色线路与「${firstLine.name}」在「${pivotStation.name}」换乘，延伸 4 站`
     }
   ];
 
   if (stA && stB) {
     prompts.push({
-      tag: '区间加密设站',
+      id: 'between',
+      color: secondLine.color || firstLine.color || '#10b981',
       prompt: `在「${firstLine.name}」的「${stA.name}」和「${stB.name}」之间新增 2 个站点`
     });
   } else {
     prompts.push({
-      tag: '增补新线路',
-      prompt: '新建一条环城联络线（橙色 #f97316），包含 5 个核心站点'
+      id: 'new-ring',
+      color: '#f97316',
+      prompt: '新建橙色联络线（#f97316），包含 5 个站点'
     });
   }
 
   prompts.push({
-    tag: '调整线路配色',
-    prompt: `把「${firstLine.name}」改成更具辨识度的深红色 #d23030`
+    id: 'recolor',
+    color: '#d23030',
+    prompt: `把「${firstLine.name}」改为深红色 #d23030`
   });
 
   return prompts;
@@ -138,6 +147,18 @@ function renderSummaryWithColorSwatches(summary: string): React.ReactNode {
     }
     return <React.Fragment key={idx}>{part}</React.Fragment>;
   });
+}
+
+function inferOperationAccentColor(op: AIOperation | undefined, lines: Line[]): string {
+  if (!op) return '#94a3b8';
+  if ('color' in op && typeof op.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(op.color)) {
+    return op.color;
+  }
+  if ('lineId' in op && typeof op.lineId === 'string') {
+    const matched = lines.find((l) => l.id === op.lineId);
+    if (matched?.color) return matched.color;
+  }
+  return '#2563eb';
 }
 
 const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
@@ -182,7 +203,6 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   const autoApplyRef = useRef(autoApply);
   autoApplyRef.current = autoApply;
 
-  // 切换账号或切换当前打开的地图时，自动对齐到该地图最近的会话（没有则新建空白会话）
   useEffect(() => {
     if (prevUserIdRef.current !== userId || prevMapKeyRef.current !== mapKey) {
       prevUserIdRef.current = userId;
@@ -200,13 +220,11 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     }
   }, [userId, mapKey, mapName]);
 
-  // 地图重命名后同步更新当前会话的 mapName 标签
   useEffect(() => {
     if (!mapName) return;
     setActiveSession((prev) => (prev.mapKey === mapKey && prev.mapName !== mapName ? { ...prev, mapName } : prev));
   }, [mapKey, mapName]);
 
-  // 每次 activeSession 消息变化时同步回 sessions 列表并持久化到 localStorage
   useEffect(() => {
     const hasRealMessages = activeSession.messages.some(
       (m) => !(m.role === 'assistant' && m.streaming && !m.content)
@@ -222,15 +240,14 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   }, [activeSession, userId]);
 
   const messages = activeSession.messages;
+  const isCompactEmpty = messages.length === 0 && !busy && !historyOpen;
 
-  // 新消息或流式输出时平滑滚到底部
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages, busy]);
 
-  // 弹窗关闭时中止未完成的流
   useEffect(() => {
     if (!open && abortRef.current) {
       abortRef.current.abort();
@@ -250,16 +267,13 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     [sessions, mapKey]
   );
 
-  const toggleAutoApply = () => {
-    setAutoApply((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage?.setItem(AUTO_APPLY_KEY, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
+  const handleToggleAutoApply = (checked: boolean) => {
+    setAutoApply(checked);
+    try {
+      window.localStorage?.setItem(AUTO_APPLY_KEY, checked ? '1' : '0');
+    } catch {
+      /* ignore */
+    }
   };
 
   const handleStopStream = () => {
@@ -297,7 +311,6 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     };
 
     const historyForApi = buildApiHistory(prior, text);
-    // 若重试上一条孤立 user 提问，移除旧的孤立提问避免重复气泡
     const cleanedPrior =
       prior.length > 0 && prior[prior.length - 1].role === 'user' && prior[prior.length - 1].content.trim() === text
         ? prior.slice(0, -1)
@@ -349,9 +362,9 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                 result.explanation ||
                 (result.operations.length > 0
                   ? didAutoApply
-                    ? `已自动为你执行 ${result.operations.length} 项线网修改。`
-                    : `已生成 ${result.operations.length} 项修改建议，确认无误后可一键应用到画布。`
-                  : '当前未解析出可执行的画布操作，你可以补充更具体的线路或站点名称。'),
+                    ? `已应用 ${result.operations.length} 项变更。`
+                    : `生成 ${result.operations.length} 项变更，确认后可应用到画布。`
+                  : '未解析出可执行的画布操作，请补充具体的线路或站点名称。'),
               operations: result.operations,
               summaries: result.summaries,
               skippedCount: result.skippedCount,
@@ -364,7 +377,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     } catch (e: any) {
       const aborted = e?.name === 'AbortError';
       if (!aborted) {
-        setError(e?.message || 'AI 响应失败，请点击重试');
+        setError(e?.message || '响应失败，请重试');
       }
       setActiveSession((prev) => ({
         ...prev,
@@ -372,9 +385,8 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
         messages: prev.messages
           .map((m) => {
             if (m.id !== assistantId || m.role !== 'assistant') return m;
-            // 若用户中途点“停止”且已有流式半截文字，保留已生成的部分文字；否则移除空占位
             if (aborted && m.content.trim()) {
-              return { ...m, streaming: false, content: `${m.content}\n\n（已停止生成）` };
+              return { ...m, streaming: false, content: `${m.content}\n\n（已停止）` };
             }
             return null;
           })
@@ -397,7 +409,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     const count = onApply(target.operations);
     if (count > 0) {
       setLastAppliedMsgId(msgId);
-      message.success(`已应用 ${count} 项修改到画布`);
+      message.success(`已应用 ${count} 项修改`);
     }
     setActiveSession((prev) => ({
       ...prev,
@@ -419,7 +431,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
         m.id === msgId && m.role === 'assistant' ? { ...m, undone: true } : m
       )
     }));
-    message.info('已撤回刚刚应用的修改');
+    message.info('已撤回此次修改');
   };
 
   const handleDiscard = (msgId: string) => {
@@ -438,8 +450,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     if (idx <= 0) return;
     const prevUser = messages[idx - 1];
     if (prevUser?.role !== 'user') return;
-    const truncated = messages.slice(0, idx - 1);
-    void sendPrompt(prevUser.content, truncated);
+    void sendPrompt(prevUser.content, messages.slice(0, idx - 1));
   };
 
   const handleRetryTrailingUser = (userMsgId: string) => {
@@ -487,7 +498,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     saveAISessions(userId, next);
     setActiveSession(createEmptyAISession(mapKey, mapName));
     setLastAppliedMsgId(null);
-    message.success('对话记录已清空');
+    message.success('记录已清空');
   };
 
   const commitSessionRename = (sessionId: string) => {
@@ -511,12 +522,13 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
 
   const copyText = (text: string) => {
     navigator.clipboard?.writeText(text).then(
-      () => message.success('已复制内容'),
+      () => message.success('已复制'),
       () => {}
     );
   };
 
   const lastMessage = messages[messages.length - 1];
+  const showNewChatAction = messages.length > 0 || Boolean(error);
 
   return (
     <DraggableModal
@@ -524,52 +536,46 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
       title={
         <div className="metro-ai-header">
           <div className="metro-ai-header__brand">
-            <span className="metro-ai-header__orb" aria-hidden="true">
-              <ThunderboltOutlined />
+            <span className="metro-ai-header__title">AI 助手</span>
+            <span className="metro-ai-header__map-name" title={mapName || '未命名方案'}>
+              · {mapName || '未命名方案'}
             </span>
-            <span className="metro-ai-header__title">AI 线网助手</span>
-            {messages.length > 0 ? (
-              <span className="metro-ai-header__session-tag" title={activeSession.title}>
-                {activeSession.title}
-              </span>
-            ) : null}
           </div>
 
           <div className="metro-ai-header__actions" onMouseDown={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              className={`metro-ai-head-btn${historyOpen ? ' is-active' : ''}`}
-              onClick={() => setHistoryOpen((prev) => !prev)}
-            >
-              <HistoryOutlined />
-              <span>对话记录</span>
-              {sessions.length > 0 ? (
-                <span className="metro-ai-head-btn__badge">
-                  {historyScope === 'all' ? sessions.length : currentMapSessionCount || sessions.length}
-                </span>
-              ) : null}
-            </button>
-            <button
-              type="button"
-              className="metro-ai-head-btn metro-ai-head-btn--primary"
-              onClick={handleNewConversation}
-              disabled={messages.length === 0 && !error}
-            >
-              <PlusOutlined />
-              <span>新对话</span>
-            </button>
+            <Tooltip title={sessions.length > 0 ? `对话记录 (${sessions.length})` : '对话记录'}>
+              <button
+                type="button"
+                aria-label="对话记录"
+                className={`metro-ai-icon-btn${historyOpen ? ' is-active' : ''}`}
+                onClick={() => setHistoryOpen((prev) => !prev)}
+              >
+                <HistoryOutlined />
+              </button>
+            </Tooltip>
+            {showNewChatAction ? (
+              <Tooltip title="新对话">
+                <button
+                  type="button"
+                  aria-label="新对话"
+                  className="metro-ai-icon-btn"
+                  onClick={handleNewConversation}
+                >
+                  <PlusOutlined />
+                </button>
+              </Tooltip>
+            ) : null}
           </div>
         </div>
       }
       open={open}
       onCancel={onCancel}
       footer={null}
-      width={historyOpen ? 820 : 600}
+      width={historyOpen ? 760 : 540}
     >
-      <div className={`metro-ai-shell${historyOpen ? ' has-sidebar' : ''}`}>
-        {/* 左侧可折叠多轮对话记录栏 */}
+      <div className={`metro-ai-shell${historyOpen ? ' has-sidebar' : ''}${isCompactEmpty ? ' is-compact' : ''}`}>
         {historyOpen ? (
-          <aside className="metro-ai-sidebar" aria-label="AI 对话记录">
+          <aside className="metro-ai-sidebar" aria-label="对话记录">
             <div className="metro-ai-sidebar__tabs">
               <button
                 type="button"
@@ -591,8 +597,8 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
               {filteredSessions.length === 0 ? (
                 <div className="metro-ai-sidebar__empty">
                   {historyScope === 'current' && sessions.length > 0
-                    ? '当前地图暂无历史对话，可切至「全部」查看其他地图记录'
-                    : '暂无历史对话，发送第一条指令后将自动归档保存在此'}
+                    ? '当前地图暂无记录，可切换到「全部」查看'
+                    : '暂无历史记录'}
                 </div>
               ) : (
                 filteredSessions.map((session) => {
@@ -664,38 +670,35 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
             {filteredSessions.length > 1 ? (
               <div className="metro-ai-sidebar__foot">
                 <button type="button" className="metro-ai-sidebar__clear" onClick={handleClearVisibleSessions}>
-                  <DeleteOutlined /> 清空列表记录
+                  <DeleteOutlined /> 清空记录
                 </button>
               </div>
             ) : null}
           </aside>
         ) : null}
 
-        {/* 右侧主对话舞台 */}
         <div className="metro-ai-stage">
-          <div ref={scrollRef} className="metro-ai-stream">
+          <div ref={scrollRef} className={`metro-ai-stream${isCompactEmpty ? ' is-empty' : ''}`}>
             {messages.length === 0 && !busy ? (
-              <div className="metro-ai-empty">
-                <div className="metro-ai-empty__hero">
-                  <span className="metro-ai-empty__orb" aria-hidden="true">
-                    <ThunderboltOutlined />
-                  </span>
-                  <div className="metro-ai-empty__title">用自然语言规划与修改地铁线网</div>
-                  <div className="metro-ai-empty__desc">
-                    支持从空白画布直接建线、十字换乘延伸、批量加站与改色。支持多轮连续追问，对话记录会自动保存。
-                  </div>
-                </div>
-
-                <div className="metro-ai-starters">
+              <div className="metro-ai-quick-list">
+                <div className="metro-ai-quick-list__heading">试试</div>
+                <div className="metro-ai-quick-list__rows">
                   {starterPrompts.map((item) => (
                     <button
-                      key={item.tag}
+                      key={item.id}
                       type="button"
-                      className="metro-ai-starter-card"
+                      className="metro-ai-quick-row"
                       onClick={() => applyPresetPrompt(item.prompt)}
                     >
-                      <span className="metro-ai-starter-card__tag">{item.tag}</span>
-                      <span className="metro-ai-starter-card__text">{item.prompt}</span>
+                      <span
+                        className="metro-ai-quick-row__dot"
+                        style={{ backgroundColor: item.color }}
+                        aria-hidden="true"
+                      />
+                      <span className="metro-ai-quick-row__text">{item.prompt}</span>
+                      <span className="metro-ai-quick-row__enter" aria-hidden="true">
+                        ↵
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -710,10 +713,10 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                       <div className="metro-ai-user-wrap">
                         <div className="metro-ai-bubble metro-ai-bubble--user">{msg.content}</div>
                         <div className="metro-ai-msg-tools metro-ai-msg-tools--right">
-                          <button type="button" onClick={() => copyText(msg.content)} title="复制提问">
+                          <button type="button" onClick={() => copyText(msg.content)} title="复制">
                             <CopyOutlined />
                           </button>
-                          <button type="button" onClick={() => applyPresetPrompt(msg.content)} title="放入输入框修改">
+                          <button type="button" onClick={() => applyPresetPrompt(msg.content)} title="重新编辑">
                             <EditOutlined />
                           </button>
                           {isUnanswered ? (
@@ -722,7 +725,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                               className="is-retry"
                               onClick={() => handleRetryTrailingUser(msg.id)}
                             >
-                              <ReloadOutlined /> 重试发送
+                              <ReloadOutlined /> 重试
                             </button>
                           ) : null}
                         </div>
@@ -735,6 +738,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                   <AssistantTurn
                     key={msg.id}
                     msg={msg}
+                    lines={lines}
                     isLatestAssistant={
                       msg.id ===
                       [...messages]
@@ -772,7 +776,6 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
             />
           ) : null}
 
-          {/* 一体化输入浮岛卡片：彻底解决 0/500 与发送按钮重叠问题 */}
           <div className="metro-ai-composer">
             <TextArea
               ref={inputRef}
@@ -780,10 +783,11 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
               autoSize={{ minRows: 2, maxRows: 5 }}
               maxLength={500}
               className="metro-ai-composer__input"
+              title="Enter 发送，Shift+Enter 换行"
               placeholder={
                 messages.length === 0
-                  ? '描述你想规划或修改的线路，例如：新建 1 号线（红色）包含 5 个站点…'
-                  : '继续追问，例如：把刚刚那条线再往东延伸 3 个站…'
+                  ? '输入线网修改指令，如：把 1 号线向东延伸 3 站…'
+                  : '继续补充指令…'
               }
               value={input}
               disabled={busy}
@@ -801,22 +805,13 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
 
             <div className="metro-ai-composer__bar">
               <div className="metro-ai-composer__meta">
-                <span className="metro-ai-context-pill" title="每次提问都会自动携带最新画布线路与站点拓扑">
-                  <span className="metro-ai-context-pill__dot" />
-                  当前画布：{lines.length} 线 · {stations.length} 站
+                <span className="metro-ai-context-text">
+                  {lines.length} 条线路 · {stations.length} 座车站
                 </span>
-                <Tooltip title="开启后，AI 生成的线网修改将直接应用到画布（仍可一键撤回）">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={autoApply}
-                    className={`metro-ai-auto-toggle${autoApply ? ' is-on' : ''}`}
-                    onClick={toggleAutoApply}
-                  >
-                    <ThunderboltOutlined />
-                    <span>自动应用</span>
-                  </button>
-                </Tooltip>
+                <label className="metro-ai-auto-switch" title="开启后生成的线网修改将直接应用到画布">
+                  <Switch size="small" checked={autoApply} onChange={handleToggleAutoApply} />
+                  <span>自动应用</span>
+                </label>
               </div>
 
               <div className="metro-ai-composer__right">
@@ -824,14 +819,17 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                   <span className={`metro-ai-char-count${input.length >= 460 ? ' is-warn' : ''}`}>
                     {input.length}/500
                   </span>
-                ) : (
-                  <span className="metro-ai-shortcut-hint">Enter 发送 · Shift+Enter 换行</span>
-                )}
+                ) : null}
 
                 {busy ? (
-                  <button type="button" className="metro-ai-send-btn is-stop" onClick={handleStopStream}>
+                  <button
+                    type="button"
+                    className="metro-ai-send-btn is-stop"
+                    onClick={handleStopStream}
+                    aria-label="停止生成"
+                    title="停止生成"
+                  >
                     <span className="metro-ai-stop-square" aria-hidden="true" />
-                    <span>停止</span>
                   </button>
                 ) : (
                   <button
@@ -840,8 +838,8 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
                     disabled={!input.trim()}
                     onClick={handleSubmit}
                     aria-label="发送消息"
+                    title="发送 (Enter)"
                   >
-                    <span>发送</span>
                     <ArrowUpOutlined />
                   </button>
                 )}
@@ -856,6 +854,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
 
 interface AssistantTurnProps {
   msg: Extract<AIChatMessage, { role: 'assistant' }>;
+  lines: Line[];
   isLatestAssistant: boolean;
   canUndoThis: boolean;
   busy: boolean;
@@ -868,6 +867,7 @@ interface AssistantTurnProps {
 
 const AssistantTurn: React.FC<AssistantTurnProps> = ({
   msg,
+  lines,
   isLatestAssistant,
   canUndoThis,
   busy,
@@ -882,16 +882,13 @@ const AssistantTurn: React.FC<AssistantTurnProps> = ({
   if (streaming && !content) {
     return (
       <div className="metro-ai-row metro-ai-row--assistant">
-        <span className="metro-ai-avatar" aria-hidden="true">
-          <ThunderboltOutlined />
-        </span>
-        <div className="metro-ai-bubble metro-ai-bubble--thinking">
+        <div className="metro-ai-thinking">
           <span className="metro-ai-dots" aria-hidden="true">
             <i />
             <i />
             <i />
           </span>
-          <span>正在结合当前线网思考规划…</span>
+          <span>思考中…</span>
         </div>
       </div>
     );
@@ -903,12 +900,9 @@ const AssistantTurn: React.FC<AssistantTurnProps> = ({
 
   return (
     <div className="metro-ai-row metro-ai-row--assistant">
-      <span className="metro-ai-avatar" aria-hidden="true">
-        <ThunderboltOutlined />
-      </span>
       <div className="metro-ai-assistant-wrap">
         {content ? (
-          <div className="metro-ai-bubble metro-ai-bubble--assistant">
+          <div className="metro-ai-prose">
             {content}
             {streaming ? <span className="metro-ai-typing-cursor">▋</span> : null}
           </div>
@@ -919,39 +913,46 @@ const AssistantTurn: React.FC<AssistantTurnProps> = ({
             <div className="metro-ai-ops-card__head">
               <span className="metro-ai-ops-card__title">
                 {applied && !undone
-                  ? `✓ 已应用 ${operations.length} 项线网变更`
+                  ? `已应用 ${operations.length} 项变更`
                   : undone
-                    ? `↶ 已撤回 ${operations.length} 项变更（可重新应用）`
+                    ? `已撤回 ${operations.length} 项变更`
                     : discarded
-                      ? `已放弃 ${operations.length} 项建议`
-                      : `建议执行 ${operations.length} 项线网变更`}
+                      ? `已放弃 ${operations.length} 项变更`
+                      : `变更清单 (${operations.length})`}
               </span>
               {!applied && !discarded && skippedCount > 0 ? (
-                <span className="metro-ai-ops-card__skipped">已过滤 {skippedCount} 项无效参数</span>
+                <span className="metro-ai-ops-card__skipped">已跳过 {skippedCount} 项无效参数</span>
               ) : null}
             </div>
 
-            <ol className="metro-ai-ops-card__list">
+            <ul className="metro-ai-ops-list">
               {summaries.map((s, i) => (
-                <li key={i}>{renderSummaryWithColorSwatches(s)}</li>
+                <li key={i} className="metro-ai-ops-list__item">
+                  <span
+                    className="metro-ai-ops-list__bar"
+                    style={{ backgroundColor: inferOperationAccentColor(operations[i], lines) }}
+                    aria-hidden="true"
+                  />
+                  <span className="metro-ai-ops-list__text">{renderSummaryWithColorSwatches(s)}</span>
+                </li>
               ))}
-            </ol>
+            </ul>
 
             {showApplyControls ? (
               <div className="metro-ai-ops-card__actions">
                 <Button type="primary" size="small" icon={<CheckOutlined />} onClick={onApply}>
-                  {undone ? '重新应用' : '应用到画布'}
+                  {undone ? '重新应用' : '应用'}
                 </Button>
                 {!undone ? (
-                  <Button size="small" type="text" icon={<CloseOutlined />} onClick={onDiscard}>
+                  <Button size="small" type="text" onClick={onDiscard}>
                     放弃
                   </Button>
                 ) : null}
               </div>
             ) : canUndoThis ? (
               <div className="metro-ai-ops-card__actions">
-                <Button size="small" icon={<RollbackOutlined />} onClick={onUndoApplied}>
-                  撤回此次修改
+                <Button size="small" type="text" icon={<RollbackOutlined />} onClick={onUndoApplied}>
+                  撤回
                 </Button>
               </div>
             ) : null}
@@ -961,12 +962,12 @@ const AssistantTurn: React.FC<AssistantTurnProps> = ({
         {!streaming ? (
           <div className="metro-ai-msg-tools">
             {content ? (
-              <button type="button" onClick={onCopy} title="复制回复">
+              <button type="button" onClick={onCopy} title="复制">
                 <CopyOutlined />
               </button>
             ) : null}
             {isLatestAssistant && !busy ? (
-              <button type="button" onClick={onRegenerate} title="重新生成本轮回复">
+              <button type="button" onClick={onRegenerate} title="重新生成">
                 <ReloadOutlined /> 重新生成
               </button>
             ) : null}

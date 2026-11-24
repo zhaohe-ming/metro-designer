@@ -3411,25 +3411,25 @@ const App: React.FC = () => {
           </Form>
         </DraggableModal>
 
-        <DraggableModal title="合成动态演进视频" open={isExporting} footer={null} closable={false} maskClosable={false} keyboard={false} centered>
+        <DraggableModal title="导出视频" open={isExporting} footer={null} closable={false} maskClosable={false} keyboard={false} centered>
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <div aria-live="polite" style={{ fontWeight: 600 }}>
-              {videoProgress.phase === 'preparing' ? (videoProgress.detail || '正在准备线路与高清底图…') :
+            <div aria-live="polite" style={{ fontWeight: 500 }}>
+              {videoProgress.phase === 'preparing' ? (videoProgress.detail || '正在准备线路与底图…') :
                 videoProgress.phase === 'paused' ? '录制已暂停，返回此页面后自动继续' :
                 videoProgress.phase === 'finalizing' ? (videoProgress.detail || '正在封装视频文件…') :
-                (videoProgress.detail || '正在合成线路演进画面…')}
+                (videoProgress.detail || '正在编码视频画面…')}
             </div>
             <Progress percent={videoProgress.percent} status={videoProgress.phase === 'paused' ? 'normal' : 'active'} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--color-text-muted)', fontVariantNumeric: 'tabular-nums' }}>
               <span>
                 {videoProgress.mode === 'webcodecs-mp4'
-                  ? '⚡ 极速离线 MP4 引擎（切后台不中断）'
+                  ? '离线 MP4 编码（切换窗口不中断）'
                   : videoProgress.totalSec > 0
                     ? `已处理 ${Math.floor(videoProgress.elapsedSec)} 秒 / 共 ${Math.ceil(videoProgress.totalSec)} 秒`
                     : '准备中…'}
               </span>
               {typeof videoProgress.etaSec === 'number' && videoProgress.etaSec > 0.4 ? (
-                <span>预计剩余约 {Math.ceil(videoProgress.etaSec)} 秒</span>
+                <span>预计剩余 {Math.ceil(videoProgress.etaSec)} 秒</span>
               ) : null}
             </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>

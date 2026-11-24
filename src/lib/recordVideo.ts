@@ -166,7 +166,7 @@ async function tryRecordWithWebCodecsMp4(options: {
       mode: 'webcodecs-mp4',
       renderedFrames: 0,
       totalFrames,
-      detail: '正在极速合成高清 MP4 视频…'
+      detail: '正在编码 MP4 视频…'
     });
 
     for (let frame = 0; frame < totalFrames; frame += 1) {
@@ -218,7 +218,7 @@ async function tryRecordWithWebCodecsMp4(options: {
           renderedFrames: doneCount,
           totalFrames,
           etaSec,
-          detail: `正在极速渲染 MP4（${doneCount} / ${totalFrames} 帧）`
+          detail: `正在编码 MP4（${doneCount} / ${totalFrames} 帧）`
         });
       }
     }

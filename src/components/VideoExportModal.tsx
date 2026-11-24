@@ -1,16 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Input, InputNumber, Select, Tooltip, message } from 'antd';
+import { Button, Checkbox, Dropdown, Input, InputNumber, Select, message } from 'antd';
+import type { MenuProps } from 'antd';
 import {
-  ArrowDownOutlined,
-  ArrowUpOutlined,
   CaretRightOutlined,
-  CopyOutlined,
-  DeleteOutlined,
+  DownOutlined,
+  MoreOutlined,
   PauseOutlined,
   PlusOutlined,
-  SortAscendingOutlined,
-  ThunderboltOutlined,
-  VideoCameraOutlined
+  RightOutlined
 } from '@ant-design/icons';
 import {
   Line,
@@ -18,12 +15,12 @@ import {
   Section,
   Station,
   VideoAspectRatio,
-  VideoCameraMode,
   VideoDateMode,
   VideoExportConfig,
   VideoFps,
   VideoResolution,
   VideoSpeedMultiplier,
+  VideoCameraMode,
   VideoUnopenedStyle
 } from '../types';
 import {
@@ -82,7 +79,9 @@ function buildInitialDraft(
       config.segments.length > 0 &&
       config.segments.some((s) => s.lineId || s.startStationId || s.endStationId || s.openDate)
   );
-  const autoSegments = !hasSavedSegments ? generateAutoVideoSegments(lines, stations, sections, config?.dateMode || 'date') : [];
+  const autoSegments = !hasSavedSegments
+    ? generateAutoVideoSegments(lines, stations, sections, config?.dateMode || 'date')
+    : [];
   const initialSegments = hasSavedSegments
     ? config!.segments.map((s) => ({ ...s }))
     : autoSegments.length > 0
@@ -121,17 +120,26 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
   const [draft, setDraft] = useState<VideoExportConfig>(() =>
     buildInitialDraft(config, defaultTitle, lines, stations, sections)
   );
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [titleSectionOpen, setTitleSectionOpen] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
   const [previewFrame, setPreviewFrame] = useState(0);
 
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const trackBarRef = useRef<HTMLDivElement>(null);
+  const scrubbingRef = useRef(false);
   const wasOpenRef = useRef(false);
 
-  // 每次打开弹窗时同步最新地图配置；若尚未配置区间则智能提取画布已有线路以便立即预览
   useEffect(() => {
     if (open && !wasOpenRef.current) {
       const nextDraft = buildInitialDraft(config, defaultTitle, lines, stations, sections);
       setDraft(nextDraft);
+      // 仅当只有一个空白占位行时自动展开，已导入多段时全部折叠保持紧凑
+      const onlyBlank = nextDraft.segments.length === 1 && !nextDraft.segments[0].lineId;
+      setExpandedId(onlyBlank ? nextDraft.segments[0].id : null);
+      setTitleSectionOpen(false);
       setPreviewFrame(0);
       setPlaying(true);
     } else if (!open && wasOpenRef.current) {
@@ -188,24 +196,23 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       }));
   };
 
-  // 逐行校验状态（内联友好提示，不打断编辑）
   const segmentDiagnostics = useMemo(() => {
     return segments.map((seg) => {
-      if (!seg.lineId) return { valid: false, message: '请选择线路', stationCount: 0 };
-      if (!seg.startStationId || !seg.endStationId) return { valid: false, message: '请选择起终点站', stationCount: 0 };
-      if (seg.startStationId === seg.endStationId) return { valid: false, message: '起点与终点不能相同', stationCount: 0 };
+      if (!seg.lineId) return { valid: false, message: '未选择线路', stationCount: 0 };
+      if (!seg.startStationId || !seg.endStationId) return { valid: false, message: '未选择起终点', stationCount: 0 };
+      if (seg.startStationId === seg.endStationId) return { valid: false, message: '起终点不能相同', stationCount: 0 };
       if (dateMode === 'date' && !isValidFlexibleOpenDate(seg.openDate)) {
         return {
           valid: false,
-          message: seg.openDate.trim() ? '日期格式示例：2020 或 2020-06' : '请填写年份或日期',
+          message: seg.openDate.trim() ? '日期格式应为 2020 或 2020-06' : '缺少日期',
           stationCount: 0
         };
       }
       try {
         const route = resolveVideoRoute(seg, lines, stations, sections, { dateMode });
-        return { valid: true, message: `共 ${route.stationIds.length} 站`, stationCount: route.stationIds.length };
+        return { valid: true, message: '', stationCount: route.stationIds.length };
       } catch (err: any) {
-        return { valid: false, message: err?.message || '站点未连通', stationCount: 0 };
+        return { valid: false, message: err?.message || '起终点未连通', stationCount: 0 };
       }
     });
   }, [segments, lines, stations, sections, dateMode]);
@@ -215,7 +222,6 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     [segments, segmentDiagnostics]
   );
 
-  // 构建实时预览渲染器（用预览帧率 30fps 保持轻快，画面布局与 1080p 完全等比一致）
   const previewScene = useMemo(() => {
     if (!open || validSegments.length === 0 || stations.length === 0 || !settings) {
       return null;
@@ -263,14 +269,12 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     showLineLegend
   ]);
 
-  // 预览帧越界时自动夹紧
   useEffect(() => {
     if (previewScene && previewFrame >= previewScene.totalFrames) {
       setPreviewFrame(0);
     }
   }, [previewScene, previewFrame]);
 
-  // 绘制当前预览帧到右侧 Canvas
   useEffect(() => {
     const canvas = previewCanvasRef.current;
     if (!canvas || !previewScene) return;
@@ -283,7 +287,6 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     previewScene.drawFrame(ctx, previewFrame);
   }, [previewScene, previewFrame]);
 
-  // 实时预览播放循环
   useEffect(() => {
     if (!open || !playing || !previewScene) return;
     let rafId = 0;
@@ -297,10 +300,7 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
         lastTick = now - (elapsed % frameInterval);
         setPreviewFrame((prev) => {
           const next = prev + advance;
-          if (next >= previewScene.totalFrames) {
-            return 0;
-          }
-          return next;
+          return next >= previewScene.totalFrames ? 0 : next;
         });
       }
       rafId = window.requestAnimationFrame(loop);
@@ -310,16 +310,45 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     return () => window.cancelAnimationFrame(rafId);
   }, [open, playing, previewScene]);
 
+  const seekFromClientX = (clientX: number) => {
+    const bar = trackBarRef.current;
+    if (!bar || !previewScene) return;
+    const rect = bar.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    setPreviewFrame(Math.min(previewScene.totalFrames - 1, Math.round(ratio * (previewScene.totalFrames - 1))));
+  };
+
+  const handleTrackPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!previewScene) return;
+    scrubbingRef.current = true;
+    setPlaying(false);
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    seekFromClientX(e.clientX);
+  };
+
+  const handleTrackPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrubbingRef.current) return;
+    seekFromClientX(e.clientX);
+  };
+
+  const handleTrackPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!scrubbingRef.current) return;
+    scrubbingRef.current = false;
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
+  };
+
   const handleAutoPopulateFromCanvas = () => {
     const generated = generateAutoVideoSegments(lines, stations, sections, dateMode);
     if (generated.length === 0) {
-      message.warning('当前画布还没有已连接两个以上站点的线路，请先在画布连线后再试');
+      message.warning('当前画布暂无已连通的线路');
       return;
     }
     updateDraft({ segments: generated });
+    setExpandedId(null);
     setPreviewFrame(0);
     setPlaying(true);
-    message.success(`已自动导入 ${generated.length} 段线路区间`);
+    message.success(`已导入 ${generated.length} 个区间`);
   };
 
   const handleSortByDate = () => {
@@ -333,7 +362,6 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     });
     updateDraft({ segments: sorted });
     setPreviewFrame(0);
-    message.success('已按开通时间先后排序');
   };
 
   const handleSelectLine = (segId: string, lineId: string) => {
@@ -356,12 +384,11 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     });
   };
 
-  const handleMoveSegment = (index: number, delta: -1 | 1) => {
-    const target = index + delta;
-    if (target < 0 || target >= segments.length) return;
+  const handleMoveSegment = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= segments.length || fromIndex === toIndex) return;
     const next = [...segments];
-    const [moved] = next.splice(index, 1);
-    next.splice(target, 0, moved);
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
     updateDraft({ segments: next });
   };
 
@@ -370,19 +397,21 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     const copy: VideoSegmentInput = {
       ...src,
       id: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      phaseLabel: src.phaseLabel ? `${src.phaseLabel}（续）` : '二期延伸'
+      phaseLabel: src.phaseLabel ? `${src.phaseLabel}（续）` : ''
     };
     const next = [...segments];
     next.splice(index + 1, 0, copy);
     updateDraft({ segments: next });
+    setExpandedId(copy.id);
   };
 
   const handleDeleteSegment = (id: string) => {
     if (segments.length <= 1) {
-      message.warning('至少保留一个区间步骤');
+      message.warning('至少保留一个区间');
       return;
     }
     updateDraft({ segments: segments.filter((item) => item.id !== id) });
+    if (expandedId === id) setExpandedId(null);
   };
 
   const handleAddSegment = () => {
@@ -390,12 +419,13 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     const yearMatch = lastDate.match(/^(\d{4})/);
     const nextDefaultDate =
       dateMode === 'sequence' ? '' : yearMatch ? `${Number(yearMatch[1]) + 1}-06` : '2022-06';
-    updateDraft({ segments: [...segments, createEmptySegment(nextDefaultDate)] });
+    const created = createEmptySegment(nextDefaultDate);
+    updateDraft({ segments: [...segments, created] });
+    setExpandedId(created.id);
   };
 
   const handleCloseModal = () => {
     setPlaying(false);
-    // 关闭弹窗时一次性同步配置（避免每次按键污染画布 Ctrl+Z 历史）
     onChange(draft);
     onCancel();
   };
@@ -403,7 +433,9 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
   const handleConfirmExport = () => {
     const firstInvalidIdx = segmentDiagnostics.findIndex((d) => !d.valid);
     if (firstInvalidIdx >= 0) {
-      message.warning(`步骤 ${firstInvalidIdx + 1} 尚未完善：${segmentDiagnostics[firstInvalidIdx].message}`);
+      const badSeg = segments[firstInvalidIdx];
+      setExpandedId(badSeg.id);
+      message.warning(`第 ${firstInvalidIdx + 1} 行：${segmentDiagnostics[firstInvalidIdx].message}`);
       return;
     }
     const finalConfig: VideoExportConfig = {
@@ -417,486 +449,582 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     onConfirm(finalConfig);
   };
 
+  // 构建分段彩色进度条切片数据（片头灰段 + 各线路色段 + 片尾灰段）
+  const timelineSlices = useMemo(() => {
+    if (!previewScene || previewScene.totalFrames <= 0) return [];
+    const total = previewScene.totalFrames;
+    const slices: Array<{ key: string; startPct: number; widthPct: number; color: string; title: string }> = [];
+    const firstStart = previewScene.segmentMarkers[0]?.startFrame ?? total;
+    if (firstStart > 0) {
+      slices.push({
+        key: 'intro',
+        startPct: 0,
+        widthPct: (firstStart / total) * 100,
+        color: 'rgba(255, 255, 255, 0.24)',
+        title: '片头'
+      });
+    }
+    previewScene.segmentMarkers.forEach((m) => {
+      slices.push({
+        key: `seg-${m.index}`,
+        startPct: (m.startFrame / total) * 100,
+        widthPct: Math.max(0.6, ((m.endFrame - m.startFrame) / total) * 100),
+        color: m.color,
+        title: m.label
+      });
+    });
+    const lastEnd = previewScene.segmentMarkers[previewScene.segmentMarkers.length - 1]?.endFrame ?? 0;
+    if (lastEnd < total) {
+      slices.push({
+        key: 'outro',
+        startPct: (lastEnd / total) * 100,
+        widthPct: ((total - lastEnd) / total) * 100,
+        color: 'rgba(255, 255, 255, 0.24)',
+        title: '片尾'
+      });
+    }
+    return slices;
+  }, [previewScene]);
+
   const outputDims = computeVideoDimensions(aspectRatio, resolution);
   const totalSec = previewScene ? previewScene.totalDurationSec : 0;
   const currentSec = previewScene ? previewFrame / previewScene.fps : 0;
+  const playheadPct =
+    previewScene && previewScene.totalFrames > 1
+      ? (Math.min(previewFrame, previewScene.totalFrames - 1) / (previewScene.totalFrames - 1)) * 100
+      : 0;
 
   return (
     <DraggableModal
       className="metro-video-modal"
-      title={
-        <div className="metro-video-header">
-          <div className="metro-video-header__brand">
-            <span className="metro-video-header__icon" aria-hidden="true">
-              <VideoCameraOutlined />
-            </span>
-            <span>导出动态演进视频</span>
-            <span className="metro-video-header__badge">MP4 高清直出</span>
-          </div>
-        </div>
-      }
+      title={<span className="metro-video-header__title">导出视频</span>}
       open={open}
       onCancel={handleCloseModal}
       footer={null}
       width={980}
     >
       <div className="metro-video-studio">
-        {/* 左栏：智能区间编排 + 片头与视觉选项 */}
+        {/* 左栏：地铁轨道样式紧凑时间轴 + 可折叠片头与画面 */}
         <div className="metro-video-left">
           <div className="metro-video-toolbar">
-            <Button
-              size="small"
-              type="primary"
-              ghost
-              icon={<ThunderboltOutlined />}
-              onClick={handleAutoPopulateFromCanvas}
-            >
-              一键导入画布线路
-            </Button>
+            <button type="button" className="metro-video-text-btn" onClick={handleAutoPopulateFromCanvas}>
+              从画布导入
+            </button>
 
             <div className="metro-video-toolbar__right">
-              <div className="metro-video-seg-pills" role="tablist" aria-label="时间展示模式">
-                <button
-                  type="button"
-                  className={dateMode === 'date' ? 'is-active' : ''}
-                  onClick={() => updateDraft({ dateMode: 'date' })}
-                >
-                  年份/日期
-                </button>
-                <button
-                  type="button"
-                  className={dateMode === 'sequence' ? 'is-active' : ''}
-                  onClick={() => updateDraft({ dateMode: 'sequence' })}
-                >
-                  按阶段顺序
-                </button>
-              </div>
-
+              <span className="metro-video-toolbar__label">时间</span>
+              <Select
+                size="small"
+                variant="borderless"
+                className="metro-video-mode-select"
+                value={dateMode}
+                onChange={(val: VideoDateMode) => updateDraft({ dateMode: val })}
+                options={[
+                  { value: 'date', label: '年份' },
+                  { value: 'sequence', label: '阶段序号' }
+                ]}
+              />
               {dateMode === 'date' && segments.length > 1 ? (
-                <Tooltip title="按填写的年份/日期从早到晚重排步骤">
-                  <Button size="small" icon={<SortAscendingOutlined />} onClick={handleSortByDate}>
-                    按时间排序
-                  </Button>
-                </Tooltip>
+                <button type="button" className="metro-video-text-btn" onClick={handleSortByDate}>
+                  按时间排序
+                </button>
               ) : null}
             </div>
           </div>
 
-          {/* 区间时间轴卡片列表（编辑过程保持稳定顺序，绝不边输文字边乱跳行） */}
-          <div className="metro-video-seg-list">
+          <div className="metro-video-timeline">
             {segments.map((segment, index) => {
               const selectedLine = lineById.get(segment.lineId);
+              const startStation = stationById.get(segment.startStationId);
+              const endStation = stationById.get(segment.endStationId);
               const diag = segmentDiagnostics[index];
-              const accentColor = selectedLine?.color || '#94a3b8';
+              const isExpanded = expandedId === segment.id;
+              const nodeColor = selectedLine?.color || '#9ca3af';
+              const isFirst = index === 0;
+              const isLast = index === segments.length - 1;
+
+              const dateDisplay =
+                dateMode === 'sequence'
+                  ? segment.phaseLabel?.trim() || `第 ${index + 1} 期`
+                  : segment.openDate.trim() || '未填日期';
+
+              const menuItems: MenuProps['items'] = [
+                {
+                  key: 'edit',
+                  label: isExpanded ? '收起' : '编辑',
+                  onClick: () => setExpandedId(isExpanded ? null : segment.id)
+                },
+                {
+                  key: 'up',
+                  label: '上移',
+                  disabled: isFirst,
+                  onClick: () => handleMoveSegment(index, index - 1)
+                },
+                {
+                  key: 'down',
+                  label: '下移',
+                  disabled: isLast,
+                  onClick: () => handleMoveSegment(index, index + 1)
+                },
+                {
+                  key: 'dup',
+                  label: '复制一行',
+                  onClick: () => handleDuplicateSegment(index)
+                },
+                { type: 'divider' },
+                {
+                  key: 'del',
+                  label: '删除',
+                  danger: true,
+                  disabled: segments.length <= 1,
+                  onClick: () => handleDeleteSegment(segment.id)
+                }
+              ];
 
               return (
                 <div
                   key={segment.id}
-                  className={`metro-video-seg-card${diag?.valid ? '' : ' is-incomplete'}`}
-                  style={{ ['--seg-color' as any]: accentColor }}
+                  className={`metro-video-track-item${isExpanded ? ' is-expanded' : ''}${dragOverIndex === index ? ' is-drag-over' : ''}`}
+                  onDragOver={(e) => {
+                    if (dragIndex === null) return;
+                    e.preventDefault();
+                    setDragOverIndex(index);
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverIndex === index) setDragOverIndex(null);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    if (dragIndex !== null && dragIndex !== index) {
+                      handleMoveSegment(dragIndex, index);
+                    }
+                    setDragIndex(null);
+                    setDragOverIndex(null);
+                  }}
                 >
-                  <div className="metro-video-seg-card__bar" />
-                  <div className="metro-video-seg-card__body">
-                    <div className="metro-video-seg-card__head">
-                      <div className="metro-video-seg-card__step">
-                        <span className="metro-video-seg-card__num">#{index + 1}</span>
-                        <span className={`metro-video-seg-card__status ${diag?.valid ? 'is-ok' : 'is-warn'}`}>
-                          {diag?.valid ? `✓ ${diag.message}` : diag?.message}
+                  {/* 左侧地铁轨道竖线 + 站点节点（支持拖动排序） */}
+                  <div
+                    className="metro-video-rail"
+                    draggable
+                    title="拖动调整顺序"
+                    onDragStart={(e) => {
+                      setDragIndex(index);
+                      e.dataTransfer.effectAllowed = 'move';
+                      e.dataTransfer.setData('text/plain', String(index));
+                    }}
+                    onDragEnd={() => {
+                      setDragIndex(null);
+                      setDragOverIndex(null);
+                    }}
+                  >
+                    {!isFirst ? <span className="metro-video-rail__line is-top" aria-hidden="true" /> : null}
+                    <span
+                      className="metro-video-rail__node"
+                      style={{ borderColor: nodeColor }}
+                      aria-hidden="true"
+                    />
+                    {!isLast ? <span className="metro-video-rail__line is-bottom" aria-hidden="true" /> : null}
+                  </div>
+
+                  {/* 右侧内容：紧凑折叠行 / 点击展开编辑 */}
+                  <div className="metro-video-row-main">
+                    <div
+                      className="metro-video-row-summary"
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setExpandedId(isExpanded ? null : segment.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setExpandedId(isExpanded ? null : segment.id);
+                        }
+                      }}
+                    >
+                      <span className="metro-video-row__date" title={dateDisplay}>
+                        {dateDisplay}
+                      </span>
+
+                      <span className="metro-video-row__line">
+                        <span
+                          className="metro-video-row__bar"
+                          style={{ backgroundColor: nodeColor }}
+                          aria-hidden="true"
+                        />
+                        <span className="metro-video-row__line-name">
+                          {selectedLine?.name || '未选线路'}
                         </span>
-                      </div>
+                      </span>
 
-                      <div className="metro-video-seg-card__ops">
-                        <Tooltip title="上移">
-                          <button
-                            type="button"
-                            disabled={index === 0}
-                            onClick={() => handleMoveSegment(index, -1)}
-                            aria-label={`上移步骤 ${index + 1}`}
-                          >
-                            <ArrowUpOutlined />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="下移">
-                          <button
-                            type="button"
-                            disabled={index === segments.length - 1}
-                            onClick={() => handleMoveSegment(index, 1)}
-                            aria-label={`下移步骤 ${index + 1}`}
-                          >
-                            <ArrowDownOutlined />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="复制此行（便于同线路拆分为一期 / 二期）">
-                          <button
-                            type="button"
-                            onClick={() => handleDuplicateSegment(index)}
-                            aria-label={`复制步骤 ${index + 1}`}
-                          >
-                            <CopyOutlined />
-                          </button>
-                        </Tooltip>
-                        <Tooltip title="删除步骤">
-                          <button
-                            type="button"
-                            className="is-danger"
-                            onClick={() => handleDeleteSegment(segment.id)}
-                            aria-label={`删除步骤 ${index + 1}`}
-                          >
-                            <DeleteOutlined />
-                          </button>
-                        </Tooltip>
-                      </div>
+                      <span className="metro-video-row__route" title={startStation && endStation ? `${startStation.name} → ${endStation.name}` : ''}>
+                        {startStation && endStation ? `${startStation.name} → ${endStation.name}` : '点击选择区间'}
+                      </span>
+
+                      <span className="metro-video-row__count">
+                        {diag.valid ? `${diag.stationCount} 站` : ''}
+                      </span>
+
+                      <Dropdown menu={{ items: menuItems }} trigger={['click']} placement="bottomRight">
+                        <button
+                          type="button"
+                          className="metro-video-row__more"
+                          aria-label={`更多操作 ${index + 1}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreOutlined />
+                        </button>
+                      </Dropdown>
                     </div>
 
-                    <div className="metro-video-seg-card__grid3">
-                      <Select
-                        size="small"
-                        options={lineOptions}
-                        placeholder="选择线路"
-                        value={segment.lineId || undefined}
-                        onChange={(value) => handleSelectLine(segment.id, value)}
-                      />
-                      <Select
-                        size="small"
-                        showSearch
-                        optionFilterProp="label"
-                        options={getStationOptions(segment.lineId)}
-                        placeholder="起点站"
-                        value={segment.startStationId || undefined}
-                        disabled={!segment.lineId}
-                        onChange={(value) => handlePatchSegment(segment.id, { startStationId: value })}
-                      />
-                      <Select
-                        size="small"
-                        showSearch
-                        optionFilterProp="label"
-                        options={getStationOptions(segment.lineId)}
-                        placeholder="终点站"
-                        value={segment.endStationId || undefined}
-                        disabled={!segment.lineId}
-                        onChange={(value) => handlePatchSegment(segment.id, { endStationId: value })}
-                      />
-                    </div>
+                    {!diag.valid ? (
+                      <div className="metro-video-row-error">{diag.message}</div>
+                    ) : null}
 
-                    <div className="metro-video-seg-card__grid2">
-                      {dateMode === 'date' ? (
-                        <>
-                          <div className="metro-video-date-field">
+                    {isExpanded ? (
+                      <div className="metro-video-row-editor">
+                        <div className="metro-video-row-editor__grid3">
+                          <Select
+                            size="small"
+                            options={lineOptions}
+                            placeholder="线路"
+                            value={segment.lineId || undefined}
+                            onChange={(value) => handleSelectLine(segment.id, value)}
+                          />
+                          <Select
+                            size="small"
+                            showSearch
+                            optionFilterProp="label"
+                            options={getStationOptions(segment.lineId)}
+                            placeholder="起点"
+                            value={segment.startStationId || undefined}
+                            disabled={!segment.lineId}
+                            onChange={(value) => handlePatchSegment(segment.id, { startStationId: value })}
+                          />
+                          <Select
+                            size="small"
+                            showSearch
+                            optionFilterProp="label"
+                            options={getStationOptions(segment.lineId)}
+                            placeholder="终点"
+                            value={segment.endStationId || undefined}
+                            disabled={!segment.lineId}
+                            onChange={(value) => handlePatchSegment(segment.id, { endStationId: value })}
+                          />
+                        </div>
+
+                        <div className="metro-video-row-editor__grid2">
+                          {dateMode === 'date' ? (
+                            <>
+                              <div className="metro-video-date-field">
+                                <Input
+                                  size="small"
+                                  placeholder="如 2018 或 2018-06"
+                                  value={segment.openDate}
+                                  maxLength={10}
+                                  onChange={(e) => handlePatchSegment(segment.id, { openDate: e.target.value })}
+                                />
+                                <label className="metro-video-date-picker-btn" title="选择日期">
+                                  <span aria-hidden="true">···</span>
+                                  <input
+                                    type="date"
+                                    value={/^\d{4}-\d{2}-\d{2}$/.test(segment.openDate) ? segment.openDate : ''}
+                                    onChange={(e) => {
+                                      if (e.target.value) {
+                                        handlePatchSegment(segment.id, { openDate: e.target.value });
+                                      }
+                                    }}
+                                  />
+                                </label>
+                              </div>
+                              <Input
+                                size="small"
+                                placeholder="备注（可选）"
+                                value={segment.phaseLabel || ''}
+                                maxLength={16}
+                                onChange={(e) => handlePatchSegment(segment.id, { phaseLabel: e.target.value })}
+                              />
+                            </>
+                          ) : (
                             <Input
                               size="small"
-                              placeholder="年份或日期，如 2018 / 2018-06 / 2018-06-28"
-                              value={segment.openDate}
-                              maxLength={10}
-                              onChange={(e) => handlePatchSegment(segment.id, { openDate: e.target.value })}
+                              style={{ gridColumn: '1 / -1' }}
+                              placeholder="备注（可选）"
+                              value={segment.phaseLabel || ''}
+                              maxLength={20}
+                              onChange={(e) => handlePatchSegment(segment.id, { phaseLabel: e.target.value })}
                             />
-                            <label className="metro-video-date-picker-btn" title="从日历选择精确日期">
-                              📅
-                              <input
-                                type="date"
-                                value={/^\d{4}-\d{2}-\d{2}$/.test(segment.openDate) ? segment.openDate : ''}
-                                onChange={(e) => {
-                                  if (e.target.value) {
-                                    handlePatchSegment(segment.id, { openDate: e.target.value });
-                                  }
-                                }}
-                              />
-                            </label>
-                          </div>
-                          <Input
-                            size="small"
-                            placeholder="阶段备注（可选，如：首通段 / 东延）"
-                            value={segment.phaseLabel || ''}
-                            maxLength={16}
-                            onChange={(e) => handlePatchSegment(segment.id, { phaseLabel: e.target.value })}
-                          />
-                        </>
-                      ) : (
-                        <Input
-                          size="small"
-                          style={{ gridColumn: '1 / -1' }}
-                          placeholder={`阶段文案（可选，默认显示「第 ${index + 1} 阶段」，可填如：一期工程）`}
-                          value={segment.phaseLabel || ''}
-                          maxLength={20}
-                          onChange={(e) => handlePatchSegment(segment.id, { phaseLabel: e.target.value })}
-                        />
-                      )}
-                    </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
             })}
 
-            <Button type="dashed" size="small" block icon={<PlusOutlined />} onClick={handleAddSegment}>
-              新增开通区间
-            </Button>
+            <button type="button" className="metro-video-add-btn" onClick={handleAddSegment}>
+              <PlusOutlined /> 添加区间
+            </button>
           </div>
 
-          {/* 片头与画面叙事设置 */}
-          <div className="metro-video-config-box">
-            <div className="metro-video-config-box__title">片头与镜头表现</div>
-            <div className="metro-video-title-grid">
-              <Input
-                size="small"
-                placeholder="主标题（例：北京轨道交通演进史）"
-                value={draft.title}
-                maxLength={32}
-                aria-label="视频主标题"
-                onChange={(e) => updateDraft({ title: e.target.value })}
-              />
-              <Input
-                size="small"
-                placeholder="副标题（可选，例：1969 — 2026）"
-                value={draft.subtitle}
-                maxLength={48}
-                aria-label="视频副标题"
-                onChange={(e) => updateDraft({ subtitle: e.target.value })}
-              />
-              <InputNumber
-                size="small"
-                min={1}
-                max={8}
-                step={0.5}
-                addonAfter="秒"
-                value={draft.titleDurationSec}
-                aria-label="片头停留秒数"
-                onChange={(v) => updateDraft({ titleDurationSec: Number(v) || DEFAULT_TITLE_DURATION_SEC })}
-              />
-            </div>
+          {/* 底部可折叠分组：片头与画面（默认折叠） */}
+          <div className="metro-video-collapse">
+            <button
+              type="button"
+              className="metro-video-collapse__trigger"
+              aria-expanded={titleSectionOpen}
+              onClick={() => setTitleSectionOpen((v) => !v)}
+            >
+              <span>片头与画面</span>
+              {titleSectionOpen ? <DownOutlined /> : <RightOutlined />}
+            </button>
 
-            <div className="metro-video-toggles-row">
-              <div className="metro-video-mini-group">
-                <span className="metro-video-mini-label">运镜</span>
-                <div className="metro-video-seg-pills">
-                  <button
-                    type="button"
-                    className={cameraMode === 'overview' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ cameraMode: 'overview' })}
-                  >
-                    全局俯瞰
-                  </button>
-                  <button
-                    type="button"
-                    className={cameraMode === 'gentle' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ cameraMode: 'gentle' })}
-                  >
-                    轻柔推镜
-                  </button>
-                  <button
-                    type="button"
-                    className={cameraMode === 'follow' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ cameraMode: 'follow' })}
-                  >
-                    特写跟随
-                  </button>
-                </div>
-              </div>
-
-              <div className="metro-video-mini-group">
-                <span className="metro-video-mini-label">未开通</span>
-                <div className="metro-video-seg-pills">
-                  <button
-                    type="button"
-                    className={unopenedStyle === 'ghost' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ unopenedStyle: 'ghost' })}
-                  >
-                    淡影底图
-                  </button>
-                  <button
-                    type="button"
-                    className={unopenedStyle === 'hidden' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ unopenedStyle: 'hidden' })}
-                  >
-                    纯净生长
-                  </button>
-                </div>
-              </div>
-
-              <div className="metro-video-mini-group">
-                <span className="metro-video-mini-label">角标</span>
-                <div className="metro-video-seg-pills">
-                  <button
-                    type="button"
-                    className={showYearBadge ? 'is-active' : ''}
-                    onClick={() => updateDraft({ showYearBadge: !showYearBadge })}
-                  >
-                    年份牌
-                  </button>
-                  <button
-                    type="button"
-                    className={showLineLegend ? 'is-active' : ''}
-                    onClick={() => updateDraft({ showLineLegend: !showLineLegend })}
-                  >
-                    线路条
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 右栏：所见即所得实时预览播放器 + 输出规格与导出动作 */}
-        <div className="metro-video-right">
-          <div className="metro-video-preview-shell">
-            <div className="metro-video-preview-viewport">
-              {previewScene ? (
-                <canvas
-                  ref={previewCanvasRef}
-                  className="metro-video-preview-canvas"
-                  onClick={() => setPlaying((p) => !p)}
-                />
-              ) : (
-                <div className="metro-video-preview-empty">
-                  <VideoCameraOutlined />
-                  <div>在左侧选择一条已连线的线路后，此处将实时播放动态预览</div>
-                </div>
-              )}
-            </div>
-
-            {previewScene ? (
-              <div className="metro-video-player-bar">
-                <button
-                  type="button"
-                  className="metro-video-play-btn"
-                  onClick={() => setPlaying((p) => !p)}
-                  aria-label={playing ? '暂停预览' : '播放预览'}
-                >
-                  {playing ? <PauseOutlined /> : <CaretRightOutlined />}
-                </button>
-
-                <div className="metro-video-scrubber-wrap">
-                  <input
-                    type="range"
-                    className="metro-video-scrubber"
-                    min={0}
-                    max={Math.max(0, previewScene.totalFrames - 1)}
-                    value={Math.min(previewFrame, Math.max(0, previewScene.totalFrames - 1))}
-                    onChange={(e) => {
-                      setPlaying(false);
-                      setPreviewFrame(Number(e.target.value));
-                    }}
+            {titleSectionOpen ? (
+              <div className="metro-video-collapse__body">
+                <div className="metro-video-title-grid">
+                  <Input
+                    size="small"
+                    placeholder="主标题"
+                    value={draft.title}
+                    maxLength={32}
+                    aria-label="视频主标题"
+                    onChange={(e) => updateDraft({ title: e.target.value })}
                   />
-                  <div className="metro-video-markers" aria-hidden="true">
-                    {previewScene.segmentMarkers.map((m) => (
-                      <span
-                        key={m.index}
-                        className="metro-video-marker-dot"
-                        style={{
-                          left: `${(m.startFrame / Math.max(1, previewScene.totalFrames)) * 100}%`,
-                          backgroundColor: m.color
-                        }}
-                        title={`${m.label}`}
-                      />
+                  <Input
+                    size="small"
+                    placeholder="副标题（可选）"
+                    value={draft.subtitle}
+                    maxLength={48}
+                    aria-label="视频副标题"
+                    onChange={(e) => updateDraft({ subtitle: e.target.value })}
+                  />
+                  <InputNumber
+                    size="small"
+                    min={1}
+                    max={8}
+                    step={0.5}
+                    addonAfter="s"
+                    value={draft.titleDurationSec}
+                    aria-label="片头停留秒数"
+                    onChange={(v) => updateDraft({ titleDurationSec: Number(v) || DEFAULT_TITLE_DURATION_SEC })}
+                  />
+                </div>
+
+                <div className="metro-video-option-line">
+                  <span className="metro-video-option-label">运镜</span>
+                  <div className="metro-video-seg-group">
+                    {(
+                      [
+                        { key: 'overview', label: '固定' },
+                        { key: 'gentle', label: '平缓跟随' },
+                        { key: 'follow', label: '近景跟随' }
+                      ] as const
+                    ).map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className={cameraMode === item.key ? 'is-active' : ''}
+                        onClick={() => updateDraft({ cameraMode: item.key })}
+                      >
+                        {item.label}
+                      </button>
                     ))}
                   </div>
                 </div>
 
-                <span className="metro-video-timecode">
-                  {formatTimeMMSS(currentSec)} / {formatTimeMMSS(totalSec)}
-                </span>
+                <div className="metro-video-option-line">
+                  <span className="metro-video-option-label">未开通线路</span>
+                  <div className="metro-video-seg-group">
+                    <button
+                      type="button"
+                      className={unopenedStyle === 'ghost' ? 'is-active' : ''}
+                      onClick={() => updateDraft({ unopenedStyle: 'ghost' })}
+                    >
+                      显示虚影
+                    </button>
+                    <button
+                      type="button"
+                      className={unopenedStyle === 'hidden' ? 'is-active' : ''}
+                      onClick={() => updateDraft({ unopenedStyle: 'hidden' })}
+                    >
+                      隐藏
+                    </button>
+                  </div>
+                </div>
+
+                <div className="metro-video-option-line">
+                  <span className="metro-video-option-label">叠加信息</span>
+                  <div className="metro-video-checks">
+                    <Checkbox
+                      checked={showYearBadge}
+                      onChange={(e) => updateDraft({ showYearBadge: e.target.checked })}
+                    >
+                      年份
+                    </Checkbox>
+                    <Checkbox
+                      checked={showLineLegend}
+                      onChange={(e) => updateDraft({ showLineLegend: e.target.checked })}
+                    >
+                      线路图例
+                    </Checkbox>
+                  </div>
+                </div>
               </div>
             ) : null}
           </div>
+        </div>
 
-          {/* 成片画幅、清晰度、帧率与倍速规格卡 */}
-          <div className="metro-video-spec-card">
-            <div className="metro-video-spec-row">
-              <span className="metro-video-spec-label">画幅比例</span>
-              <div className="metro-video-seg-pills">
-                {(
-                  [
-                    { key: '16:9', label: '16:9 横屏' },
-                    { key: '9:16', label: '9:16 竖屏' },
-                    { key: '4:3', label: '4:3' },
-                    { key: '1:1', label: '1:1' }
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    className={aspectRatio === item.key ? 'is-active' : ''}
-                    onClick={() => updateDraft({ aspectRatio: item.key })}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+        {/* 右栏：大画幅浅框预览 + 分段彩色进度条 + 精简三行参数 + 常驻底栏 */}
+        <div className="metro-video-right">
+          <div className="metro-video-right__content">
+            <div className="metro-video-preview-frame">
+              <div className="metro-video-preview-viewport">
+                {previewScene ? (
+                  <canvas
+                    ref={previewCanvasRef}
+                    className="metro-video-preview-canvas"
+                    onClick={() => setPlaying((p) => !p)}
+                  />
+                ) : (
+                  <div className="metro-video-preview-empty">
+                    在左侧配置有效区间后可在此预览画面
+                  </div>
+                )}
               </div>
-            </div>
 
-            <div className="metro-video-spec-row">
-              <span className="metro-video-spec-label">画质帧率</span>
-              <div className="metro-video-spec-inline">
-                <div className="metro-video-seg-pills">
+              {previewScene ? (
+                <div className="metro-video-player-overlay">
                   <button
                     type="button"
-                    className={resolution === '1080p' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ resolution: '1080p' })}
+                    className="metro-video-play-btn"
+                    onClick={() => setPlaying((p) => !p)}
+                    aria-label={playing ? '暂停' : '播放'}
                   >
-                    1080P 超清
+                    {playing ? <PauseOutlined /> : <CaretRightOutlined />}
                   </button>
-                  <button
-                    type="button"
-                    className={resolution === '720p' ? 'is-active' : ''}
-                    onClick={() => updateDraft({ resolution: '720p' })}
+
+                  {/* 按区间分段的线路彩色进度条 */}
+                  <div
+                    ref={trackBarRef}
+                    className="metro-video-segbar"
+                    role="slider"
+                    aria-label="预览进度"
+                    aria-valuemin={0}
+                    aria-valuemax={Math.max(0, previewScene.totalFrames - 1)}
+                    aria-valuenow={previewFrame}
+                    tabIndex={0}
+                    onPointerDown={handleTrackPointerDown}
+                    onPointerMove={handleTrackPointerMove}
+                    onPointerUp={handleTrackPointerUp}
+                    onPointerCancel={handleTrackPointerUp}
                   >
-                    720P 轻量
-                  </button>
+                    <div className="metro-video-segbar__track">
+                      {timelineSlices.map((slice) => (
+                        <span
+                          key={slice.key}
+                          className="metro-video-segbar__slice"
+                          style={{
+                            left: `${slice.startPct}%`,
+                            width: `${slice.widthPct}%`,
+                            backgroundColor: slice.color
+                          }}
+                          title={slice.title}
+                        />
+                      ))}
+                    </div>
+                    <span
+                      className="metro-video-segbar__head"
+                      style={{ left: `${playheadPct}%` }}
+                      aria-hidden="true"
+                    />
+                  </div>
+
+                  <span className="metro-video-timecode">
+                    {formatTimeMMSS(currentSec)} / {formatTimeMMSS(totalSec)}
+                  </span>
                 </div>
+              ) : null}
+            </div>
 
-                <div className="metro-video-seg-pills">
-                  <button
-                    type="button"
-                    className={fps === 30 ? 'is-active' : ''}
-                    onClick={() => updateDraft({ fps: 30 })}
-                  >
-                    30 FPS
-                  </button>
-                  <button
-                    type="button"
-                    className={fps === 60 ? 'is-active' : ''}
-                    onClick={() => updateDraft({ fps: 60 })}
-                  >
-                    60 FPS
-                  </button>
+            {/* 三行精简参数表单（无卡片框、无形容词） */}
+            <div className="metro-video-params">
+              <div className="metro-video-param-row">
+                <span className="metro-video-param-label">比例</span>
+                <div className="metro-video-seg-group">
+                  {(['16:9', '9:16', '4:3', '1:1'] as const).map((ratio) => (
+                    <button
+                      key={ratio}
+                      type="button"
+                      className={aspectRatio === ratio ? 'is-active' : ''}
+                      onClick={() => updateDraft({ aspectRatio: ratio })}
+                    >
+                      {ratio}
+                    </button>
+                  ))}
                 </div>
               </div>
-            </div>
 
-            <div className="metro-video-spec-row">
-              <span className="metro-video-spec-label">演进节奏</span>
-              <div className="metro-video-seg-pills">
-                {(
-                  [
-                    { val: 0.75, label: '0.75x 舒缓' },
-                    { val: 1, label: '1x 标准' },
-                    { val: 1.5, label: '1.5x 轻快' },
-                    { val: 2, label: '2x 快节奏' }
-                  ] as const
-                ).map((s) => (
-                  <button
-                    key={s.val}
-                    type="button"
-                    className={speedMultiplier === s.val ? 'is-active' : ''}
-                    onClick={() => updateDraft({ speedMultiplier: s.val })}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+              <div className="metro-video-param-row">
+                <span className="metro-video-param-label">规格</span>
+                <div className="metro-video-param-pair">
+                  <div className="metro-video-seg-group">
+                    {(['1080p', '720p'] as const).map((res) => (
+                      <button
+                        key={res}
+                        type="button"
+                        className={resolution === res ? 'is-active' : ''}
+                        onClick={() => updateDraft({ resolution: res })}
+                      >
+                        {res}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="metro-video-seg-group">
+                    {([30, 60] as const).map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        className={fps === f ? 'is-active' : ''}
+                        onClick={() => updateDraft({ fps: f })}
+                      >
+                        {f} fps
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="metro-video-spec-summary">
-              <span>
-                输出尺寸：{outputDims.width} × {outputDims.height} · {fps}fps
-              </span>
-              <span>{totalSec > 0 ? `总时长约 ${totalSec.toFixed(1)} 秒` : '待完善区间'}</span>
+              <div className="metro-video-param-row">
+                <span className="metro-video-param-label">速度</span>
+                <div className="metro-video-seg-group">
+                  {([0.75, 1, 1.5, 2] as const).map((spd) => (
+                    <button
+                      key={spd}
+                      type="button"
+                      className={speedMultiplier === spd ? 'is-active' : ''}
+                      onClick={() => updateDraft({ speedMultiplier: spd })}
+                    >
+                      {spd}×
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
+          {/* 常驻底部操作栏（1366×768 无需滚动即可看见导出按钮） */}
           <div className="metro-video-footer">
-            <Button onClick={handleCloseModal}>保存配置并关闭</Button>
-            <Button type="primary" size="middle" icon={<VideoCameraOutlined />} onClick={handleConfirmExport}>
-              极速合成并导出视频
-            </Button>
+            <span className="metro-video-footer__meta">
+              {outputDims.width}×{outputDims.height} · {fps}fps · MP4
+              {totalSec > 0 ? ` · ${totalSec.toFixed(1)}s` : ''}
+            </span>
+            <div className="metro-video-footer__actions">
+              <Button size="middle" onClick={handleCloseModal}>
+                取消
+              </Button>
+              <Button type="primary" size="middle" onClick={handleConfirmExport}>
+                导出
+              </Button>
+            </div>
           </div>
         </div>
       </div>

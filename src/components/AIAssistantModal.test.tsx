@@ -45,7 +45,7 @@ describe('AIAssistantModal', () => {
     host.remove();
   });
 
-  test('renders unified composer without overlapping count, carries multi-turn operation context, and switches saved sessions', async () => {
+  test('renders restrained prompt list, hides new-chat icon when empty, carries multi-turn operation context, and switches saved sessions', async () => {
     const receivedHistories: { role: 'user' | 'assistant'; content: string }[][] = [];
     const mockOp: AIOperation = {
       type: 'create_new_line_with_stations',
@@ -88,10 +88,12 @@ describe('AIAssistantModal', () => {
       );
     });
 
-    // 1. 空白画布展示动态引导卡片与实时画布感知胶囊，且没有旧版越界重叠的 .ant-input-data-count
-    expect(host.textContent).toContain('当前画布：0 线 · 0 站');
-    expect(host.textContent).toContain('从零生成干线');
+    // 1. 空状态：左对齐“试试”快捷指令、地图名上下文、无旧版 ant-input-data-count、空会话时不显示禁用态新对话按钮
+    expect(host.textContent).toContain('测试线网');
+    expect(host.textContent).toContain('0 条线路 · 0 座车站');
+    expect(host.textContent).toContain('试试');
     expect(host.querySelector('.ant-input-data-count')).toBeNull();
+    expect(host.querySelector('button[aria-label="新对话"]')).toBeNull();
 
     // 2. 第一轮发送并应用到画布
     const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
@@ -109,8 +111,8 @@ describe('AIAssistantModal', () => {
     expect(host.textContent).toContain('已规划东西向骨干 1 号线。');
     expect(host.querySelector('.metro-ai-color-chip')?.textContent).toContain('#e11d48');
 
-    const applyBtn = Array.from(host.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('应用到画布')
+    const applyBtn = Array.from(host.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === '应用'
     ) as HTMLButtonElement;
     expect(applyBtn).toBeDefined();
     await act(async () => {
@@ -135,18 +137,15 @@ describe('AIAssistantModal', () => {
     expect(receivedHistories[1][1].content).toContain('用户已应用到画布');
     expect(receivedHistories[1][1].content).toContain('新建线路「1号线」');
 
-    // 4. 点击「新对话」开启新会话后，再从「对话记录」侧栏切回旧会话
-    const newChatBtn = Array.from(host.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('新对话')
-    ) as HTMLButtonElement;
+    // 4. 点击图标按钮「新对话」开启新会话后，再从「对话记录」侧栏切回旧会话
+    const newChatBtn = host.querySelector('button[aria-label="新对话"]') as HTMLButtonElement;
+    expect(newChatBtn).not.toBeNull();
     await act(async () => {
       newChatBtn.click();
     });
-    expect(host.textContent).toContain('用自然语言规划与修改地铁线网');
+    expect(host.textContent).toContain('试试');
 
-    const historyBtn = Array.from(host.querySelectorAll('button')).find((b) =>
-      b.textContent?.includes('对话记录')
-    ) as HTMLButtonElement;
+    const historyBtn = host.querySelector('button[aria-label="对话记录"]') as HTMLButtonElement;
     await act(async () => {
       historyBtn.click();
     });
