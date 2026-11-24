@@ -571,7 +571,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
       open={open}
       onCancel={onCancel}
       footer={null}
-      width={historyOpen ? 760 : 540}
+      width={historyOpen ? 840 : 600}
     >
       <div className={`metro-ai-shell${historyOpen ? ' has-sidebar' : ''}${isCompactEmpty ? ' is-compact' : ''}`}>
         {historyOpen ? (

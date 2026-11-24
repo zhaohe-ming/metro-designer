@@ -4296,33 +4296,40 @@ body[data-interface-theme="dark"] .metro-modal-root .ant-input-affix-wrapper inp
 
 .metro-guest-auth .auth-card--embedded .auth-switcher {
   margin-top: 0;
-  padding: 3px;
-  border-radius: 9px;
-  border: 1px solid var(--color-border) !important;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
   background: #f1f5f9 !important;
-  box-shadow: none !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85), 0 2px 8px rgba(15, 23, 42, 0.04) !important;
 }
 
 .metro-guest-auth .auth-card--embedded .auth-switcher__btn {
-  height: 32px;
-  border-radius: 7px;
+  height: 34px;
+  border-radius: 999px;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--color-text-soft) !important;
+  font-weight: 500;
+  color: #475569 !important;
   background: transparent !important;
   box-shadow: none !important;
   transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
 }
 
+.metro-guest-auth .auth-card--embedded .auth-switcher__btn:not(.is-active):hover {
+  background: rgba(37, 99, 235, 0.07) !important;
+  color: #1d4ed8 !important;
+}
+
 .metro-guest-auth .auth-card--embedded .auth-switcher__btn.is-active {
-  background: #ffffff !important;
-  color: var(--color-primary-600) !important;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10), 0 1px 2px rgba(15, 23, 42, 0.06) !important;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: #ffffff !important;
+  font-weight: 600;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.36), 0 3px 10px rgba(37, 99, 235, 0.28) !important;
 }
 
 body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-switcher {
-  background: #0f172a !important;
-  border-color: #29364d !important;
+  background: rgba(15, 23, 42, 0.92) !important;
+  border-color: rgba(148, 163, 184, 0.22) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
 }
 
 body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-switcher__btn {
@@ -4330,8 +4337,9 @@ body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-s
 }
 
 body[data-interface-theme="dark"] .metro-guest-auth .auth-card--embedded .auth-switcher__btn.is-active {
-  background: #2563eb !important;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%) !important;
   color: #ffffff !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.32), 0 3px 10px rgba(37, 99, 235, 0.34) !important;
 }
 
 .metro-guest-auth .auth-card--embedded .auth-form {
@@ -4504,22 +4512,29 @@ body[data-interface-theme="dark"] .metro-pill-filter.is-active {
   }
 }
 
-/* 6. 「设置」弹窗内分段选择器统一升级为柔和圆角滑槽 */
+/* 6. 「设置」弹窗内分段选择器：与画布浮岛工具条统一标准（自适应宽度胶囊托盘 + 蓝色立体选中胶囊） */
 .metro-settings-panel .ant-radio-group-solid {
-  display: inline-flex;
+  display: inline-flex !important;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
   flex-wrap: wrap;
   gap: 2px;
-  padding: 3px;
-  border-radius: 9px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
   background: #f1f5f9;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
 .metro-settings-panel .ant-radio-button-wrapper {
-  height: 30px !important;
-  line-height: 30px !important;
-  padding: 0 12px !important;
+  height: 32px !important;
+  line-height: 32px !important;
+  padding: 0 15px !important;
   border: 0 !important;
-  border-radius: 7px !important;
+  border-radius: 999px !important;
   background: transparent !important;
   color: #475569 !important;
   font-size: 13px !important;
@@ -4533,20 +4548,23 @@ body[data-interface-theme="dark"] .metro-pill-filter.is-active {
 }
 
 .metro-settings-panel .ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
-  color: #0f172a !important;
-  background: rgba(255, 255, 255, 0.55) !important;
+  color: #1d4ed8 !important;
+  background: rgba(37, 99, 235, 0.07) !important;
 }
 
 .metro-settings-panel .ant-radio-button-wrapper-checked {
-  background: #ffffff !important;
-  color: #1d4ed8 !important;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%) !important;
+  color: #ffffff !important;
   font-weight: 600;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.10), 0 1px 2px rgba(15, 23, 42, 0.06) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    0 3px 10px rgba(37, 99, 235, 0.28) !important;
 }
 
 body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-group-solid {
-  background: #0f172a;
-  border: 1px solid #29364d;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrapper {
@@ -4556,12 +4574,15 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 
 body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover {
   color: #f8fafc !important;
-  background: rgba(255, 255, 255, 0.05) !important;
+  background: rgba(255, 255, 255, 0.07) !important;
 }
 
 body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrapper-checked {
-  background: #2563eb !important;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%) !important;
   color: #ffffff !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 3px 10px rgba(37, 99, 235, 0.34) !important;
 }
 
 /* 7. 桌面端画布工具栏“灵动浮岛”滑动胶囊 + 拖拽跟手弹性形变 */
@@ -4948,7 +4969,7 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 /* ========================================================================== */
 
 .metro-ai-modal :where(.ant-modal-header) {
-  padding: 12px 16px !important;
+  padding: 16px 22px !important;
   border-bottom: 1px solid #eef0f3 !important;
 }
 
@@ -5036,8 +5057,8 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 .metro-ai-shell {
   position: relative;
   display: flex;
-  height: min(520px, calc(100dvh - 150px));
-  min-height: 360px;
+  height: min(560px, calc(100dvh - 130px));
+  min-height: 400px;
   overflow: hidden;
 }
 
@@ -5049,8 +5070,8 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 
 /* 左侧历史记录栏 */
 .metro-ai-sidebar {
-  width: 220px;
-  flex: 0 0 220px;
+  width: 240px;
+  flex: 0 0 240px;
   border-right: 1px solid #eef0f3;
   background: #f6f7f9;
   display: flex;
@@ -5062,54 +5083,65 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px;
-  margin: 10px 10px 8px;
-  padding: 2px;
-  border-radius: 6px;
-  background: #e5e7eb;
+  margin: 12px 12px 10px;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #eef2f7;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
   flex-shrink: 0;
 }
 
 .metro-ai-sidebar__tab {
-  height: 26px;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
-  color: #6b7280;
+  color: #475569;
   font: inherit;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+  transition: background 130ms ease, color 130ms ease, box-shadow 130ms ease;
+}
+
+.metro-ai-sidebar__tab:not(.is-active):hover {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.07);
 }
 
 .metro-ai-sidebar__tab.is-active {
-  background: #ffffff;
-  border-color: #2563eb;
-  color: #2563eb;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    0 2px 8px rgba(37, 99, 235, 0.28);
 }
 
 .metro-ai-sidebar__list {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 2px 8px 10px;
+  padding: 4px 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
   scrollbar-width: thin;
 }
 
 .metro-ai-sidebar__empty {
-  padding: 24px 12px;
+  padding: 28px 14px;
   text-align: center;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: 12.5px;
+  line-height: 1.65;
   color: #9ca3af;
 }
 
 .metro-ai-session-item {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 10px 12px;
+  border-radius: 8px;
   border: 1px solid transparent;
   cursor: pointer;
   flex-shrink: 0;
@@ -5243,31 +5275,31 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 16px 18px 12px;
+  padding: 20px 22px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   scrollbar-width: thin;
 }
 
 .metro-ai-stream.is-empty {
   flex: 0 0 auto;
-  padding: 14px 16px 10px;
+  padding: 20px 22px 14px;
   overflow: visible;
 }
 
-/* 空状态：左对齐快捷指令列表（高信息密度，总高 <= 200px） */
+/* 空状态：舒展左对齐快捷指令列表 */
 .metro-ai-quick-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .metro-ai-quick-list__heading {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
   color: #9ca3af;
-  padding: 0 4px 4px;
+  padding: 0 6px 4px;
 }
 
 .metro-ai-quick-list__rows {
@@ -5278,16 +5310,16 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 .metro-ai-quick-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 36px;
-  padding: 0 8px;
+  gap: 12px;
+  height: 44px;
+  padding: 0 12px;
   border: 0;
   border-bottom: 1px solid #eef0f3;
   border-radius: 0;
   background: transparent;
   color: #111827;
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 400;
   text-align: left;
   cursor: pointer;
@@ -5566,11 +5598,11 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   border-radius: 8px !important;
 }
 
-/* 输入框：纯白底 + 1px 中性描边，聚焦仅改边框色、不加外发光 */
+/* 输入框：舒展留白 + 纯白底 + 1px 中性描边，聚焦仅改边框色 */
 .metro-ai-composer {
-  margin: 6px 16px 16px;
-  padding: 8px 10px 8px 12px;
-  border-radius: 8px;
+  margin: 8px 22px 22px;
+  padding: 12px 14px;
+  border-radius: 12px;
   border: 1px solid #dfe3e8;
   background: #ffffff;
   transition: border-color 120ms ease;
@@ -5582,10 +5614,10 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 }
 
 .metro-ai-composer__input.ant-input {
-  padding: 2px 2px 6px !important;
+  padding: 2px 2px 10px !important;
   resize: none !important;
-  font-size: 13px !important;
-  line-height: 1.58 !important;
+  font-size: 14px !important;
+  line-height: 1.62 !important;
   color: #111827 !important;
   background: transparent !important;
   border: 0 !important;
@@ -5600,8 +5632,8 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding-top: 6px;
+  gap: 12px;
+  padding-top: 10px;
   border-top: 1px solid #f0f2f5;
 }
 
@@ -5609,12 +5641,12 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
   min-width: 0;
 }
 
 .metro-ai-context-text {
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 400;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
@@ -5625,7 +5657,7 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 400;
   color: #6b7280;
   cursor: pointer;
@@ -5635,7 +5667,7 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
 .metro-ai-composer__right {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -5651,13 +5683,13 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
   font-weight: 500;
 }
 
-/* 32×32 方形图标发送按钮（圆角 8px，无渐变无阴影） */
+/* 34×34 方形图标发送按钮 */
 .metro-ai-send-btn {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #2563eb;
   color: #ffffff;
   font-size: 14px;
@@ -5732,17 +5764,21 @@ body[data-interface-theme="dark"] .metro-ai-sidebar {
 }
 
 body[data-interface-theme="dark"] .metro-ai-sidebar__tabs {
-  background: #1f2937;
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 body[data-interface-theme="dark"] .metro-ai-sidebar__tab {
-  color: #9ca3af;
+  color: #94a3b8;
 }
 
 body[data-interface-theme="dark"] .metro-ai-sidebar__tab.is-active {
-  background: #111827;
-  border-color: #3b82f6;
-  color: #60a5fa;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 2px 8px rgba(37, 99, 235, 0.34);
 }
 
 body[data-interface-theme="dark"] .metro-ai-session-item:hover,
@@ -6105,7 +6141,7 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 /* ========================================================================== */
 
 .metro-video-modal :where(.ant-modal-header) {
-  padding: 12px 16px !important;
+  padding: 16px 22px !important;
   border-bottom: 1px solid #eef0f3 !important;
 }
 
@@ -6119,12 +6155,12 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   color: #111827;
 }
 
-/* 两栏比例：左 400px 紧凑时间轴，右栏占满剩余宽度供预览与常驻底栏 */
+/* 两栏比例：左 440px 舒展轨道时间轴，右栏自适应占满剩余宽度 */
 .metro-video-studio {
   display: grid;
-  grid-template-columns: 400px minmax(0, 1fr);
-  height: min(600px, calc(100dvh - 110px));
-  min-height: 460px;
+  grid-template-columns: 440px minmax(0, 1fr);
+  height: min(650px, calc(100dvh - 88px));
+  min-height: 500px;
 }
 
 /* ── 左栏 ──────────────────────────────────────────────────────────────── */
@@ -6141,8 +6177,8 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: 10px;
+  padding: 12px 18px;
   border-bottom: 1px solid #eef0f3;
   flex-shrink: 0;
 }
@@ -6150,27 +6186,17 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 .metro-video-toolbar__right {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-}
-
-.metro-video-toolbar__label {
-  font-size: 12px;
-  color: #9ca3af;
-}
-
-.metro-video-mode-select {
-  min-width: 74px;
-  font-size: 12px;
+  gap: 10px;
 }
 
 .metro-video-text-btn {
-  padding: 2px 6px;
+  padding: 4px 8px;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: #2563eb;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -6186,14 +6212,14 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 8px 10px 12px 12px;
+  padding: 12px 14px 16px 18px;
   scrollbar-width: thin;
 }
 
 .metro-video-track-item {
   display: flex;
   align-items: stretch;
-  border-radius: 6px;
+  border-radius: 8px;
   transition: background 110ms ease;
 }
 
@@ -6203,8 +6229,8 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 
 .metro-video-rail {
   position: relative;
-  width: 22px;
-  flex: 0 0 22px;
+  width: 24px;
+  flex: 0 0 24px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -6225,11 +6251,11 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 
 .metro-video-rail__line.is-top {
   top: 0;
-  height: 15px;
+  height: 18px;
 }
 
 .metro-video-rail__line.is-bottom {
-  top: 25px;
+  top: 28px;
   bottom: 0;
 }
 
@@ -6238,7 +6264,7 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   z-index: 1;
   width: 10px;
   height: 10px;
-  margin-top: 15px;
+  margin-top: 18px;
   border-radius: 999px;
   background: #ffffff;
   border: 2.5px solid #9ca3af;
@@ -6256,14 +6282,14 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   border-bottom: 0;
 }
 
-/* 折叠行固定 40px 高度：6 段总高仅 240px */
+/* 舒展折叠行（46px 高，呼吸感与密度平衡） */
 .metro-video-row-summary {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 40px;
-  padding: 0 4px 0 6px;
-  border-radius: 6px;
+  gap: 10px;
+  height: 46px;
+  padding: 0 6px 0 8px;
+  border-radius: 8px;
   cursor: pointer;
   user-select: none;
 }
@@ -6277,9 +6303,9 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 }
 
 .metro-video-row__date {
-  width: 64px;
-  flex: 0 0 64px;
-  font-size: 12px;
+  width: 70px;
+  flex: 0 0 70px;
+  font-size: 12.5px;
   font-weight: 500;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
@@ -6291,20 +6317,20 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 .metro-video-row__line {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  max-width: 84px;
+  gap: 6px;
+  max-width: 92px;
   flex-shrink: 0;
 }
 
 .metro-video-row__bar {
   width: 3px;
-  height: 13px;
+  height: 14px;
   border-radius: 2px;
   flex-shrink: 0;
 }
 
 .metro-video-row__line-name {
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
   color: #111827;
   overflow: hidden;
@@ -6315,7 +6341,7 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 .metro-video-row__route {
   flex: 1 1 0;
   min-width: 0;
-  font-size: 12px;
+  font-size: 12.5px;
   color: #6b7280;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -6331,8 +6357,8 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 }
 
 .metro-video-row__more {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
   border-radius: 6px;
@@ -6360,41 +6386,41 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 }
 
 .metro-video-row-error {
-  padding: 0 6px 6px;
+  padding: 0 8px 8px;
   font-size: 12px;
   color: #d97706;
 }
 
-/* 展开编辑区（仅当前点击行显示） */
+/* 展开编辑区 */
 .metro-video-row-editor {
-  padding: 8px 6px 10px;
+  padding: 10px 8px 14px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .metro-video-row-editor__grid3 {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
+  gap: 8px;
 }
 
 .metro-video-row-editor__grid2 {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 6px;
+  gap: 8px;
 }
 
 .metro-video-date-field {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .metro-video-date-picker-btn {
   position: relative;
   flex-shrink: 0;
-  width: 24px;
+  width: 26px;
   height: 24px;
   border-radius: 6px;
   border: 1px solid #d1d5db;
@@ -6429,20 +6455,20 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 }
 
 .metro-video-add-btn {
-  margin-top: 6px;
-  margin-left: 22px;
-  height: 30px;
-  padding: 0 8px;
+  margin-top: 10px;
+  margin-left: 24px;
+  height: 34px;
+  padding: 0 10px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: transparent;
   color: #6b7280;
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   cursor: pointer;
 }
 
@@ -6451,7 +6477,7 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   color: #111827;
 }
 
-/* 左栏底部可折叠：片头与画面（默认折叠） */
+/* 左栏底部可折叠：片头与画面 */
 .metro-video-collapse {
   flex-shrink: 0;
   border-top: 1px solid #eef0f3;
@@ -6460,13 +6486,13 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 
 .metro-video-collapse__trigger {
   width: 100%;
-  height: 38px;
-  padding: 0 14px;
+  height: 46px;
+  padding: 0 18px;
   border: 0;
   background: transparent;
   color: #111827;
   font: inherit;
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 500;
   display: flex;
   align-items: center;
@@ -6480,27 +6506,27 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 }
 
 .metro-video-collapse__body {
-  padding: 2px 14px 12px;
+  padding: 4px 18px 16px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
 }
 
 .metro-video-title-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 82px;
-  gap: 6px;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 86px;
+  gap: 8px;
 }
 
 .metro-video-option-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
 }
 
 .metro-video-option-label {
-  font-size: 12px;
+  font-size: 12.5px;
   color: #6b7280;
   white-space: nowrap;
 }
@@ -6508,10 +6534,10 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 .metro-video-checks {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
 }
 
-/* ── 右栏：预览为主 + 精简三行参数 + 常驻底栏 ─────────────────────────────── */
+/* ── 右栏：预览为主 + 舒展三行参数 + 常驻底栏 ─────────────────────────────── */
 .metro-video-right {
   display: flex;
   flex-direction: column;
@@ -6525,17 +6551,17 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px 16px 10px;
+  padding: 18px 22px 14px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 
-/* 浅色画框预览容器（与工作台风格一致，无黑框与大投影） */
+/* 浅色画框预览容器 */
 .metro-video-preview-frame {
   position: relative;
   border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  border-radius: 12px;
   background: #f6f7f9;
   overflow: hidden;
   flex-shrink: 0;
@@ -6543,12 +6569,12 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 
 .metro-video-preview-viewport {
   width: 100%;
-  height: 318px;
+  height: 328px;
   display: flex;
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  padding: 10px 10px 42px;
+  padding: 12px 12px 46px;
 }
 
 .metro-video-preview-canvas {
@@ -6556,12 +6582,12 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   max-height: 100%;
   width: auto;
   height: auto;
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
 }
 
 .metro-video-preview-empty {
-  padding: 20px;
+  padding: 24px;
   text-align: center;
   color: #9ca3af;
   font-size: 13px;
@@ -6573,23 +6599,23 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   left: 0;
   right: 0;
   bottom: 0;
-  height: 36px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 14px;
   background: rgba(17, 24, 39, 0.78);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .metro-video-play-btn {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: #ffffff;
-  font-size: 13px;
+  font-size: 14px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -6605,7 +6631,7 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 .metro-video-segbar {
   position: relative;
   flex: 1;
-  height: 20px;
+  height: 22px;
   display: flex;
   align-items: center;
   cursor: pointer;
@@ -6651,24 +6677,24 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   white-space: nowrap;
 }
 
-/* 右栏三行简单表单（无卡片框、无形容词） */
+/* 右栏三行舒展表单（无卡片框、无形容词） */
 .metro-video-params {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 0 2px;
+  gap: 14px;
+  padding: 2px;
 }
 
 .metro-video-param-row {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 16px;
 }
 
 .metro-video-param-label {
-  width: 40px;
-  flex: 0 0 40px;
-  font-size: 12px;
+  width: 44px;
+  flex: 0 0 44px;
+  font-size: 13px;
   font-weight: 500;
   color: #6b7280;
 }
@@ -6676,56 +6702,71 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
 .metro-video-param-pair {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   flex-wrap: wrap;
 }
 
-/* 统一分段控件：高 26px，圆角 6px，选中白底 + 1px 主题蓝描边 */
+/* 统一全站选择按钮标准：自适应宽度圆角胶囊托盘 + 立体蓝选中胶囊 */
 .metro-video-seg-group {
   display: inline-flex;
+  width: fit-content;
   align-items: center;
   gap: 2px;
-  padding: 2px;
-  border-radius: 6px;
-  background: #f3f4f6;
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f1f5f9;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.88),
+    0 2px 6px rgba(15, 23, 42, 0.04);
 }
 
 .metro-video-seg-group button {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 5px;
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
   background: transparent;
-  color: #6b7280;
+  color: #475569;
   font: inherit;
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
   white-space: nowrap;
-  transition: color 110ms ease, background 110ms ease, border-color 110ms ease;
+  transition: color 130ms ease, background 130ms ease, box-shadow 130ms ease;
 }
 
-.metro-video-seg-group button:hover {
-  color: #111827;
+.metro-video-seg-group--sm button {
+  height: 26px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.metro-video-seg-group button:not(.is-active):hover {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.07);
 }
 
 .metro-video-seg-group button.is-active {
-  background: #ffffff;
-  border-color: #2563eb;
-  color: #2563eb;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    0 3px 10px rgba(37, 99, 235, 0.28);
 }
 
-/* 右栏常驻底部操作栏（1366×768 屏幕下始终可见） */
+/* 右栏常驻底部操作栏 */
 .metro-video-footer {
   flex-shrink: 0;
-  padding: 10px 16px;
+  padding: 14px 22px;
   border-top: 1px solid #eef0f3;
   background: #ffffff;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .metro-video-footer__meta {
@@ -6826,21 +6867,26 @@ body[data-interface-theme="dark"] .metro-video-preview-frame {
 }
 
 body[data-interface-theme="dark"] .metro-video-seg-group {
-  background: #1f2937;
+  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(148, 163, 184, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
 body[data-interface-theme="dark"] .metro-video-seg-group button {
-  color: #9ca3af;
+  color: #94a3b8;
 }
 
-body[data-interface-theme="dark"] .metro-video-seg-group button:hover {
-  color: #f3f4f6;
+body[data-interface-theme="dark"] .metro-video-seg-group button:not(.is-active):hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.07);
 }
 
 body[data-interface-theme="dark"] .metro-video-seg-group button.is-active {
-  background: #111827;
-  border-color: #3b82f6;
-  color: #60a5fa;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    0 3px 10px rgba(37, 99, 235, 0.34);
 }
 
 body[data-interface-theme="dark"] .metro-video-date-picker-btn {

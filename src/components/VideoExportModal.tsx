@@ -501,10 +501,10 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
       open={open}
       onCancel={handleCloseModal}
       footer={null}
-      width={980}
+      width={1040}
     >
       <div className="metro-video-studio">
-        {/* 左栏：地铁轨道样式紧凑时间轴 + 可折叠片头与画面 */}
+        {/* 左栏：地铁轨道样式时间轴 + 可折叠片头与画面 */}
         <div className="metro-video-left">
           <div className="metro-video-toolbar">
             <button type="button" className="metro-video-text-btn" onClick={handleAutoPopulateFromCanvas}>
@@ -512,18 +512,22 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
             </button>
 
             <div className="metro-video-toolbar__right">
-              <span className="metro-video-toolbar__label">时间</span>
-              <Select
-                size="small"
-                variant="borderless"
-                className="metro-video-mode-select"
-                value={dateMode}
-                onChange={(val: VideoDateMode) => updateDraft({ dateMode: val })}
-                options={[
-                  { value: 'date', label: '年份' },
-                  { value: 'sequence', label: '阶段序号' }
-                ]}
-              />
+              <div className="metro-video-seg-group metro-video-seg-group--sm" role="tablist" aria-label="时间显示">
+                <button
+                  type="button"
+                  className={dateMode === 'date' ? 'is-active' : ''}
+                  onClick={() => updateDraft({ dateMode: 'date' })}
+                >
+                  年份
+                </button>
+                <button
+                  type="button"
+                  className={dateMode === 'sequence' ? 'is-active' : ''}
+                  onClick={() => updateDraft({ dateMode: 'sequence' })}
+                >
+                  阶段
+                </button>
+              </div>
               {dateMode === 'date' && segments.length > 1 ? (
                 <button type="button" className="metro-video-text-btn" onClick={handleSortByDate}>
                   按时间排序
