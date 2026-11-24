@@ -12,6 +12,7 @@ import {
   RollbackOutlined
 } from '@ant-design/icons';
 import DraggableModal from './DraggableModal';
+import ElasticCapsuleTabs from './ElasticCapsuleTabs';
 import { AIOperation } from '../api';
 import { Line, Station } from '../types';
 import {
@@ -576,22 +577,18 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
       <div className={`metro-ai-shell${historyOpen ? ' has-sidebar' : ''}${isCompactEmpty ? ' is-compact' : ''}`}>
         {historyOpen ? (
           <aside className="metro-ai-sidebar" aria-label="对话记录">
-            <div className="metro-ai-sidebar__tabs">
-              <button
-                type="button"
-                className={`metro-ai-sidebar__tab${historyScope === 'current' ? ' is-active' : ''}`}
-                onClick={() => setHistoryScope('current')}
-              >
-                当前地图 ({currentMapSessionCount})
-              </button>
-              <button
-                type="button"
-                className={`metro-ai-sidebar__tab${historyScope === 'all' ? ' is-active' : ''}`}
-                onClick={() => setHistoryScope('all')}
-              >
-                全部 ({sessions.length})
-              </button>
-            </div>
+            <ElasticCapsuleTabs
+              block
+              size="sm"
+              className="metro-ai-sidebar__elastic-tabs"
+              ariaLabel="对话记录范围"
+              value={historyScope}
+              onChange={setHistoryScope}
+              options={[
+                { value: 'current', label: `当前地图 (${currentMapSessionCount})` },
+                { value: 'all', label: `全部 (${sessions.length})` }
+              ]}
+            />
 
             <div className="metro-ai-sidebar__list">
               {filteredSessions.length === 0 ? (

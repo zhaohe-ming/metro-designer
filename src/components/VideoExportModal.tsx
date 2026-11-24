@@ -33,6 +33,7 @@ import {
 } from '../lib/videoModel';
 import { createVideoSceneRenderer } from '../lib/exportVideo';
 import DraggableModal from './DraggableModal';
+import ElasticCapsuleTabs from './ElasticCapsuleTabs';
 
 export type { VideoSegmentInput } from '../lib/videoModel';
 export type { VideoExportConfig } from '../types';
@@ -512,22 +513,16 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
             </button>
 
             <div className="metro-video-toolbar__right">
-              <div className="metro-video-seg-group metro-video-seg-group--sm" role="tablist" aria-label="时间显示">
-                <button
-                  type="button"
-                  className={dateMode === 'date' ? 'is-active' : ''}
-                  onClick={() => updateDraft({ dateMode: 'date' })}
-                >
-                  年份
-                </button>
-                <button
-                  type="button"
-                  className={dateMode === 'sequence' ? 'is-active' : ''}
-                  onClick={() => updateDraft({ dateMode: 'sequence' })}
-                >
-                  阶段
-                </button>
-              </div>
+              <ElasticCapsuleTabs<VideoDateMode>
+                size="sm"
+                ariaLabel="时间显示"
+                value={dateMode}
+                onChange={(next) => updateDraft({ dateMode: next })}
+                options={[
+                  { value: 'date', label: '年份' },
+                  { value: 'sequence', label: '阶段' }
+                ]}
+              />
               {dateMode === 'date' && segments.length > 1 ? (
                 <button type="button" className="metro-video-text-btn" onClick={handleSortByDate}>
                   按时间排序
@@ -815,44 +810,29 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
 
                 <div className="metro-video-option-line">
                   <span className="metro-video-option-label">运镜</span>
-                  <div className="metro-video-seg-group">
-                    {(
-                      [
-                        { key: 'overview', label: '固定' },
-                        { key: 'gentle', label: '平缓跟随' },
-                        { key: 'follow', label: '近景跟随' }
-                      ] as const
-                    ).map((item) => (
-                      <button
-                        key={item.key}
-                        type="button"
-                        className={cameraMode === item.key ? 'is-active' : ''}
-                        onClick={() => updateDraft({ cameraMode: item.key })}
-                      >
-                        {item.label}
-                      </button>
-                    ))}
-                  </div>
+                  <ElasticCapsuleTabs<VideoCameraMode>
+                    ariaLabel="运镜"
+                    value={cameraMode}
+                    onChange={(next) => updateDraft({ cameraMode: next })}
+                    options={[
+                      { value: 'overview', label: '固定' },
+                      { value: 'gentle', label: '平缓跟随' },
+                      { value: 'follow', label: '近景跟随' }
+                    ]}
+                  />
                 </div>
 
                 <div className="metro-video-option-line">
                   <span className="metro-video-option-label">未开通线路</span>
-                  <div className="metro-video-seg-group">
-                    <button
-                      type="button"
-                      className={unopenedStyle === 'ghost' ? 'is-active' : ''}
-                      onClick={() => updateDraft({ unopenedStyle: 'ghost' })}
-                    >
-                      显示虚影
-                    </button>
-                    <button
-                      type="button"
-                      className={unopenedStyle === 'hidden' ? 'is-active' : ''}
-                      onClick={() => updateDraft({ unopenedStyle: 'hidden' })}
-                    >
-                      隐藏
-                    </button>
-                  </div>
+                  <ElasticCapsuleTabs<VideoUnopenedStyle>
+                    ariaLabel="未开通线路"
+                    value={unopenedStyle}
+                    onChange={(next) => updateDraft({ unopenedStyle: next })}
+                    options={[
+                      { value: 'ghost', label: '显示虚影' },
+                      { value: 'hidden', label: '隐藏' }
+                    ]}
+                  />
                 </div>
 
                 <div className="metro-video-option-line">
@@ -953,64 +933,52 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
             <div className="metro-video-params">
               <div className="metro-video-param-row">
                 <span className="metro-video-param-label">比例</span>
-                <div className="metro-video-seg-group">
-                  {(['16:9', '9:16', '4:3', '1:1'] as const).map((ratio) => (
-                    <button
-                      key={ratio}
-                      type="button"
-                      className={aspectRatio === ratio ? 'is-active' : ''}
-                      onClick={() => updateDraft({ aspectRatio: ratio })}
-                    >
-                      {ratio}
-                    </button>
-                  ))}
-                </div>
+                <ElasticCapsuleTabs<VideoAspectRatio>
+                  ariaLabel="比例"
+                  value={aspectRatio}
+                  onChange={(next) => updateDraft({ aspectRatio: next })}
+                  options={(['16:9', '9:16', '4:3', '1:1'] as const).map((ratio) => ({
+                    value: ratio,
+                    label: ratio
+                  }))}
+                />
               </div>
 
               <div className="metro-video-param-row">
                 <span className="metro-video-param-label">规格</span>
                 <div className="metro-video-param-pair">
-                  <div className="metro-video-seg-group">
-                    {(['1080p', '720p'] as const).map((res) => (
-                      <button
-                        key={res}
-                        type="button"
-                        className={resolution === res ? 'is-active' : ''}
-                        onClick={() => updateDraft({ resolution: res })}
-                      >
-                        {res}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="metro-video-seg-group">
-                    {([30, 60] as const).map((f) => (
-                      <button
-                        key={f}
-                        type="button"
-                        className={fps === f ? 'is-active' : ''}
-                        onClick={() => updateDraft({ fps: f })}
-                      >
-                        {f} fps
-                      </button>
-                    ))}
-                  </div>
+                  <ElasticCapsuleTabs<VideoResolution>
+                    ariaLabel="分辨率"
+                    value={resolution}
+                    onChange={(next) => updateDraft({ resolution: next })}
+                    options={(['1080p', '720p'] as const).map((res) => ({
+                      value: res,
+                      label: res
+                    }))}
+                  />
+                  <ElasticCapsuleTabs<VideoFps>
+                    ariaLabel="帧率"
+                    value={fps}
+                    onChange={(next) => updateDraft({ fps: next })}
+                    options={([30, 60] as const).map((f) => ({
+                      value: f,
+                      label: `${f} fps`
+                    }))}
+                  />
                 </div>
               </div>
 
               <div className="metro-video-param-row">
                 <span className="metro-video-param-label">速度</span>
-                <div className="metro-video-seg-group">
-                  {([0.75, 1, 1.5, 2] as const).map((spd) => (
-                    <button
-                      key={spd}
-                      type="button"
-                      className={speedMultiplier === spd ? 'is-active' : ''}
-                      onClick={() => updateDraft({ speedMultiplier: spd })}
-                    >
-                      {spd}×
-                    </button>
-                  ))}
-                </div>
+                <ElasticCapsuleTabs<VideoSpeedMultiplier>
+                  ariaLabel="速度"
+                  value={speedMultiplier}
+                  onChange={(next) => updateDraft({ speedMultiplier: next })}
+                  options={([0.75, 1, 1.5, 2] as const).map((spd) => ({
+                    value: spd,
+                    label: `${spd}×`
+                  }))}
+                />
               </div>
             </div>
           </div>

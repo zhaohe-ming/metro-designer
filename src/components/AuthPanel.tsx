@@ -9,6 +9,7 @@ import {
 } from '@ant-design/icons';
 import AuthBrandPanel from './AuthBrandPanel';
 import AndroidDownloadLink from './AndroidDownloadLink';
+import ElasticCapsuleTabs from './ElasticCapsuleTabs';
 import { api, LoginResult, UserDto } from '../api';
 
 // 登录态切换：把所有"需要在登录卡里展示的中间态"集中在这里管，避免 App.tsx 处理多个分支。
@@ -290,18 +291,18 @@ const AuthPanel: React.FC<AuthPanelProps> = ({ onAuthenticated, onPreview, embed
             {!embedded && <AndroidDownloadLink />}
 
             {(mode === 'login' || mode === 'register') && (
-              <div className="auth-switcher">
-                <button
-                  type="button"
-                  className={`auth-switcher__btn ${mode === 'login' ? 'is-active' : ''}`}
-                  onClick={() => switchMode('login')}
-                >登录</button>
-                <button
-                  type="button"
-                  className={`auth-switcher__btn ${mode === 'register' ? 'is-active' : ''}`}
-                  onClick={() => switchMode('register')}
-                >注册</button>
-              </div>
+              <ElasticCapsuleTabs
+                block
+                size={embedded ? 'md' : 'lg'}
+                className="auth-switcher-capsule"
+                ariaLabel="登录或注册切换"
+                value={mode}
+                onChange={(next) => switchMode(next)}
+                options={[
+                  { value: 'login', label: '登录' },
+                  { value: 'register', label: '注册' }
+                ]}
+              />
             )}
 
             {errorBanner ? (

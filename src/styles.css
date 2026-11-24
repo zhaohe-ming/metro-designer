@@ -6921,3 +6921,231 @@ body[data-interface-theme="dark"] .metro-video-date-picker-btn {
     height: 240px;
   }
 }
+
+/* ============================================================================
+ * 全局统一弹性胶囊切换器（ElasticCapsuleTabs）
+ * 复用主画布五工具岛的物理弹簧滑块 + 横向按住拖拽扫选 + 边缘橡皮筋回弹
+ * ========================================================================== */
+
+.metro-elastic-tabs {
+  --capsule-pad: 3px;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  gap: 2px;
+  padding: var(--capsule-pad);
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  background: #f1f5f9;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  transform: translate3d(var(--capsule-shell-x, 0px), 0, 0)
+    scale(var(--capsule-shell-sx, 1), var(--capsule-shell-sy, 1));
+}
+
+.metro-elastic-tabs--block {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  width: 100%;
+  align-self: stretch;
+}
+
+.metro-elastic-tabs--lg {
+  --capsule-pad: 4px;
+}
+
+.metro-elastic-tabs[data-capsule-measured="true"]::before {
+  content: '';
+  position: absolute;
+  top: var(--capsule-pad);
+  bottom: var(--capsule-pad);
+  left: 0;
+  z-index: 0;
+  width: var(--capsule-w, 0px);
+  border-radius: 999px;
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 3px 10px rgba(37, 99, 235, 0.28);
+  transform: translate3d(var(--capsule-x, 0px), 0, 0)
+    scale(var(--capsule-lens-sx, 1), var(--capsule-lens-sy, 1));
+  pointer-events: none;
+}
+
+.metro-elastic-tabs__btn {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+  transition: color 130ms ease, background 130ms ease;
+}
+
+.metro-elastic-tabs--sm .metro-elastic-tabs__btn {
+  height: 25px;
+  padding: 0 11px;
+  font-size: 12px;
+}
+
+.metro-elastic-tabs--md .metro-elastic-tabs__btn {
+  height: 30px;
+  padding: 0 15px;
+  font-size: 13px;
+}
+
+.metro-elastic-tabs--lg .metro-elastic-tabs__btn {
+  height: 38px;
+  padding: 0 18px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.metro-elastic-tabs__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.metro-elastic-tabs__btn:focus-visible {
+  outline: 2px solid var(--color-primary-600, #2563eb);
+  outline-offset: -2px;
+}
+
+/* 尚未完成像素测量前（如隐藏 Tab / 测试环境）的静态高亮兜底 */
+.metro-elastic-tabs:not([data-capsule-measured="true"]) .metro-elastic-tabs__btn.is-active {
+  background: linear-gradient(145deg, #3b82f6 0%, #1d4ed8 100%);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 3px 10px rgba(37, 99, 235, 0.28);
+}
+
+/* 测量完成后由 ::before 胶囊滑块承载底色，按钮自身仅切文字颜色 */
+.metro-elastic-tabs[data-capsule-measured="true"] .metro-elastic-tabs__btn.is-active {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.metro-elastic-tabs[data-capsule-measured="true"]:not([data-has-preview="true"]) .metro-elastic-tabs__btn.is-active {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn {
+  color: #475569;
+}
+
+.metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn[data-preview-active="true"] {
+  color: #ffffff !important;
+  font-weight: 600;
+}
+
+.metro-elastic-tabs:not([data-dragging="true"]):not([data-has-preview="true"])
+  .metro-elastic-tabs__btn:not(.is-active):not(:disabled):hover {
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.07);
+}
+
+/* 胶囊内计数微章（如「我的地图」筛选器） */
+.metro-elastic-tabs__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(15, 23, 42, 0.07);
+  color: #64748b;
+  transition: background 130ms ease, color 130ms ease;
+}
+
+.metro-elastic-tabs:not([data-has-preview="true"]) .metro-elastic-tabs__btn.is-active .metro-elastic-tabs__badge,
+.metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn[data-preview-active="true"] .metro-elastic-tabs__badge {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+/* 登录页 / 弹窗内嵌登录切换间距 */
+.auth-switcher-capsule {
+  margin-top: 24px;
+}
+
+.metro-guest-auth .auth-card--embedded .auth-switcher-capsule {
+  margin-top: 0;
+}
+
+/* AI 助手历史侧栏切换条外边距 */
+.metro-ai-sidebar__elastic-tabs {
+  margin: 12px 12px 10px;
+  width: calc(100% - 24px);
+  flex-shrink: 0;
+}
+
+/* 暗色模式适配 */
+body[data-interface-theme="dark"] .metro-elastic-tabs,
+.auth-layout[data-interface-theme="dark"] .metro-elastic-tabs,
+.metro-app-shell[data-interface-theme="dark"] .metro-elastic-tabs {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(148, 163, 184, 0.24);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 2px 8px rgba(0, 0, 0, 0.24);
+}
+
+body[data-interface-theme="dark"] .metro-elastic-tabs__btn,
+.auth-layout[data-interface-theme="dark"] .metro-elastic-tabs__btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-elastic-tabs__btn,
+body[data-interface-theme="dark"] .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn,
+.auth-layout[data-interface-theme="dark"] .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn {
+  color: #cbd5e1;
+}
+
+body[data-interface-theme="dark"] .metro-elastic-tabs:not([data-has-preview="true"]) .metro-elastic-tabs__btn.is-active,
+.auth-layout[data-interface-theme="dark"] .metro-elastic-tabs:not([data-has-preview="true"]) .metro-elastic-tabs__btn.is-active,
+.metro-app-shell[data-interface-theme="dark"] .metro-elastic-tabs:not([data-has-preview="true"]) .metro-elastic-tabs__btn.is-active,
+body[data-interface-theme="dark"] .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn[data-preview-active="true"],
+.auth-layout[data-interface-theme="dark"] .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn[data-preview-active="true"],
+.metro-app-shell[data-interface-theme="dark"] .metro-elastic-tabs[data-has-preview="true"] .metro-elastic-tabs__btn[data-preview-active="true"] {
+  color: #ffffff;
+}
+
+body[data-interface-theme="dark"]
+  .metro-elastic-tabs:not([data-dragging="true"]):not([data-has-preview="true"])
+  .metro-elastic-tabs__btn:not(.is-active):not(:disabled):hover,
+.auth-layout[data-interface-theme="dark"]
+  .metro-elastic-tabs:not([data-dragging="true"]):not([data-has-preview="true"])
+  .metro-elastic-tabs__btn:not(.is-active):not(:disabled):hover,
+.metro-app-shell[data-interface-theme="dark"]
+  .metro-elastic-tabs:not([data-dragging="true"]):not([data-has-preview="true"])
+  .metro-elastic-tabs__btn:not(.is-active):not(:disabled):hover {
+  color: #f8fafc;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
+.metro-app-shell[data-interface-theme="dark"] .metro-elastic-tabs__badge {
+  background: rgba(255, 255, 255, 0.1);
+  color: #94a3b8;
+}

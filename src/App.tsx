@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Progress, Radio, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
+import { Avatar, Button, ColorPicker, ConfigProvider, Divider, Dropdown, Form, Input, Layout, List, Modal, Popconfirm, Progress, Skeleton, Slider, Space, Tabs, Tooltip, App as AntdApp, message, theme as antdTheme } from 'antd';
 import {
   CheckOutlined,
   DownOutlined,
@@ -40,6 +40,7 @@ import PublishDialog from './gallery/PublishDialog';
 import { gallery, Work } from './gallery/api';
 import './gallery/gallery.css';
 import DraggableModal from './components/DraggableModal';
+import ElasticCapsuleTabs from './components/ElasticCapsuleTabs';
 import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
@@ -341,7 +342,7 @@ const App: React.FC = () => {
     const shouldAutoLoadCloudMap = hasActiveAuth && Boolean(lastMapId) && !nextPreviewMode;
 
     return {
-      userProfile: auth.user ? { ...auth.user, password: '' } : null,
+      userProfile: auth.user ? { ...auth.user, avatar: auth.user.avatar || undefined, password: '' } : null,
       authBooting: auth.status === 'verifying',
       previewMode: nextPreviewMode,
       hasLastMap: shouldAutoLoadCloudMap,
@@ -699,7 +700,7 @@ const App: React.FC = () => {
         }
         const activeToken = refreshedToken || token;
         touchAuthSessionUser(user, activeToken);
-        setUserProfile({ ...user, password: '' });
+        setUserProfile({ ...user, avatar: user.avatar || undefined, password: '' });
         setAuthBooting(false);
         refreshSavedMaps(false);
         // 自动恢复上次编辑的方案。任何一步失败就清掉指针并保持空白工作台。
@@ -734,7 +735,7 @@ const App: React.FC = () => {
               const { user: migrated } = await api.updateMe({ avatar: compressed });
               if (getToken() === activeToken) {
                 touchAuthSessionUser(migrated);
-                setUserProfile({ ...migrated, password: '' });
+                setUserProfile({ ...migrated, avatar: migrated.avatar || undefined, password: '' });
               }
             }
           } catch (e) {
@@ -1165,7 +1166,7 @@ const App: React.FC = () => {
     await guestRestorePromiseRef.current;
     saveAuthSession(token, user);
     setAuthBooting(false);
-    setUserProfile({ ...user, password: '' });
+    setUserProfile({ ...user, avatar: user.avatar || undefined, password: '' });
     setAuthVisible(false);
     refreshSavedMaps(false);
     let lastMapId: string | null = null;
@@ -1332,7 +1333,7 @@ const App: React.FC = () => {
 
       const { user } = await api.updateMe(payload);
       touchAuthSessionUser(user);
-      setUserProfile({ ...user, password: '' });
+      setUserProfile({ ...user, avatar: user.avatar || undefined, password: '' });
       setProfileVisible(false);
       message.success('个人信息已更新');
     } catch (error: any) {
@@ -1364,7 +1365,7 @@ const App: React.FC = () => {
       }
       const { user } = await api.updateMe({ avatar: dataUrl });
       touchAuthSessionUser(user);
-      setUserProfile({ ...user, password: '' });
+      setUserProfile({ ...user, avatar: user.avatar || undefined, password: '' });
       message.success('头像已更新');
     } catch (error: any) {
       message.error(error.message || '头像更新失败');
@@ -2719,7 +2720,7 @@ const App: React.FC = () => {
               <Dropdown menu={{ items: userMenuItems }} overlayClassName="metro-user-dropdown" trigger={['click']} placement="bottomRight">
                 {isSignedInView ? (
                   <button type="button" className="user-chip user-chip--trigger">
-                    <Avatar size={24} src={userProfile?.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
+                    <Avatar size={24} src={userProfile?.avatar || undefined} style={{ backgroundColor: 'var(--color-primary-600)' }}>
                       {userProfile?.avatar ? null : displayInitial}
                     </Avatar>
                     <span className="user-chip__name">{displayName}</span>
@@ -2891,24 +2892,20 @@ const App: React.FC = () => {
             ];
             return (
               <div className="metro-maps-toolbar">
-                <div className="metro-pill-filter-group" role="tablist" aria-label="地图类型筛选">
-                  {filterItems.map((f) => {
-                    const active = mapsPublicationFilter === f.key;
-                    return (
-                      <button
-                        key={f.key}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        className={`metro-pill-filter${active ? ' is-active' : ''}`}
-                        onClick={() => setMapsPublicationFilter(f.key)}
-                      >
+                <ElasticCapsuleTabs
+                  ariaLabel="地图类型筛选"
+                  value={mapsPublicationFilter}
+                  onChange={setMapsPublicationFilter}
+                  options={filterItems.map((f) => ({
+                    value: f.key,
+                    label: (
+                      <>
                         <span>{f.label}</span>
-                        <span className="metro-pill-filter__count">{f.count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
+                        <span className="metro-elastic-tabs__badge">{f.count}</span>
+                      </>
+                    )
+                  }))}
+                />
                 <Input.Search
                   allowClear
                   className="metro-maps-search"
@@ -3078,29 +3075,29 @@ const App: React.FC = () => {
                   <div className="metro-settings-panel">
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.language}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.language}
                         value={language}
-                        onChange={(event) => setLanguage(event.target.value)}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="zh-CN">{text.simplifiedChinese}</Radio.Button>
-                        <Radio.Button value="en-US">{text.english}</Radio.Button>
-                      </Radio.Group>
+                        onChange={setLanguage}
+                        options={[
+                          { value: 'zh-CN', label: text.simplifiedChinese },
+                          { value: 'en-US', label: text.english }
+                        ]}
+                      />
                     </section>
 
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.interfaceTheme}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.interfaceTheme}
                         value={interfaceTheme}
-                        onChange={(event) => setInterfaceTheme(event.target.value)}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="light">{text.light}</Radio.Button>
-                        <Radio.Button value="dark">{text.dark}</Radio.Button>
-                        <Radio.Button value="system">{text.system}</Radio.Button>
-                      </Radio.Group>
+                        onChange={setInterfaceTheme}
+                        options={[
+                          { value: 'light', label: text.light },
+                          { value: 'dark', label: text.dark },
+                          { value: 'system', label: text.system }
+                        ]}
+                      />
                     </section>
                   </div>
                 )
@@ -3112,115 +3109,112 @@ const App: React.FC = () => {
                   <div className="metro-settings-panel">
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.canvasTheme}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.canvasTheme}
                         value={mapSettings.canvasTheme}
-                        onChange={(event) => {
+                        onChange={(next) => {
                           pushHistory();
-                          setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: event.target.value }));
+                          setMapSettings((prev) => normalizeMapSettings({ ...prev, canvasTheme: next }));
                         }}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="light">{text.lightCanvas}</Radio.Button>
-                        <Radio.Button value="dark">{text.darkCanvas}</Radio.Button>
-                      </Radio.Group>
+                        options={[
+                          { value: 'light', label: text.lightCanvas },
+                          { value: 'dark', label: text.darkCanvas }
+                        ]}
+                      />
                     </section>
 
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.mapStyle}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.mapStyle}
                         value={mapSettings.mapStyle}
-                        onChange={(event) => {
+                        onChange={(next) => {
                           pushHistory();
-                          setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: event.target.value }));
+                          setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: next }));
                         }}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="classic-badge">{text.classicBadge}</Radio.Button>
-                        <Radio.Button value="dot-label">{text.dotLabel}</Radio.Button>
-                      </Radio.Group>
+                        options={[
+                          { value: 'classic-badge', label: text.classicBadge },
+                          { value: 'dot-label', label: text.dotLabel }
+                        ]}
+                      />
                     </section>
 
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.cityStyle}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.cityStyle}
                         value={mapSettings.cityStyle}
-                        onChange={(event) => {
+                        onChange={(next) => {
                           pushHistory();
-                          setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: event.target.value }));
+                          setMapSettings((prev) => normalizeMapSettings({ ...prev, cityStyle: next }));
                         }}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="standard">{text.cityStyleStandard}</Radio.Button>
-                        <Radio.Button value="beijing">{text.cityStyleBeijing}</Radio.Button>
-                        <Radio.Button value="shanghai">{text.cityStyleShanghai}</Radio.Button>
-                        <Radio.Button value="mtr">{text.cityStyleMtr}</Radio.Button>
-                      </Radio.Group>
+                        options={[
+                          { value: 'standard', label: text.cityStyleStandard },
+                          { value: 'beijing', label: text.cityStyleBeijing },
+                          { value: 'shanghai', label: text.cityStyleShanghai },
+                          { value: 'mtr', label: text.cityStyleMtr }
+                        ]}
+                      />
                     </section>
 
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.showLineNameLabels}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.showLineNameLabels}
                         value={mapSettings.showLineNameLabels ? 'show' : 'hide'}
-                        onChange={(event) => {
+                        onChange={(next) => {
                           pushHistory();
                           setMapSettings((prev) =>
-                            normalizeMapSettings({ ...prev, showLineNameLabels: event.target.value === 'show' })
+                            normalizeMapSettings({ ...prev, showLineNameLabels: next === 'show' })
                           );
                         }}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="show">{text.lineNameLabelsOn}</Radio.Button>
-                        <Radio.Button value="hide">{text.lineNameLabelsOff}</Radio.Button>
-                      </Radio.Group>
+                        options={[
+                          { value: 'show', label: text.lineNameLabelsOn },
+                          { value: 'hide', label: text.lineNameLabelsOff }
+                        ]}
+                      />
                     </section>
 
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.labelDensity}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.labelDensity}
                         value={mapSettings.labelDensity}
-                        onChange={(event) => {
+                        onChange={(next) => {
                           pushHistory();
-                          const next = event.target.value as 'paper' | 'adaptive' | 'key';
-                          // 同时写入 localStorage，记忆为下一张新方案的默认偏好
                           writeLabelDensity(next);
                           setMapSettings((prev) =>
                             normalizeMapSettings({ ...prev, labelDensity: next })
                           );
                         }}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="paper">{text.labelDensityPaper}</Radio.Button>
-                        <Radio.Button value="adaptive">{text.labelDensityAdaptive}</Radio.Button>
-                        <Radio.Button value="key">{text.labelDensityKey}</Radio.Button>
-                      </Radio.Group>
+                        options={[
+                          { value: 'paper', label: text.labelDensityPaper },
+                          { value: 'adaptive', label: text.labelDensityAdaptive },
+                          { value: 'key', label: text.labelDensityKey }
+                        ]}
+                      />
                     </section>
 
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.lineCorner}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.lineCorner}
                         value={mapSettings.cornerRadius > 0 ? 'round' : 'sharp'}
-                        onChange={(event) => {
+                        onChange={(next) => {
                           pushHistory();
-                          const round = event.target.value === 'round';
+                          const round = next === 'round';
                           setMapSettings((prev) =>
                             normalizeMapSettings({
                               ...prev,
-                              // 开启时给个默认半径 12；再开沿用上次的值。关闭 = 0。
                               cornerRadius: round ? (prev.cornerRadius > 0 ? prev.cornerRadius : 12) : 0
                             })
                           );
                         }}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="sharp">{text.lineCornerSharp}</Radio.Button>
-                        <Radio.Button value="round">{text.lineCornerRound}</Radio.Button>
-                      </Radio.Group>
+                        options={[
+                          { value: 'sharp', label: text.lineCornerSharp },
+                          { value: 'round', label: text.lineCornerRound }
+                        ]}
+                      />
                       {mapSettings.cornerRadius > 0 && (
                         <div className="metro-settings-control" style={{ marginTop: 10 }}>
                           <div className="metro-settings-control__row">
@@ -3251,23 +3245,24 @@ const App: React.FC = () => {
                   <div className="metro-settings-panel">
                     <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.baseMap}</div>
-                      <Radio.Group
+                      <ElasticCapsuleTabs
+                        ariaLabel={text.baseMap}
                         value={mapSettings.baseMap.mode}
-                        onChange={(event) => handleBaseMapModeChange(event.target.value)}
-                        optionType="button"
-                        buttonStyle="solid"
-                      >
-                        <Radio.Button value="plain">{text.plainCanvas}</Radio.Button>
-                        <Radio.Button value="amap">{text.amapBaseMap}</Radio.Button>
-                      </Radio.Group>
+                        onChange={(next) => handleBaseMapModeChange(next)}
+                        options={[
+                          { value: 'plain', label: text.plainCanvas },
+                          { value: 'amap', label: text.amapBaseMap }
+                        ]}
+                      />
                     </section>
 
                     {mapSettings.baseMap.mode === 'amap' && (
                       <section className="metro-settings-section">
                         <div className="metro-settings-label">{text.amapStyle}</div>
-                        <Radio.Group
+                        <ElasticCapsuleTabs
+                          ariaLabel={text.amapStyle}
                           value={mapSettings.baseMap.amap?.style || 'normal'}
-                          onChange={(event) => {
+                          onChange={(next) => {
                             pushHistory();
                             setMapSettings((prev) =>
                               normalizeMapSettings({
@@ -3276,21 +3271,20 @@ const App: React.FC = () => {
                                   mode: 'amap',
                                   amap: {
                                     ...(prev.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!),
-                                    style: event.target.value
+                                    style: next
                                   }
                                 }
                               })
                             );
-                            try { localStorage.setItem('metro_amap_style', event.target.value); } catch { /* Keep the selection in the current map. */ }
+                            try { localStorage.setItem('metro_amap_style', next); } catch { /* Keep the selection in the current map. */ }
                           }}
-                          optionType="button"
-                          buttonStyle="solid"
-                        >
-                          <Radio.Button value="normal">{text.amapNormal}</Radio.Button>
-                          <Radio.Button value="dark">{text.amapDark}</Radio.Button>
-                          <Radio.Button value="grey">{text.amapGrey}</Radio.Button>
-                          <Radio.Button value="fresh">{text.amapFresh}</Radio.Button>
-                        </Radio.Group>
+                          options={[
+                            { value: 'normal', label: text.amapNormal },
+                            { value: 'dark', label: text.amapDark },
+                            { value: 'grey', label: text.amapGrey },
+                            { value: 'fresh', label: text.amapFresh }
+                          ]}
+                        />
                       </section>
                     )}
 
@@ -3407,7 +3401,7 @@ const App: React.FC = () => {
           <div className="metro-profile-identity">
             <Avatar
               size={64}
-              src={userProfile?.avatar}
+              src={userProfile?.avatar || undefined}
               className="metro-profile-identity__avatar"
               onClick={() => avatarInputRef.current?.click()}
             >
