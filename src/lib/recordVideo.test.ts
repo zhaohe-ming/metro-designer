@@ -119,3 +119,64 @@ test('开始前已取消时不创建流；编码器初始化失败也释放流',
   await expect(record()).rejects.toThrow('constructor failed');
   expect(track.stop).toHaveBeenCalledTimes(1);
 });
+
+test('支持 WebCodecs 的现代浏览器优先走离线极速 H.264 MP4 编码且不受后台暂停影响', async () => {
+  jest.useRealTimers();
+  const fakeAvcC = new Uint8Array([1, 0x4d, 0x00, 0x28, 0xff, 0xe1, 0, 4, 0x67, 0x4d, 0, 0x28, 1, 0, 2, 0x68, 0xee]);
+
+  class FakeVideoFrame {
+    closed = false;
+    close() {
+      this.closed = true;
+    }
+  }
+
+  class FakeVideoEncoder {
+    static isConfigSupported = jest.fn(async (cfg: any) => ({ supported: true, config: cfg }));
+    state = 'unconfigured';
+    encodeQueueSize = 0;
+    private output: any;
+    private emittedKey = false;
+    constructor(init: any) {
+      this.output = init.output;
+    }
+    configure() {
+      this.state = 'configured';
+    }
+    encode(_frame: any, opts?: { keyFrame?: boolean }) {
+      const sample = new Uint8Array([0, 0, 0, 4, opts?.keyFrame ? 0x65 : 0x41, 1, 2, 3]);
+      const meta = !this.emittedKey ? { decoderConfig: { description: fakeAvcC.buffer } } : undefined;
+      this.emittedKey = true;
+      this.output(
+        {
+          type: opts?.keyFrame ? 'key' : 'delta',
+          byteLength: sample.byteLength,
+          copyTo: (dest: Uint8Array) => dest.set(sample)
+        },
+        meta
+      );
+    }
+    async flush() {}
+    close() {
+      this.state = 'closed';
+    }
+  }
+
+  (global as any).VideoFrame = FakeVideoFrame;
+  (global as any).VideoEncoder = FakeVideoEncoder;
+
+  try {
+    const c = document.createElement('canvas');
+    c.width = 1280;
+    c.height = 720;
+    const drawFrame = jest.fn();
+    const blob = await recordVideoCanvas({ canvas: c, fps: 30, totalFrames: 15, drawFrame });
+    expect(blob.type).toBe('video/mp4');
+    expect(blob.size).toBeGreaterThan(100);
+    expect(drawFrame).toHaveBeenCalledTimes(15);
+    expect(FakeRecorder.instances).toHaveLength(0);
+  } finally {
+    delete (global as any).VideoFrame;
+    delete (global as any).VideoEncoder;
+  }
+});

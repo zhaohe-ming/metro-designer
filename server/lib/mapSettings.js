@@ -38,19 +38,38 @@ function normalizeVideoExportConfig(raw) {
       let id = text(segment.id, 128) || `video-step-${index + 1}`;
       while (usedIds.has(id)) id += '-copy';
       usedIds.add(id);
+      const phaseLabel = text(segment.phaseLabel, 24);
       return {
         id,
         lineId: text(segment.lineId, 128),
         startStationId: text(segment.startStationId, 128),
         endStationId: text(segment.endStationId, 128),
-        openDate: text(segment.openDate, 10)
+        openDate: text(segment.openDate, 24),
+        ...(phaseLabel ? { phaseLabel } : {})
       };
     });
+  const aspectRatio = ['16:9', '9:16', '4:3', '1:1'].includes(raw.aspectRatio) ? raw.aspectRatio : undefined;
+  const resolution = ['1080p', '720p'].includes(raw.resolution) ? raw.resolution : undefined;
+  const fps = raw.fps === 30 || raw.fps === 60 ? raw.fps : undefined;
+  const speedMultiplier = [0.75, 1, 1.5, 2].includes(raw.speedMultiplier) ? raw.speedMultiplier : undefined;
+  const cameraMode = ['overview', 'gentle', 'follow'].includes(raw.cameraMode) ? raw.cameraMode : undefined;
+  const unopenedStyle = ['ghost', 'hidden'].includes(raw.unopenedStyle) ? raw.unopenedStyle : undefined;
+  const dateMode = ['date', 'sequence'].includes(raw.dateMode) ? raw.dateMode : undefined;
+
   return {
     segments,
     title: text(raw.title, 32),
     subtitle: text(raw.subtitle, 48),
-    titleDurationSec: normalizeNumber(raw.titleDurationSec, 3, 1, 8)
+    titleDurationSec: normalizeNumber(raw.titleDurationSec, 3, 1, 8),
+    ...(aspectRatio ? { aspectRatio } : {}),
+    ...(resolution ? { resolution } : {}),
+    ...(fps ? { fps } : {}),
+    ...(speedMultiplier ? { speedMultiplier } : {}),
+    ...(cameraMode ? { cameraMode } : {}),
+    ...(unopenedStyle ? { unopenedStyle } : {}),
+    ...(dateMode ? { dateMode } : {}),
+    ...(typeof raw.showYearBadge === 'boolean' ? { showYearBadge: raw.showYearBadge } : {}),
+    ...(typeof raw.showLineLegend === 'boolean' ? { showLineLegend: raw.showLineLegend } : {})
   };
 }
 

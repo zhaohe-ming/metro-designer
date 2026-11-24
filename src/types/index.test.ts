@@ -82,6 +82,22 @@ describe('视频配置保存', () => {
     const backend = require('../../server/lib/mapSettings');
     const fixtures = [undefined, null, {},
       { labelDensity: 'adaptive', videoExport },
+      {
+        labelDensity: 'adaptive',
+        videoExport: {
+          ...videoExport,
+          segments: [{ ...videoExport.segments[0], phaseLabel: '一期' }],
+          aspectRatio: '9:16',
+          resolution: '1080p',
+          fps: 60,
+          speedMultiplier: 1.5,
+          cameraMode: 'overview',
+          unopenedStyle: 'hidden',
+          dateMode: 'sequence',
+          showYearBadge: true,
+          showLineLegend: false
+        }
+      },
       { labelDensity: 'key', videoExport: { segments: [{ id: 'x' }, { id: 'x' }], titleDurationSec: -2 } },
       { labelDensity: 'unknown', videoExport: 'invalid', cornerRadius: 100 },
       { videoExport: { segments: [null, [], 9, { openDate: 23 }], title: 'x'.repeat(100), titleDurationSec: NaN } }

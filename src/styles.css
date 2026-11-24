@@ -6208,3 +6208,606 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
     border: none !important;
   }
 }
+
+
+/* ========================================================================== */
+/* 12. 视频导出导演台（左编排 · 右实时预览播放器 + MP4 极速合成与成片预览弹窗）   */
+/* ========================================================================== */
+
+.metro-video-modal :where(.ant-modal-header) {
+  padding: 12px 16px !important;
+}
+
+.metro-video-modal :where(.ant-modal-body) {
+  padding: 0 !important;
+}
+
+.metro-video-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.metro-video-header__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text, #0f172a);
+}
+
+.metro-video-header__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #2563eb 0%, #0ea5e9 100%);
+  color: #ffffff;
+  font-size: 13px;
+  box-shadow: 0 4px 10px -2px rgba(37, 99, 235, 0.35);
+}
+
+.metro-video-header__badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.10);
+  color: #2563eb;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.metro-video-studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(360px, 0.95fr);
+  min-height: 540px;
+  max-height: min(680px, calc(100dvh - 120px));
+}
+
+.metro-video-left {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-right: 1px solid rgba(15, 23, 42, 0.08);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.metro-video-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.metro-video-toolbar__right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metro-video-seg-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 8px;
+  background: #eff3f9;
+}
+
+.metro-video-seg-pills button {
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #64748b;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, color 120ms ease, box-shadow 120ms ease;
+}
+
+.metro-video-seg-pills button:hover {
+  color: #1e293b;
+}
+
+.metro-video-seg-pills button.is-active {
+  background: #ffffff;
+  color: #2563eb;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+.metro-video-seg-list {
+  flex: 1 1 0;
+  min-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.metro-video-seg-card {
+  position: relative;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f8fafd;
+  overflow: hidden;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.metro-video-seg-card:hover {
+  background: #ffffff;
+  border-color: rgba(15, 23, 42, 0.14);
+}
+
+.metro-video-seg-card.is-incomplete {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(255, 251, 235, 0.55);
+}
+
+.metro-video-seg-card__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--seg-color, #94a3b8);
+}
+
+.metro-video-seg-card__body {
+  padding: 9px 10px 10px 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.metro-video-seg-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metro-video-seg-card__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.metro-video-seg-card__num {
+  font-size: 12px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.metro-video-seg-card__status {
+  font-size: 11.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metro-video-seg-card__status.is-ok {
+  color: #059669;
+}
+
+.metro-video-seg-card__status.is-warn {
+  color: #d97706;
+}
+
+.metro-video-seg-card__ops {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.metro-video-seg-card__ops button {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.metro-video-seg-card__ops button:hover:not(:disabled) {
+  background: rgba(37, 99, 235, 0.10);
+  color: #2563eb;
+}
+
+.metro-video-seg-card__ops button.is-danger:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.metro-video-seg-card__ops button:disabled {
+  opacity: 0.32;
+  cursor: not-allowed;
+}
+
+.metro-video-seg-card__grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.metro-video-seg-card__grid2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.metro-video-date-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metro-video-date-picker-btn {
+  position: relative;
+  flex-shrink: 0;
+  width: 26px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.metro-video-date-picker-btn input[type="date"] {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.metro-video-line-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metro-video-line-opt__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.metro-video-config-box {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: #f8fafd;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metro-video-config-box__title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #334155;
+}
+
+.metro-video-title-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) 98px;
+  gap: 6px;
+}
+
+.metro-video-toggles-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.metro-video-mini-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metro-video-mini-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+/* 右侧实时预览与输出规格栏 */
+.metro-video-right {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #f4f7fc;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.metro-video-preview-shell {
+  border-radius: 12px;
+  background: #0b1120;
+  padding: 10px;
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metro-video-preview-viewport {
+  width: 100%;
+  height: 248px;
+  border-radius: 8px;
+  background: radial-gradient(circle at center, #172036 0%, #090e1a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.metro-video-preview-canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  border-radius: 6px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+.metro-video-preview-empty {
+  padding: 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12.5px;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.metro-video-preview-empty .anticon {
+  font-size: 26px;
+  color: #60a5fa;
+}
+
+.metro-video-player-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 0;
+}
+
+.metro-video-play-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 0;
+  background: #2563eb;
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease, transform 120ms ease;
+}
+
+.metro-video-play-btn:hover {
+  background: #1d4ed8;
+  transform: scale(1.05);
+}
+
+.metro-video-scrubber-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  height: 20px;
+}
+
+.metro-video-scrubber {
+  width: 100%;
+  margin: 0;
+  accent-color: #3b82f6;
+  cursor: pointer;
+}
+
+.metro-video-markers {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 0;
+  height: 4px;
+  pointer-events: none;
+}
+
+.metro-video-marker-dot {
+  position: absolute;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  transform: translateX(-50%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+}
+
+.metro-video-timecode {
+  font-size: 11.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+  white-space: nowrap;
+}
+
+.metro-video-spec-card {
+  padding: 11px 12px;
+  border-radius: 11px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.065);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.metro-video-spec-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.metro-video-spec-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #475569;
+}
+
+.metro-video-spec-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.metro-video-spec-summary {
+  padding-top: 7px;
+  border-top: 1px dashed rgba(15, 23, 42, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+.metro-video-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* 成片预览弹窗视频容器 */
+.metro-video-result-box {
+  border-radius: 12px;
+  overflow: hidden;
+  background: #090e1a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-height: 56vh;
+}
+
+.metro-video-result-box video {
+  max-width: 100%;
+  max-height: 56vh;
+  display: block;
+}
+
+/* 暗色模式适配 */
+body[data-interface-theme="dark"] .metro-video-header__brand {
+  color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-video-header__badge {
+  background: rgba(59, 130, 246, 0.22);
+  color: #93c5fd;
+}
+
+body[data-interface-theme="dark"] .metro-video-left {
+  border-right-color: #1e293b;
+}
+
+body[data-interface-theme="dark"] .metro-video-right {
+  background: #0b1220;
+}
+
+body[data-interface-theme="dark"] .metro-video-seg-pills {
+  background: #1e293b;
+}
+
+body[data-interface-theme="dark"] .metro-video-seg-pills button {
+  color: #94a3b8;
+}
+
+body[data-interface-theme="dark"] .metro-video-seg-pills button.is-active {
+  background: #0f172a;
+  color: #60a5fa;
+}
+
+body[data-interface-theme="dark"] .metro-video-seg-card,
+body[data-interface-theme="dark"] .metro-video-config-box,
+body[data-interface-theme="dark"] .metro-video-spec-card {
+  background: #162033;
+  border-color: #26344d;
+}
+
+body[data-interface-theme="dark"] .metro-video-seg-card__num,
+body[data-interface-theme="dark"] .metro-video-config-box__title {
+  color: #f1f5f9;
+}
+
+body[data-interface-theme="dark"] .metro-video-spec-label,
+body[data-interface-theme="dark"] .metro-video-mini-label,
+body[data-interface-theme="dark"] .metro-video-spec-summary {
+  color: #94a3b8;
+  border-top-color: #26344d;
+}
+
+body[data-interface-theme="dark"] .metro-video-date-picker-btn {
+  background: #0f172a;
+  border-color: #29364d;
+}
+
+@media (max-width: 860px) {
+  .metro-video-studio {
+    grid-template-columns: 1fr;
+    max-height: calc(100dvh - 110px);
+    overflow-y: auto;
+  }
+
+  .metro-video-left {
+    border-right: 0;
+    border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+    overflow: visible;
+  }
+
+  .metro-video-seg-list {
+    max-height: 260px;
+  }
+
+  .metro-video-right {
+    overflow: visible;
+  }
+}

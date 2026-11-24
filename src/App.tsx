@@ -340,8 +340,23 @@ const App: React.FC = () => {
   const [videoModalOpen, setVideoModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [videoProgress, setVideoProgress] = useState<VideoExportProgress>({ phase: 'preparing', percent: 0, elapsedSec: 0, totalSec: 0 });
+  const [exportedVideo, setExportedVideo] = useState<{ url: string; filename: string; format: string } | null>(null);
+  const exportedVideoUrlRef = useRef<string | null>(null);
+  const closeExportedVideoPreview = () => {
+    if (exportedVideoUrlRef.current) {
+      URL.revokeObjectURL(exportedVideoUrlRef.current);
+      exportedVideoUrlRef.current = null;
+    }
+    setExportedVideo(null);
+  };
   const videoAbortRef = useRef<AbortController | null>(null);
-  useEffect(() => () => videoAbortRef.current?.abort(), []);
+  useEffect(() => () => {
+    videoAbortRef.current?.abort();
+    if (exportedVideoUrlRef.current) {
+      URL.revokeObjectURL(exportedVideoUrlRef.current);
+      exportedVideoUrlRef.current = null;
+    }
+  }, []);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [mobileViewControlsHost, setMobileViewControlsHost] = useState<HTMLDivElement | null>(null);
@@ -1528,12 +1543,22 @@ const App: React.FC = () => {
         title: config.title,
         subtitle: config.subtitle,
         titleDurationSec: config.titleDurationSec,
+        aspectRatio: config.aspectRatio,
+        resolution: config.resolution,
+        fps: config.fps,
+        speedMultiplier: config.speedMultiplier,
+        cameraMode: config.cameraMode,
+        unopenedStyle: config.unopenedStyle,
+        dateMode: config.dateMode,
+        showYearBadge: config.showYearBadge,
+        showLineLegend: config.showLineLegend,
         signal: controller.signal,
         onProgress: setVideoProgress,
         fetchAmapStaticMap: api.getAmapStaticMap,
         onWarn: (msg) => message.warning(msg)
       });
-      const extension = blob.type.startsWith('video/mp4') ? 'mp4' : 'webm';
+      const isMp4 = blob.type.startsWith('video/mp4');
+      const extension = isMp4 ? 'mp4' : 'webm';
       const fileTitle = config.title.replace(/[<>:"/\\|?*]/g, '_').trim() || 'metro-demo';
       const filename = `${fileTitle}-${Date.now()}.${extension}`;
       if (isAndroidClient) {
@@ -1541,15 +1566,19 @@ const App: React.FC = () => {
         if (saved) message.success('视频已保存');
         else message.info('已取消保存');
       } else {
+        if (exportedVideoUrlRef.current) {
+          URL.revokeObjectURL(exportedVideoUrlRef.current);
+        }
         const url = URL.createObjectURL(blob);
+        exportedVideoUrlRef.current = url;
         const anchor = document.createElement('a');
         anchor.href = url;
         anchor.download = filename;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-        message.success('视频导出完成，已开始下载');
+        setExportedVideo({ url, filename, format: isMp4 ? 'MP4' : 'WebM' });
+        message.success(`视频导出完成（${isMp4 ? 'MP4' : 'WebM'}），已触发下载`);
       }
     } catch (error: any) {
       if (error?.name === 'AbortError') message.info('已取消视频导出');
@@ -2671,6 +2700,7 @@ const App: React.FC = () => {
           lines={lines}
           stations={stations}
           sections={sections}
+          settings={mapSettings}
           defaultTitle={currentMap?.name || '城市轨道线网历程'}
           config={mapSettings.videoExport}
           onChange={(config) => {
@@ -3381,19 +3411,76 @@ const App: React.FC = () => {
           </Form>
         </DraggableModal>
 
-        <DraggableModal title="导出动态视频" open={isExporting} footer={null} closable={false} maskClosable={false} keyboard={false} centered>
+        <DraggableModal title="合成动态演进视频" open={isExporting} footer={null} closable={false} maskClosable={false} keyboard={false} centered>
           <Space direction="vertical" style={{ width: '100%' }} size="middle">
-            <div aria-live="polite">
-              {videoProgress.phase === 'preparing' ? (videoProgress.detail || '正在准备线路与底图…') :
+            <div aria-live="polite" style={{ fontWeight: 600 }}>
+              {videoProgress.phase === 'preparing' ? (videoProgress.detail || '正在准备线路与高清底图…') :
                 videoProgress.phase === 'paused' ? '录制已暂停，返回此页面后自动继续' :
-                videoProgress.phase === 'finalizing' ? '正在保存视频…' : '正在录制线路开通过程…'}
+                videoProgress.phase === 'finalizing' ? (videoProgress.detail || '正在封装视频文件…') :
+                (videoProgress.detail || '正在合成线路演进画面…')}
             </div>
             <Progress percent={videoProgress.percent} status={videoProgress.phase === 'paused' ? 'normal' : 'active'} />
-            {videoProgress.totalSec > 0 && (
-              <div>已录制 {Math.floor(videoProgress.elapsedSec)} 秒 / 共 {Math.ceil(videoProgress.totalSec)} 秒</div>
-            )}
-            <Button onClick={() => videoAbortRef.current?.abort()}>取消导出</Button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+              <span>
+                {videoProgress.mode === 'webcodecs-mp4'
+                  ? '⚡ 极速离线 MP4 引擎（切后台不中断）'
+                  : videoProgress.totalSec > 0
+                    ? `已处理 ${Math.floor(videoProgress.elapsedSec)} 秒 / 共 ${Math.ceil(videoProgress.totalSec)} 秒`
+                    : '准备中…'}
+              </span>
+              {typeof videoProgress.etaSec === 'number' && videoProgress.etaSec > 0.4 ? (
+                <span>预计剩余约 {Math.ceil(videoProgress.etaSec)} 秒</span>
+              ) : null}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <Button onClick={() => videoAbortRef.current?.abort()}>取消导出</Button>
+            </div>
           </Space>
+        </DraggableModal>
+
+        <DraggableModal
+          title={`视频已生成（${exportedVideo?.format || 'MP4'}）`}
+          open={Boolean(exportedVideo)}
+          onCancel={closeExportedVideoPreview}
+          footer={null}
+          width={680}
+          centered
+        >
+          {exportedVideo ? (
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <div className="metro-video-result-box">
+                <video src={exportedVideo.url} controls autoPlay loop muted playsInline />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <span style={{ fontSize: 12.5, color: 'var(--color-text-muted)' }}>
+                  若浏览器拦截了自动下载，可点击右侧按钮手动保存
+                </span>
+                <Space>
+                  <Button
+                    onClick={() => {
+                      closeExportedVideoPreview();
+                      setVideoModalOpen(true);
+                    }}
+                  >
+                    返回调整参数
+                  </Button>
+                  <Button
+                    type="primary"
+                    onClick={() => {
+                      const a = document.createElement('a');
+                      a.href = exportedVideo.url;
+                      a.download = exportedVideo.filename;
+                      document.body.appendChild(a);
+                      a.click();
+                      a.remove();
+                    }}
+                  >
+                    下载 {exportedVideo.format} 视频
+                  </Button>
+                </Space>
+              </div>
+            </Space>
+          ) : null}
         </DraggableModal>
       </Layout>
     </div>

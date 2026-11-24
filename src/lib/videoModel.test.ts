@@ -1,6 +1,7 @@
 import { Line, Section, Station } from '../types';
-import { activeVideoStationLines, buildVideoRouteGeometry, easeVideoProgress, mercatorProject,
-  resolveVideoRoute, staticMapViewport, videoArrivalProgress, videoFrameAtTime, VideoSegmentInput } from './videoModel';
+import { activeVideoStationLines, buildVideoRouteGeometry, computeVideoDimensions, easeVideoProgress,
+  formatVideoDateLabel, generateAutoVideoSegments, mercatorProject, resolveVideoRoute, staticMapViewport,
+  videoArrivalProgress, videoFrameAtTime, VideoSegmentInput } from './videoModel';
 
 const stations: Station[] = [
   { id: 'a', name: '甲', x: 0, y: 0 },
@@ -88,4 +89,23 @@ test.each([[1920, 1080], [1080, 1920], [1920, 1920]])('底图 %ix%i 保持宽高
   const overlayPixelX = width / 2 + (station.x - center.x) * viewport.scale;
   expect(imagePixelX * viewport.scale).toBeCloseTo(overlayPixelX);
   expect(staticMapViewport(width, height, 20).zoom).toBe(17);
+});
+
+test('支持仅填年份、年月、无日期阶段模式以及一键从画布生成区间', () => {
+  expect(() => resolveVideoRoute({ ...segment, openDate: '2018' }, [line], stations, sections)).not.toThrow();
+  expect(() => resolveVideoRoute({ ...segment, openDate: '2018-09' }, [line], stations, sections)).not.toThrow();
+  expect(() =>
+    resolveVideoRoute({ ...segment, openDate: '' }, [line], stations, sections, { dateMode: 'sequence' })
+  ).not.toThrow();
+
+  expect(formatVideoDateLabel({ openDate: '2018', phaseLabel: '首通段' }, 0, 'date')).toBe('2018 年 · 首通段');
+  expect(formatVideoDateLabel({ openDate: '2018-06' }, 0, 'date')).toBe('2018 年 6 月');
+  expect(formatVideoDateLabel({ openDate: '' }, 1, 'sequence')).toBe('第 2 阶段');
+
+  const auto = generateAutoVideoSegments([line], stations, sections, 'date');
+  expect(auto).toHaveLength(1);
+  expect(auto[0]).toMatchObject({ lineId: 'l', startStationId: 'a', endStationId: 'c' });
+
+  expect(computeVideoDimensions('9:16', '1080p')).toEqual({ width: 1080, height: 1920 });
+  expect(computeVideoDimensions('16:9', '720p')).toEqual({ width: 1280, height: 720 });
 });

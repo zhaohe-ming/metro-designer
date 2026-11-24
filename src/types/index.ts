@@ -60,12 +60,21 @@ export type BaseMapSettings = {
 // - key:      只显示换乘 + 首末站；其他站名永久隐藏（圆点仍画）
 export type LabelDensity = 'paper' | 'adaptive' | 'key';
 
+export type VideoAspectRatio = '16:9' | '9:16' | '4:3' | '1:1';
+export type VideoResolution = '1080p' | '720p';
+export type VideoFps = 30 | 60;
+export type VideoSpeedMultiplier = 0.75 | 1 | 1.5 | 2;
+export type VideoCameraMode = 'overview' | 'gentle' | 'follow';
+export type VideoUnopenedStyle = 'ghost' | 'hidden';
+export type VideoDateMode = 'date' | 'sequence';
+
 export interface VideoSegmentInput {
   id: string;
   lineId: string;
   startStationId: string;
   endStationId: string;
   openDate: string;
+  phaseLabel?: string;
 }
 
 export interface VideoExportConfig {
@@ -73,6 +82,15 @@ export interface VideoExportConfig {
   title: string;
   subtitle: string;
   titleDurationSec: number;
+  aspectRatio?: VideoAspectRatio;
+  resolution?: VideoResolution;
+  fps?: VideoFps;
+  speedMultiplier?: VideoSpeedMultiplier;
+  cameraMode?: VideoCameraMode;
+  unopenedStyle?: VideoUnopenedStyle;
+  dateMode?: VideoDateMode;
+  showYearBadge?: boolean;
+  showLineLegend?: boolean;
 }
 
 export interface MapSettings {
@@ -131,19 +149,50 @@ export const normalizeVideoExportConfig = (raw: unknown): VideoExportConfig | un
       let id = text(segment.id, 128) || `video-step-${index + 1}`;
       while (usedIds.has(id)) id += '-copy';
       usedIds.add(id);
+      const phaseLabel = text(segment.phaseLabel, 24);
       return {
         id,
         lineId: text(segment.lineId, 128),
         startStationId: text(segment.startStationId, 128),
         endStationId: text(segment.endStationId, 128),
-        openDate: text(segment.openDate, 10)
+        openDate: text(segment.openDate, 24),
+        ...(phaseLabel ? { phaseLabel } : {})
       };
     });
+  const aspectRatio: VideoAspectRatio | undefined =
+    config.aspectRatio === '16:9' || config.aspectRatio === '9:16' || config.aspectRatio === '4:3' || config.aspectRatio === '1:1'
+      ? config.aspectRatio
+      : undefined;
+  const resolution: VideoResolution | undefined =
+    config.resolution === '1080p' || config.resolution === '720p' ? config.resolution : undefined;
+  const fps: VideoFps | undefined = config.fps === 30 || config.fps === 60 ? config.fps : undefined;
+  const speedMultiplier: VideoSpeedMultiplier | undefined =
+    config.speedMultiplier === 0.75 || config.speedMultiplier === 1 || config.speedMultiplier === 1.5 || config.speedMultiplier === 2
+      ? config.speedMultiplier
+      : undefined;
+  const cameraMode: VideoCameraMode | undefined =
+    config.cameraMode === 'overview' || config.cameraMode === 'gentle' || config.cameraMode === 'follow'
+      ? config.cameraMode
+      : undefined;
+  const unopenedStyle: VideoUnopenedStyle | undefined =
+    config.unopenedStyle === 'ghost' || config.unopenedStyle === 'hidden' ? config.unopenedStyle : undefined;
+  const dateMode: VideoDateMode | undefined =
+    config.dateMode === 'date' || config.dateMode === 'sequence' ? config.dateMode : undefined;
+
   return {
     segments,
     title: text(config.title, 32),
     subtitle: text(config.subtitle, 48),
-    titleDurationSec: normalizeNumber(config.titleDurationSec, 3, 1, 8)
+    titleDurationSec: normalizeNumber(config.titleDurationSec, 3, 1, 8),
+    ...(aspectRatio ? { aspectRatio } : {}),
+    ...(resolution ? { resolution } : {}),
+    ...(fps ? { fps } : {}),
+    ...(speedMultiplier ? { speedMultiplier } : {}),
+    ...(cameraMode ? { cameraMode } : {}),
+    ...(unopenedStyle ? { unopenedStyle } : {}),
+    ...(dateMode ? { dateMode } : {}),
+    ...(typeof config.showYearBadge === 'boolean' ? { showYearBadge: config.showYearBadge } : {}),
+    ...(typeof config.showLineLegend === 'boolean' ? { showLineLegend: config.showLineLegend } : {})
   };
 };
 
