@@ -50,6 +50,9 @@ function resolveExportFilter(suggestedName, mimeType) {
   if (lowerMime.includes('image/png') || lowerName.endsWith('.png')) {
     return { ext: '.png', filters: [{ name: 'PNG 图片 (*.png)', extensions: ['png'] }] };
   }
+  if (lowerMime.includes('image/svg') || lowerName.endsWith('.svg')) {
+    return { ext: '.svg', filters: [{ name: 'SVG 矢量图 (*.svg)', extensions: ['svg'] }] };
+  }
   if (lowerMime.includes('image/jpeg') || lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) {
     return { ext: '.jpg', filters: [{ name: 'JPEG 图片 (*.jpg)', extensions: ['jpg', 'jpeg'] }] };
   }

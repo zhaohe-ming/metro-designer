@@ -1,3 +1,15 @@
+export type StationLabelPosition =
+  | 'auto'
+  | 'top'
+  | 'right'
+  | 'bottom'
+  | 'left'
+  | 'top-left'
+  | 'top-right'
+  | 'bottom-left'
+  | 'bottom-right'
+  | 'hidden';
+
 export interface Station {
   id: string;
   name: string;
@@ -6,8 +18,10 @@ export interface Station {
   lng?: number;
   lat?: number;
   note?: string;
-  labelPosition?: 'auto' | 'top' | 'right' | 'bottom' | 'left' | 'hidden';
+  labelPosition?: StationLabelPosition;
 }
+
+export type WaypointCurveMode = 'corner' | 'arc';
 
 export interface Waypoint {
   x: number;
@@ -15,6 +29,10 @@ export interface Waypoint {
   lng?: number;
   lat?: number;
   hidden?: boolean;
+  /** 单点独立圆弧半径（世界坐标；undefined 时回退到全局 cornerRadius，0 为折角） */
+  radius?: number;
+  /** 曲线模式：'corner' 相切导圆角（默认），'arc' 过前一点-当前点-后一点的三点正圆弧 */
+  mode?: WaypointCurveMode;
 }
 
 export interface Section {
@@ -253,6 +271,12 @@ const normalizeWaypoint = (raw: any): Waypoint | null => {
   if (typeof raw.lng === 'number' && Number.isFinite(raw.lng)) waypoint.lng = raw.lng;
   if (typeof raw.lat === 'number' && Number.isFinite(raw.lat)) waypoint.lat = raw.lat;
   if (raw.hidden === true) waypoint.hidden = true;
+  if (typeof raw.radius === 'number' && Number.isFinite(raw.radius) && raw.radius >= 0) {
+    waypoint.radius = Math.min(2000, Math.max(0, raw.radius));
+  }
+  if (raw.mode === 'arc' || raw.mode === 'corner') {
+    waypoint.mode = raw.mode;
+  }
   return waypoint;
 };
 

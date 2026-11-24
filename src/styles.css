@@ -3843,10 +3843,8 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 26px rgba(31, 57, 98, 0.12) !important;
   }
   .metro-tool-group[data-active-tool="select"] { --phone-tool-index: 0; }
-  .metro-tool-group[data-active-tool="station"] { --phone-tool-index: 1; }
-  .metro-tool-group[data-active-tool="line"] { --phone-tool-index: 2; }
-  .metro-tool-group[data-active-tool="section"] { --phone-tool-index: 3; }
-  .metro-tool-group[data-active-tool="pan"] { --phone-tool-index: 4; }
+  .metro-tool-group[data-active-tool="draw"] { --phone-tool-index: 1; }
+  .metro-tool-group[data-active-tool="pan"] { --phone-tool-index: 2; }
   .metro-canvas-tools .metro-tool-group::before {
     content: ''; position: absolute; top: 4px; left: 4px; z-index: 0;
     width: var(--phone-tool-size); height: 52px; border-radius: 20px;
@@ -4606,11 +4604,9 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
       0 8px 24px rgba(15, 23, 42, 0.09);
   }
 
-  .metro-tool-group[data-active-tool="select"]  { --phone-tool-index: 0; }
-  .metro-tool-group[data-active-tool="station"] { --phone-tool-index: 1; }
-  .metro-tool-group[data-active-tool="line"]    { --phone-tool-index: 2; }
-  .metro-tool-group[data-active-tool="section"] { --phone-tool-index: 3; }
-  .metro-tool-group[data-active-tool="pan"]     { --phone-tool-index: 4; }
+  .metro-tool-group[data-active-tool="select"] { --phone-tool-index: 0; }
+  .metro-tool-group[data-active-tool="draw"]   { --phone-tool-index: 1; }
+  .metro-tool-group[data-active-tool="pan"]    { --phone-tool-index: 2; }
 
   .metro-canvas-tools .metro-tool-group::before {
     content: '';
@@ -7187,4 +7183,833 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   color: #fcd34d;
   background: rgba(245, 158, 11, 0.16);
   border-color: rgba(245, 158, 11, 0.3);
+}
+
+/* =========================================================================
+   战役一：三态连续绘制辅条、原地改名气泡、单点圆弧控制器、框选胶囊、搜站与新手引导
+   ========================================================================= */
+
+.metro-draw-subbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.9);
+  backdrop-filter: blur(14px) saturate(135%);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.08);
+  pointer-events: auto;
+  font-size: 12px;
+  color: #334155;
+}
+
+.metro-draw-subbar__line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  font-weight: 600;
+  color: #0f172a;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metro-draw-subbar__swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.metro-draw-subbar__sep {
+  width: 1px;
+  height: 14px;
+  background: rgba(148, 163, 184, 0.35);
+}
+
+.metro-draw-subbar__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.05);
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.metro-draw-subbar__pill:hover {
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+}
+
+.metro-draw-subbar__pill.is-active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.metro-draw-subbar__pill--lift {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.metro-draw-subbar__pill--lift:hover {
+  background: rgba(245, 158, 11, 0.24);
+  color: #92400e;
+}
+
+/* 桌面端顶部轻量实时手势提示条 */
+.metro-gesture-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  background: rgba(255, 255, 255, 0.84);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: #475569;
+  font-size: 12px;
+  font-weight: 500;
+  pointer-events: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 440px;
+}
+
+/* 非阻塞行内站点命名浮层 */
+.metro-inline-rename {
+  position: absolute;
+  z-index: 950;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px 4px 10px;
+  border-radius: 999px;
+  border: 1.5px solid #3b82f6;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  transform: translate(-50%, -100%);
+}
+
+.metro-inline-rename__input {
+  width: 118px;
+  height: 24px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.metro-inline-rename__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.metro-inline-rename__btn:hover {
+  background: #dbeafe;
+}
+
+.metro-inline-rename__btn--ok {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.metro-inline-rename__btn--ok:hover {
+  background: #1d4ed8;
+}
+
+/* 途经点就地圆弧控制器 */
+.metro-wp-arc-bar {
+  position: absolute;
+  z-index: 940;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 244px;
+  padding: 9px 11px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.15);
+}
+
+.metro-wp-arc-bar__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.metro-wp-arc-bar__modes {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  gap: 2px;
+}
+
+.metro-wp-arc-bar__mode {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.metro-wp-arc-bar__mode.is-active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.metro-wp-arc-bar__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metro-wp-arc-bar__icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.metro-wp-arc-bar__icon-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.metro-wp-arc-bar__icon-btn.is-danger:hover {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.metro-wp-arc-bar__presets {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.metro-wp-arc-bar__chip {
+  flex: 1;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #475569;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.metro-wp-arc-bar__chip.is-active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.metro-wp-arc-bar__slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: #475569;
+}
+
+.metro-wp-arc-bar__slider {
+  flex: 1;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.metro-wp-arc-bar__val {
+  min-width: 38px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.metro-wp-arc-bar__hint {
+  font-size: 11.5px;
+  color: #64748b;
+  line-height: 1.4;
+}
+
+/* 多选浮动操作栏 */
+.metro-multiselect-bar {
+  position: absolute;
+  bottom: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.12);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.metro-multiselect-bar__btn {
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.metro-multiselect-bar__btn--danger {
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.metro-multiselect-bar__btn--danger:hover {
+  background: #fee2e2;
+}
+
+/* Ctrl+F 快速搜站浮层 */
+.metro-canvas-search {
+  position: absolute;
+  top: 58px;
+  left: 14px;
+  z-index: 35;
+  width: 268px;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(255, 255, 255, 0.97);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+}
+
+.metro-canvas-search__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  border-radius: 9px;
+  background: #f1f5f9;
+}
+
+.metro-canvas-search__input {
+  flex: 1;
+  height: 28px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 12.5px;
+}
+
+.metro-canvas-search__list {
+  margin-top: 6px;
+  max-height: 210px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metro-canvas-search__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #1e293b;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.metro-canvas-search__item:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.metro-canvas-search__meta {
+  font-size: 11px;
+  color: #64748b;
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 站点右键菜单：站名方位快捷排布条 */
+.metro-label-pos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px 6px;
+}
+
+.metro-label-pos-chip {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.metro-label-pos-chip.is-active {
+  border-color: #2563eb;
+  background: rgba(37, 99, 235, 0.14);
+  color: #2563eb;
+  font-weight: 700;
+}
+
+/* 新手微动画引导与手势速查弹窗 */
+.metro-onboarding-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.42);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.metro-onboard-dialog {
+  width: min(500px, 100%);
+  border-radius: 20px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: #ffffff;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.22);
+  overflow: hidden;
+}
+
+.metro-onboard-dialog.is-wide {
+  width: min(640px, 100%);
+}
+
+.metro-onboard {
+  padding: 18px 22px 20px;
+  color: #0f172a;
+}
+
+.metro-onboard__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.metro-onboard__tabs {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  gap: 2px;
+}
+
+.metro-onboard__tab {
+  height: 28px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.metro-onboard__tab.is-active {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.metro-onboard__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+}
+
+.metro-onboard__close:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.metro-onboard-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
+  border: 1px solid #e2e8f0;
+  margin-bottom: 14px;
+}
+
+@keyframes metroOnbDash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+@keyframes metroOnbPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.45;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 0.85;
+  }
+}
+
+@keyframes metroOnbBob {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(4px);
+  }
+}
+
+.metro-onboard-anim-dash {
+  animation: metroOnbDash 1.2s linear infinite;
+}
+
+.metro-onboard-anim-pulse {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: metroOnbPulse 1.8s ease-in-out infinite;
+}
+
+.metro-onboard-anim-bob {
+  animation: metroOnbBob 1.6s ease-in-out infinite;
+}
+
+.metro-onboard__badge {
+  display: inline-block;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.metro-onboard__title {
+  margin: 0 0 10px;
+  font-size: 16.5px;
+  font-weight: 700;
+  color: #0f172a;
+  line-height: 1.35;
+}
+
+.metro-onboard__list {
+  margin: 0 0 18px;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.metro-onboard__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f1f5f9;
+}
+
+.metro-onboard__dots {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.metro-onboard__dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: #cbd5e1;
+  cursor: pointer;
+  transition: width 160ms ease, background 160ms ease;
+}
+
+.metro-onboard__dot.is-active {
+  width: 22px;
+  background: #2563eb;
+}
+
+.metro-onboard__actions {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.metro-onboard__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 15px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.metro-onboard__btn--ghost {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  color: #475569;
+}
+
+.metro-onboard__btn--ghost:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.metro-onboard__btn--primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.metro-onboard__btn--primary:hover {
+  background: #1d4ed8;
+}
+
+.metro-onboard__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(256px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.metro-onboard__group {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.metro-onboard__group-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #0f172a;
+  margin-bottom: 2px;
+}
+
+.metro-onboard__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.metro-onboard__kbd {
+  flex-shrink: 0;
+  padding: 2px 7px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #0f172a;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.metro-onboard__desc {
+  color: #475569;
+  text-align: right;
+  line-height: 1.45;
+}
+
+.metro-onboard__sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+}
+
+/* 深色模式适配 */
+.metro-canvas-surface.is-canvas-dark .metro-draw-subbar,
+.metro-app-shell[data-interface-theme="dark"] .metro-draw-subbar,
+.metro-canvas-surface.is-canvas-dark .metro-gesture-status,
+.metro-app-shell[data-interface-theme="dark"] .metro-gesture-status,
+.metro-canvas-surface.is-canvas-dark .metro-inline-rename,
+.metro-app-shell[data-interface-theme="dark"] .metro-inline-rename,
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar,
+.metro-canvas-surface.is-canvas-dark .metro-multiselect-bar,
+.metro-app-shell[data-interface-theme="dark"] .metro-multiselect-bar,
+.metro-canvas-surface.is-canvas-dark .metro-canvas-search,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-search {
+  background: rgba(15, 23, 42, 0.93);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #e2e8f0;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-draw-subbar__line,
+.metro-app-shell[data-interface-theme="dark"] .metro-draw-subbar__line,
+.metro-canvas-surface.is-canvas-dark .metro-inline-rename__input,
+.metro-app-shell[data-interface-theme="dark"] .metro-inline-rename__input,
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__val,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__val,
+.metro-canvas-surface.is-canvas-dark .metro-canvas-search__input,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-search__input {
+  color: #f8fafc;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-draw-subbar__pill:not(.is-active):not(.metro-draw-subbar__pill--lift),
+.metro-app-shell[data-interface-theme="dark"] .metro-draw-subbar__pill:not(.is-active):not(.metro-draw-subbar__pill--lift) {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__modes,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__modes,
+.metro-canvas-surface.is-canvas-dark .metro-canvas-search__head,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-search__head {
+  background: rgba(30, 41, 59, 0.9);
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__chip,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__chip {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: rgba(148, 163, 184, 0.28);
+  color: #cbd5e1;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__chip.is-active,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__chip.is-active {
+  background: rgba(37, 99, 235, 0.25);
+  border-color: #60a5fa;
+  color: #93c5fd;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-canvas-search__item,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-search__item {
+  color: #e2e8f0;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-canvas-search__item:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-canvas-search__item:hover {
+  background: rgba(37, 99, 235, 0.22);
+  color: #93c5fd;
+}
+
+body[data-interface-theme="dark"] .metro-onboard-dialog {
+  background: #0f172a;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+
+body[data-interface-theme="dark"] .metro-onboard,
+body[data-interface-theme="dark"] .metro-onboard__title,
+body[data-interface-theme="dark"] .metro-onboard__group-title {
+  color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__list,
+body[data-interface-theme="dark"] .metro-onboard__desc {
+  color: #cbd5e1;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__tabs,
+body[data-interface-theme="dark"] .metro-onboard__group {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+body[data-interface-theme="dark"] .metro-onboard__tab.is-active {
+  background: #334155;
+  color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__kbd {
+  background: #0f172a;
+  border-color: rgba(148, 163, 184, 0.3);
+  color: #e2e8f0;
+}
+
+@media (max-width: 768px) {
+  .metro-gesture-status {
+    display: none;
+  }
+  .metro-draw-subbar {
+    margin-top: 6px;
+  }
+  .metro-canvas-tools {
+    flex-wrap: wrap;
+  }
 }

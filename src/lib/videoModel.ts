@@ -279,7 +279,18 @@ export function getVideoSectionPoints(
   const start = stationById.get(section.startStationId);
   const end = stationById.get(section.endStationId);
   if (!start || !end) return [];
-  return roundCorners([project(start), ...(section.waypoints || []).map(project), project(end)], radius);
+  return roundCorners(
+    [
+      project(start),
+      ...(section.waypoints || []).map((wp) => ({
+        ...project(wp),
+        ...(typeof wp.radius === 'number' ? { radius: wp.radius } : {}),
+        ...(wp.mode ? { mode: wp.mode } : {})
+      })),
+      project(end)
+    ],
+    radius
+  );
 }
 
 export function buildVideoRouteGeometry(

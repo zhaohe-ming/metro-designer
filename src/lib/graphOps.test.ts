@@ -1,4 +1,13 @@
-import { deleteStationFromGraph, MapGraph } from './graphOps';
+import {
+  connectStationsOnLine,
+  deleteStationFromGraph,
+  deriveLineTopology,
+  insertStationOnSection,
+  MapGraph,
+  mergeStationsIntoInterchange,
+  removeStationFromLine,
+  reorderLineStations
+} from './graphOps';
 import { Line, Section, Station } from '../types';
 
 // ── 测试夹具构造器 ─────────────────────────────────────────────────────────
@@ -167,5 +176,95 @@ describe('deleteStationFromGraph', () => {
     deleteStationFromGraph('s2', graph);
 
     expect(JSON.stringify(graph)).toEqual(snapshot);
+  });
+});
+
+describe('core topology transactions (connect / loop / branch / insert / removeFromLine / merge)', () => {
+  it('connectStationsOnLine preserves existing stations and detects loop closure', () => {
+    const { line, sections } = linearLine('L1', ['s1', 's2', 's3']);
+    const stations = ['s1', 's2', 's3', 's4'].map((id, i) => station(id, i * 50, 0));
+    const g0: MapGraph = { lines: [line], stations, sections };
+
+    // 从首站 s1 向另一端 s4 延伸：s4 排到队首且原 s1,s2,s3 绝不丢失
+    const step1 = connectStationsOnLine(g0, { lineId: 'L1', fromStationId: 's1', toStationId: 's4' });
+    expect(step1.closedLoop).toBe(false);
+    expect(step1.graph.lines[0].stationIds).toEqual(['s4', 's1', 's2', 's3']);
+
+    // 再从 s3 连回 s4 闭合为环线
+    const step2 = connectStationsOnLine(step1.graph, { lineId: 'L1', fromStationId: 's3', toStationId: 's4' });
+    expect(step2.closedLoop).toBe(true);
+    const meta = deriveLineTopology(step2.graph.lines[0], step2.graph.sections);
+    expect(meta.isLoop).toBe(true);
+    expect(meta.terminalStationIds).toEqual([]);
+  });
+
+  it('supports Y-branch lines without losing any branch stations', () => {
+    const { line, sections } = linearLine('L1', ['s1', 's2', 's3']);
+    const stations = ['s1', 's2', 's3', 'b1', 'b2'].map((id) => station(id));
+    let g: MapGraph = { lines: [line], stations, sections };
+    g = connectStationsOnLine(g, { lineId: 'L1', fromStationId: 's2', toStationId: 'b1' }).graph;
+    g = connectStationsOnLine(g, { lineId: 'L1', fromStationId: 'b1', toStationId: 'b2' }).graph;
+
+    const meta = deriveLineTopology(g.lines[0], g.sections);
+    expect(meta.hasBranch).toBe(true);
+    expect(new Set(g.lines[0].stationIds)).toEqual(new Set(['s1', 's2', 's3', 'b1', 'b2']));
+    expect(new Set(meta.terminalStationIds)).toEqual(new Set(['s1', 's3', 'b2']));
+  });
+
+  it('insertStationOnSection splits section and partitions waypoints accurately', () => {
+    const sec = section('sec1', 'L1', 's1', 's2', {
+      waypoints: [{ x: 40, y: 20 }, { x: 160, y: 20 }]
+    });
+    const l1: Line = { id: 'L1', name: '1号线', color: '#f00', stationIds: ['s1', 's2'], sectionIds: ['sec1'] };
+    const g0: MapGraph = {
+      lines: [l1],
+      stations: [station('s1', 0, 0), station('s2', 200, 0)],
+      sections: [sec]
+    };
+
+    const g1 = insertStationOnSection(g0, {
+      sectionId: 'sec1',
+      station: station('s_mid', 100, 20)
+    });
+
+    expect(g1.lines[0].stationIds).toEqual(['s1', 's_mid', 's2']);
+    expect(g1.sections).toHaveLength(2);
+    const first = g1.sections.find((s) => s.startStationId === 's1')!;
+    const second = g1.sections.find((s) => s.endStationId === 's2')!;
+    expect(first.waypoints).toEqual([{ x: 40, y: 20 }]);
+    expect(second.waypoints).toEqual([{ x: 160, y: 20 }]);
+  });
+
+  it('removeStationFromLine stitches middle station instead of breaking line in half', () => {
+    const { line, sections } = linearLine('L1', ['s1', 's2', 's3']);
+    const g0: MapGraph = { lines: [line], stations: ['s1', 's2', 's3'].map((id) => station(id)), sections };
+    const g1 = removeStationFromLine(g0, 'L1', 's2');
+
+    expect(g1.lines[0].stationIds).toEqual(['s1', 's3']);
+    expect(g1.sections).toHaveLength(1);
+    expect(idSet(g1.sections[0])).toEqual(new Set(['s1', 's3']));
+    // 站点实体本身仍保留在画布中（只是移出该线路）
+    expect(g1.stations).toHaveLength(3);
+  });
+
+  it('reorderLineStations rebuilds sections to match new station order', () => {
+    const { line, sections } = linearLine('L1', ['s1', 's2', 's3']);
+    const g0: MapGraph = { lines: [line], stations: ['s1', 's2', 's3'].map((id) => station(id)), sections };
+    const g1 = reorderLineStations(g0, 'L1', ['s1', 's3', 's2']);
+    expect(g1.lines[0].stationIds).toEqual(['s1', 's3', 's2']);
+    expect(g1.sections.map((s) => `${s.startStationId}->${s.endStationId}`)).toEqual(['s1->s3', 's3->s2']);
+  });
+
+  it('mergeStationsIntoInterchange merges two stations cleanly into a transfer hub', () => {
+    const a = linearLine('L1', ['s1', 'hubA', 's2']);
+    const b = linearLine('L2', ['s3', 'hubB', 's4']);
+    const g0: MapGraph = {
+      lines: [a.line, b.line],
+      stations: ['s1', 'hubA', 's2', 's3', 'hubB', 's4'].map((id) => station(id)),
+      sections: [...a.sections, ...b.sections]
+    };
+    const g1 = mergeStationsIntoInterchange(g0, 'hubB', 'hubA');
+    expect(g1.stations.some((s) => s.id === 'hubB')).toBe(false);
+    expect(g1.lines.find((l) => l.id === 'L2')!.stationIds).toEqual(['s3', 'hubA', 's4']);
   });
 });

@@ -4,6 +4,7 @@ import {
   AppstoreOutlined,
   DownloadOutlined,
   DownOutlined,
+  FileImageOutlined,
   PictureOutlined,
   RedoOutlined,
   UndoOutlined,
@@ -14,6 +15,7 @@ import {
 interface ToolbarProps {
   language?: 'zh-CN' | 'en-US';
   onExportImage?: () => void;
+  onExportSvg?: () => void;
   onOpenVideoModal?: () => void;
   onOpenGallery?: () => void;
   onUndo?: () => void;
@@ -26,6 +28,7 @@ interface ToolbarProps {
 const Toolbar: React.FC<ToolbarProps> = ({
   language = 'zh-CN',
   onExportImage,
+  onExportSvg,
   onOpenVideoModal,
   onOpenGallery,
   onUndo,
@@ -37,13 +40,15 @@ const Toolbar: React.FC<ToolbarProps> = ({
   const text = language === 'en-US'
     ? {
         exportLabel: 'Export',
-        exportImage: 'Image',
+        exportImage: 'PNG Image',
+        exportSvg: 'SVG Vector',
         exportVideo: 'Demo video',
         galleryLabel: 'Gallery'
       }
     : {
         exportLabel: '导出',
-        exportImage: '导出图片',
+        exportImage: '导出图片 (PNG)',
+        exportSvg: '导出矢量图 (SVG)',
         exportVideo: '导出演示视频',
         galleryLabel: '作品广场'
       };
@@ -57,6 +62,14 @@ const Toolbar: React.FC<ToolbarProps> = ({
           icon: <PictureOutlined />,
           label: text.exportImage,
           onClick: onExportImage
+        }
+      : null,
+    onExportSvg
+      ? {
+          key: 'svg',
+          icon: <FileImageOutlined />,
+          label: text.exportSvg,
+          onClick: onExportSvg
         }
       : null,
     onOpenVideoModal

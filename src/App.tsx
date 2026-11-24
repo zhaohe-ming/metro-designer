@@ -51,7 +51,14 @@ import BaseMapPicker from './components/BaseMapPicker';
 import AboutPanel from './components/AboutPanel';
 import { exportVideoFromStage } from './lib/exportVideo';
 import { VideoExportProgress } from './lib/recordVideo';
-import { deleteStationFromGraph } from './lib/graphOps';
+import {
+  deleteStationFromGraph,
+  MapGraph,
+  reconcileGraph,
+  removeStationFromLine,
+  reorderLineStations
+} from './lib/graphOps';
+import { buildMetroSvg } from './lib/exportSvg';
 import { DocumentSession } from './lib/documentSession';
 import { interpretCommand, ResolvedCommand, AppAction } from './lib/commandParser';
 import CommandBar from './components/CommandBar';
@@ -971,42 +978,57 @@ const App: React.FC = () => {
     }
   };
 
+  const commitGraphState = useCallback((next: MapGraph) => {
+    linesRef.current = next.lines;
+    stationsRef.current = next.stations;
+    sectionsRef.current = next.sections;
+    setLines(next.lines);
+    setStations(next.stations);
+    setSections(next.sections);
+  }, []);
+
+  const handleApplyGraphTransaction = useCallback(
+    (
+      updater: (current: MapGraph) => MapGraph,
+      options?: { recordHistory?: boolean; selectLineId?: string | null }
+    ) => {
+      if (options?.recordHistory !== false) {
+        pushHistory();
+      }
+      const baseGraph: MapGraph = {
+        lines: linesRef.current,
+        stations: stationsRef.current,
+        sections: sectionsRef.current
+      };
+      const next = reconcileGraph(updater(baseGraph));
+      commitGraphState(next);
+      if (options && 'selectLineId' in options) {
+        currentLineIdRef.current = options.selectLineId ?? null;
+        setCurrentLineId(options.selectLineId ?? null);
+      }
+    },
+    [commitGraphState, pushHistory]
+  );
+
   const handleRemoveStationFromLine = useCallback((lineId: string, stationId: string) => {
     pushHistory();
-    const sectionMap = new Map(sectionsRef.current.map((section) => [section.id, section]));
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== lineId) return line;
-
-        const validSectionIds = line.sectionIds.filter((sectionId) => {
-          const currentSection = sectionMap.get(sectionId);
-          if (!currentSection) return false;
-          return currentSection.startStationId !== stationId && currentSection.endStationId !== stationId;
-        });
-
-        return {
-          ...line,
-          stationIds: line.stationIds.filter((id) => id !== stationId),
-          sectionIds: validSectionIds,
-          lastAddedStationId: line.lastAddedStationId === stationId ? undefined : line.lastAddedStationId
-        };
-      })
+    const next = removeStationFromLine(
+      { lines: linesRef.current, stations: stationsRef.current, sections: sectionsRef.current },
+      lineId,
+      stationId
     );
-
-    setSections((prev) =>
-      prev.filter((section) => !(section.lineId === lineId && (section.startStationId === stationId || section.endStationId === stationId)))
-    );
-  }, [pushHistory]);
+    commitGraphState(next);
+  }, [commitGraphState, pushHistory]);
 
   const handleReorderStations = useCallback((lineId: string, stationIds: string[]) => {
     pushHistory();
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== lineId) return line;
-        return { ...line, stationIds };
-      })
+    const next = reorderLineStations(
+      { lines: linesRef.current, stations: stationsRef.current, sections: sectionsRef.current },
+      lineId,
+      stationIds
     );
-  }, [pushHistory]);
+    commitGraphState(next);
+  }, [commitGraphState, pushHistory]);
 
   const handleDeleteLine = useCallback((lineId: string) => {
     pushHistory();
@@ -1044,28 +1066,30 @@ const App: React.FC = () => {
   const handleDeleteStation = (stationId: string) => {
     pushHistory();
     // 删中间站时会自动用一条新区间缝合前后邻站，避免线路断成两截（见 graphOps）
-    const next = deleteStationFromGraph(stationId, { lines, stations, sections });
-    setLines(next.lines);
-    setStations(next.stations);
-    setSections(next.sections);
+    const next = deleteStationFromGraph(stationId, {
+      lines: linesRef.current,
+      stations: stationsRef.current,
+      sections: sectionsRef.current
+    });
+    commitGraphState(next);
     message.success('站点已删除');
   };
 
   const handleDeleteSection = (sectionId: string) => {
-    const target = sections.find((section) => section.id === sectionId);
+    const target = sectionsRef.current.find((section) => section.id === sectionId);
     if (!target) return;
 
     pushHistory();
-    setSections((prev) => prev.filter((section) => section.id !== sectionId));
-    setLines((prev) =>
-      prev.map((line) => {
-        if (line.id !== target.lineId) return line;
-        return {
-          ...line,
-          sectionIds: line.sectionIds.filter((id) => id !== sectionId)
-        };
-      })
-    );
+    const next = reconcileGraph({
+      lines: linesRef.current.map((line) =>
+        line.id !== target.lineId
+          ? line
+          : { ...line, sectionIds: line.sectionIds.filter((id) => id !== sectionId) }
+      ),
+      stations: stationsRef.current,
+      sections: sectionsRef.current.filter((section) => section.id !== sectionId)
+    });
+    commitGraphState(next);
     message.success('区间已删除');
   };
 
@@ -1082,9 +1106,12 @@ const App: React.FC = () => {
     guestDraftIdRef.current = draft.id;
     guestSavedRevisionRef.current = null;
     setGuestDraftId(draft.id);
-    setLines(draft.lines);
-    setStations(draft.stations);
-    setSections(draft.sections);
+    const healed = reconcileGraph({
+      lines: draft.lines,
+      stations: draft.stations,
+      sections: draft.sections
+    });
+    commitGraphState(healed);
     setMapSettings(draft.mapSettings);
     setCurrentLineId(draft.currentLineId);
     setMapName(draft.name);
@@ -1442,11 +1469,14 @@ const App: React.FC = () => {
     setCurrentMap(null);
 
     const loadedLines = normalizeLoadedLines(project.lines || []);
-    setLines(loadedLines);
-    setSections(normalizeSections(project.sections));
-    setStations(Array.isArray(project.stations) ? project.stations : []);
+    const healed = reconcileGraph({
+      lines: loadedLines,
+      stations: Array.isArray(project.stations) ? project.stations : [],
+      sections: normalizeSections(project.sections)
+    });
+    commitGraphState(healed);
     setMapSettings(normalizeMapSettings(project.mapSettings));
-    setCurrentLineId(project.currentLineId || loadedLines[0]?.id || null);
+    setCurrentLineId(project.currentLineId || healed.lines[0]?.id || null);
     setMapName(project.name);
     setGuestInitialViewport(project.viewport);
     setGuestViewport(project.viewport);
@@ -1726,16 +1756,19 @@ const App: React.FC = () => {
     setPreviewMode(false);
     if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     const loadedLines = normalizeLoadedLines(map.lines || []);
-    setLines(loadedLines);
-    setSections(normalizeSections(map.sections));
-    setStations(Array.isArray(map.stations) ? map.stations : []);
+    const healed = reconcileGraph({
+      lines: loadedLines,
+      stations: Array.isArray(map.stations) ? map.stations : [],
+      sections: normalizeSections(map.sections)
+    });
+    commitGraphState(healed);
     const rawSettings = (map.mapSettings && typeof map.mapSettings === 'object' ? map.mapSettings : undefined) as Partial<MapSettings> | undefined;
     const nextSettings = normalizeMapSettings(rawSettings);
     if (!rawSettings?.labelDensity) {
       nextSettings.labelDensity = readLabelDensity();
     }
     setMapSettings(nextSettings);
-    setCurrentLineId(loadedLines[0]?.id || null);
+    setCurrentLineId(healed.lines[0]?.id || null);
     setCurrentMap({
       id: map.id,
       name: map.name,
@@ -2686,6 +2719,41 @@ const App: React.FC = () => {
     } catch (error: any) { message.error(error?.message || '图片保存失败，请重试'); }
   };
 
+  const handleExportSvg = async () => {
+    try {
+      const svgContent = buildMetroSvg({
+        lines: linesRef.current,
+        stations: stationsRef.current,
+        sections: sectionsRef.current,
+        mapSettings: mapSettingsRef.current
+      });
+      const safeName = sanitizeProjectFilename(currentMap?.name || localProject?.name || mapName || 'metro-network');
+      const filename = `${safeName}.svg`;
+      const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
+      if (isAndroidClient) {
+        const saved = await saveAndroidExport(blob, filename);
+        if (saved) message.success('SVG 矢量图已保存');
+        else message.info('已取消保存');
+      } else if (hasDesktopBridge()) {
+        const saved = await saveDesktopExport(blob, filename);
+        if (saved) message.success('SVG 矢量图已保存到本机');
+        else message.info('已取消保存');
+      } else {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = url;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+        message.success('SVG 矢量图导出成功');
+      }
+    } catch (error: any) {
+      message.error(error?.message || '导出 SVG 失败，请重试');
+    }
+  };
+
   const isSignedInView = Boolean(userProfile) || authBooting;
   const displayName = userProfile?.username || (authBooting ? (language === 'en-US' ? 'Syncing…' : '同步中…') : '访客预览');
   const displayInitial = (userProfile?.username || userProfile?.email || userProfile?.phone || 'M').charAt(0).toUpperCase();
@@ -3051,6 +3119,7 @@ const App: React.FC = () => {
               <Toolbar
                 language={language}
                 onExportImage={handleExportImage}
+                onExportSvg={handleExportSvg}
                 onOpenVideoModal={() => (userProfile || isDesktopClient || hasDesktopBridge()) ? setVideoModalOpen(true) : requestGuestAuth('video')}
                 onOpenGallery={openGallery}
                 onUndo={handleUndo}
@@ -3196,6 +3265,8 @@ const App: React.FC = () => {
                 onDeleteStation={handleDeleteStation}
                 onUpdateStations={setStations}
                 onUpdateSection={handleUpdateSection}
+                onApplyGraphTransaction={handleApplyGraphTransaction}
+                onSelectLine={setCurrentLineId}
                 onBeginInteraction={pushHistory}
                 onMapSettingsChange={(settings) => setMapSettings(normalizeMapSettings(settings))}
                 onStageReady={(stage) => {
