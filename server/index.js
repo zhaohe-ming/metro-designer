@@ -1226,7 +1226,7 @@ app.post('/api/auth/reset-password', authLimiter, asyncHandler(async (req, res) 
 app.get('/api/me', auth, asyncHandler(async (req, res) => {
   const user = await storage.findUserById(req.userId);
   if (!user) return res.status(404).json({ message: '用户不存在' });
-  res.json({ user: sanitizeUser(user) });
+  res.json({ user: sanitizeUser(user), token: signLoginToken(user.id) });
 }));
 
 app.put('/api/me', auth, meLimiter, asyncHandler(async (req, res) => {

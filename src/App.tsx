@@ -18,7 +18,16 @@ import {
   MoreOutlined,
   PlaySquareOutlined
 } from '@ant-design/icons';
-import { api, clearToken, getToken, setToken, AIOperation } from './api';
+import {
+  api,
+  bootstrapAuthSession,
+  clearAuthSession,
+  getToken,
+  saveAuthSession,
+  touchAuthActivity,
+  touchAuthSessionUser,
+  AIOperation
+} from './api';
 import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
 import { GuestDraft, createGuestDraft, readGuestDraft, writeGuestDraft, deleteGuestDraft, hasGuestSession, setGuestSession } from './lib/guestDraft';
@@ -305,14 +314,50 @@ const App: React.FC = () => {
   }, []);
   const navigatePublic = (path: string) => {window.history.pushState({}, '', path);setPublicPath(path);};
 
+  const [initialBootState] = useState(() => {
+    if (isAuthCallbackURL()) {
+      return {
+        userProfile: null as UserProfile | null,
+        authBooting: false,
+        previewMode: false,
+        hasLastMap: false,
+        cleanWorkbenchQuery: false
+      };
+    }
+    const auth = bootstrapAuthSession();
+    const hasActiveAuth = auth.status === 'active' || auth.status === 'verifying';
+    const params = new URLSearchParams(window.location.search);
+    const previewParam = params.get('preview') === '1';
+    const workbenchParam = params.get('workbench') === '1';
+    const guestActive = hasGuestSession();
+    // 7 天内活跃登录态下，点「返回工作台」(?workbench=1) 直接进入云端工作台；
+    // 未登录或已超时状态下，?workbench=1 / ?preview=1 / 已有访客草稿会话均直接进入免登录预览工作台。
+    const nextPreviewMode = hasActiveAuth
+      ? (previewParam || guestActive)
+      : (previewParam || workbenchParam || guestActive);
+
+    let lastMapId: string | null = null;
+    try { lastMapId = localStorage.getItem(LAST_MAP_KEY); } catch { /* ignore */ }
+    const shouldAutoLoadCloudMap = hasActiveAuth && Boolean(lastMapId) && !nextPreviewMode;
+
+    return {
+      userProfile: auth.user ? { ...auth.user, password: '' } : null,
+      authBooting: auth.status === 'verifying',
+      previewMode: nextPreviewMode,
+      hasLastMap: shouldAutoLoadCloudMap,
+      cleanWorkbenchQuery: hasActiveAuth && workbenchParam && !previewParam
+    };
+  });
+
   const [lines, setLines] = useState<Line[]>([]);
   const [sections, setSections] = useState<Section[]>([]);
   const [stations, setStations] = useState<Station[]>([]);
   const [currentLineId, setCurrentLineId] = useState<string | null>(null);
-  const [isMapOpening, setIsMapOpening] = useState(false);
+  const [isMapOpening, setIsMapOpening] = useState<boolean>(initialBootState.hasLastMap);
   const mapOpeningRequestRef = useRef(0);
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [previewMode, setPreviewMode] = useState(() => !isAuthCallbackURL() && (new URLSearchParams(window.location.search).get('preview') === '1' || hasGuestSession()));
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(initialBootState.userProfile);
+  const [authBooting, setAuthBooting] = useState<boolean>(initialBootState.authBooting);
+  const [previewMode, setPreviewMode] = useState<boolean>(initialBootState.previewMode);
   const [guestReady, setGuestReady] = useState(false);
   const [guestDraftId, setGuestDraftId] = useState<string | null>(null);
   const guestDraftIdRef = useRef<string | null>(null);
@@ -617,15 +662,45 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (initialBootState.cleanWorkbenchQuery && !/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) {
+      window.history.replaceState({}, '', '/');
+    }
+  }, [initialBootState.cleanWorkbenchQuery]);
+
+  useEffect(() => {
+    const syncAuthActivity = () => {
+      if (document.visibilityState === 'visible') {
+        touchAuthActivity();
+      }
+    };
+    document.addEventListener('visibilitychange', syncAuthActivity);
+    return () => document.removeEventListener('visibilitychange', syncAuthActivity);
+  }, []);
+
+  useEffect(() => {
     const boot = async () => {
-      if (isAuthCallbackURL()) return;
+      if (isAuthCallbackURL()) {
+        setAuthBooting(false);
+        setIsMapOpening(false);
+        return;
+      }
       const token = getToken();
-      if (!token) return;
+      if (!token) {
+        setAuthBooting(false);
+        setIsMapOpening(false);
+        return;
+      }
       const restoreTicket = documentSessionRef.current.beginLoad();
       try {
-        const { user } = await api.me();
-        if (getToken() !== token) return;
+        const { user, token: refreshedToken } = await api.me();
+        if (getToken() !== token) {
+          if (mapOpeningRequestRef.current === 0) setIsMapOpening(false);
+          return;
+        }
+        const activeToken = refreshedToken || token;
+        touchAuthSessionUser(user, activeToken);
         setUserProfile({ ...user, password: '' });
+        setAuthBooting(false);
         refreshSavedMaps(false);
         // 自动恢复上次编辑的方案。任何一步失败就清掉指针并保持空白工作台。
         let lastMapId: string | null = null;
@@ -635,14 +710,16 @@ const App: React.FC = () => {
           setIsMapOpening(true);
           try {
             const { map } = await api.getMap(lastMapId);
-            if (getToken() === token && documentSessionRef.current.canApplyLoad(restoreTicket)) applyLoadedMap(map);
+            if (getToken() === activeToken && documentSessionRef.current.canApplyLoad(restoreTicket)) applyLoadedMap(map);
           } catch {
-            if (getToken() === token && documentSessionRef.current.isLatestLoad(restoreTicket)) {
+            if (getToken() === activeToken && documentSessionRef.current.isLatestLoad(restoreTicket)) {
               try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
             }
           } finally {
             if (mapOpeningRequestRef.current === openingRequest) setIsMapOpening(false);
           }
+        } else if (mapOpeningRequestRef.current === 0) {
+          setIsMapOpening(false);
         }
         // 历史存量头像可能是几百 KB 的原图 dataURL，DB 全是这种东西会拖慢列表/me。
         // 静默重压一次后写回；失败就放过。新上传走的是 handleProfileAvatarUpload 里的压缩路径。
@@ -655,14 +732,27 @@ const App: React.FC = () => {
             const compressed = await compressImageDataUrl(user.avatar);
             if (compressed.length < user.avatar.length) {
               const { user: migrated } = await api.updateMe({ avatar: compressed });
-              if (getToken() === token) setUserProfile({ ...migrated, password: '' });
+              if (getToken() === activeToken) {
+                touchAuthSessionUser(migrated);
+                setUserProfile({ ...migrated, password: '' });
+              }
             }
           } catch (e) {
             console.warn('avatar migration skipped', e);
           }
         }
-      } catch {
-        if (getToken() === token) clearToken();
+      } catch (error: any) {
+        // 仅当服务端明确返回 401/404（凭证失效或账号不存在）时才清除登录态；
+        // 偶发网络波动或后端冷启动保留 7 天有效期内的本地会话，避免把已登录用户误踢回登录页。
+        if (getToken() === token && (error?.status === 401 || error?.status === 404)) {
+          clearAuthSession();
+          setUserProfile(null);
+        }
+        if (mapOpeningRequestRef.current === 0) {
+          setIsMapOpening(false);
+        }
+      } finally {
+        setAuthBooting(false);
       }
     };
     boot();
@@ -1073,24 +1163,54 @@ const App: React.FC = () => {
   // 交付 { token, user } —— 我们只关心持久化和切到工作台。
   const handleAuthenticated = async ({ token, user }: { token: string; user: UserProfile }) => {
     await guestRestorePromiseRef.current;
-    setToken(token);
+    saveAuthSession(token, user);
+    setAuthBooting(false);
     setUserProfile({ ...user, password: '' });
     setAuthVisible(false);
     refreshSavedMaps(false);
+    let lastMapId: string | null = null;
+    try { lastMapId = localStorage.getItem(LAST_MAP_KEY); } catch { /* ignore */ }
+    if (
+      lastMapId &&
+      !guestDraftIdRef.current &&
+      linesRef.current.length === 0 &&
+      stationsRef.current.length === 0 &&
+      sectionsRef.current.length === 0
+    ) {
+      const restoreTicket = documentSessionRef.current.beginLoad();
+      const openingRequest = ++mapOpeningRequestRef.current;
+      setIsMapOpening(true);
+      void api.getMap(lastMapId)
+        .then(({ map }) => {
+          if (getToken() === token && documentSessionRef.current.canApplyLoad(restoreTicket)) {
+            applyLoadedMap(map);
+          }
+        })
+        .catch(() => {
+          if (getToken() === token && documentSessionRef.current.isLatestLoad(restoreTicket)) {
+            try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
+          }
+        })
+        .finally(() => {
+          if (mapOpeningRequestRef.current === openingRequest) setIsMapOpening(false);
+        });
+    }
     message.success('登录成功');
   };
 
   const handleLogout = () => {
+    guestPreviewRequestedRef.current = false;
     guestDraftIdRef.current = null;
     setGuestDraftId(null);
     setGuestSession(false);
     setPreviewMode(false);
     setGuestReady(false);
+    setAuthBooting(false);
     setAuthAction(null);
     setAuthVisible(false);
     if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     revokeBlobUrl(userProfile?.avatar);
-    clearToken();
+    clearAuthSession();
     try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
     setUserProfile(null);
     setLines([]);
@@ -1211,6 +1331,7 @@ const App: React.FC = () => {
       };
 
       const { user } = await api.updateMe(payload);
+      touchAuthSessionUser(user);
       setUserProfile({ ...user, password: '' });
       setProfileVisible(false);
       message.success('个人信息已更新');
@@ -1242,6 +1363,7 @@ const App: React.FC = () => {
         console.warn('avatar compress failed, sending original', e);
       }
       const { user } = await api.updateMe({ avatar: dataUrl });
+      touchAuthSessionUser(user);
       setUserProfile({ ...user, password: '' });
       message.success('头像已更新');
     } catch (error: any) {
@@ -2307,7 +2429,8 @@ const App: React.FC = () => {
     } catch (error: any) { message.error(error?.message || '图片保存失败，请重试'); }
   };
 
-  const displayName = userProfile?.username || '访客预览';
+  const isSignedInView = Boolean(userProfile) || authBooting;
+  const displayName = userProfile?.username || (authBooting ? (language === 'en-US' ? 'Syncing…' : '同步中…') : '访客预览');
   const displayInitial = (userProfile?.username || userProfile?.email || userProfile?.phone || 'M').charAt(0).toUpperCase();
   const mapDisplayName = currentMap?.name || (guestDraftId ? mapName : '') || text.unnamedMap;
 
@@ -2358,7 +2481,7 @@ const App: React.FC = () => {
     { key: 'backup-draft', label: '下载草稿备份', onClick: () => { void downloadGuestBackup(); } }
   ] : [];
   // 已登录与未登录共用统一尺寸与视觉语言的账号下拉菜单
-  const userMenuItems = userProfile ? [
+  const userMenuItems = isSignedInView ? [
     {
       key: 'identity',
       disabled: true,
@@ -2404,7 +2527,7 @@ const App: React.FC = () => {
     ...guestBackupMenuItems,
     { type: 'divider' as const },
     { key: 'return-login', icon: <LogoutOutlined />, label: language === 'en-US' ? 'Welcome page' : '返回欢迎页', onClick: () => {
-      void persistGuestDraft(); setPreviewMode(false); if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
+      void persistGuestDraft(); guestPreviewRequestedRef.current = false; setGuestSession(false); setPreviewMode(false); if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     } }
   ];
 
@@ -2431,7 +2554,7 @@ const App: React.FC = () => {
     [resolvedInterfaceTheme]
   );
 
-  const returnToEditor = () => {navigatePublic('/');if (!userProfile && !previewMode) guestRestorePromiseRef.current = startGuestPreview();};
+  const returnToEditor = () => {navigatePublic('/');if (!isSignedInView && !previewMode) guestRestorePromiseRef.current = startGuestPreview();};
   const copyPublicWork = async (data: Awaited<ReturnType<typeof gallery.fork>>) => {
     if (dirty || (!userProfile && stations.length > 0)) {
       const confirmed = await new Promise<boolean>(resolve => Modal.confirm({title:'在工作台打开副本？',content:userProfile?'当前未保存的修改将被替换，请先确认已保存。':'副本将替换当前本机草稿。',okText:'打开副本',cancelText:'取消',onOk:()=>resolve(true),onCancel:()=>resolve(false)}));
@@ -2454,7 +2577,7 @@ const App: React.FC = () => {
     <GalleryPage path={publicPath} user={userProfile} onNavigate={navigatePublic} onEditor={returnToEditor} onAuthenticated={handleAuthenticated} onCopy={copyPublicWork}/>
   </AntdApp></ConfigProvider>;
 
-  if (!userProfile && !previewMode) {
+  if (!isSignedInView && !previewMode) {
     return (
       <ConfigProvider theme={antdThemeConfig}>
         <AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
@@ -2594,7 +2717,7 @@ const App: React.FC = () => {
               })()}
 
               <Dropdown menu={{ items: userMenuItems }} overlayClassName="metro-user-dropdown" trigger={['click']} placement="bottomRight">
-                {userProfile ? (
+                {isSignedInView ? (
                   <button type="button" className="user-chip user-chip--trigger">
                     <Avatar size={24} src={userProfile?.avatar} style={{ backgroundColor: 'var(--color-primary-600)' }}>
                       {userProfile?.avatar ? null : displayInitial}
@@ -2656,7 +2779,7 @@ const App: React.FC = () => {
                 fitOnMount={!guestInitialViewport}
                 onViewportChange={setGuestViewport}
                 onRequireAuth={() => requestGuestAuth('ai')}
-                isGuest={!userProfile}
+                isGuest={!isSignedInView}
                 onCreateLine={() => {
                   setIsMobileSidebarOpen(false);
                   setCreateLineRequest((request) => request + 1);

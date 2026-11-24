@@ -1,7 +1,32 @@
 import { Line, MapSettings, Section, Station } from './types';
+import {
+  clearAuthSession,
+  getStoredToken,
+  setStoredToken,
+  touchAuthActivity
+} from './lib/authSession';
 
-const TOKEN_KEY = 'metro_token';
+export {
+  AUTH_IDLE_TTL_MS,
+  bootstrapAuthSession,
+  clearAuthSession,
+  saveAuthSession,
+  touchAuthActivity,
+  touchAuthSessionUser
+} from './lib/authSession';
+
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    Object.setPrototypeOf(this, ApiError.prototype);
+  }
+}
 
 export interface UserDto {
   id: string;
@@ -83,15 +108,15 @@ export type AIOperation =
   | { type: 'delete_station'; stationId: string };
 
 export function getToken() {
-  return localStorage.getItem(TOKEN_KEY);
+  return getStoredToken();
 }
 
 export function setToken(token: string) {
-  localStorage.setItem(TOKEN_KEY, token);
+  setStoredToken(token);
 }
 
 export function clearToken() {
-  localStorage.removeItem(TOKEN_KEY);
+  clearAuthSession();
 }
 
 async function request<T>(
@@ -113,7 +138,10 @@ async function request<T>(
   const url = `${API_BASE_URL}${path}`;
   const res = await fetch(url, { ...options, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.message || '请求失败');
+  if (!res.ok) throw new ApiError(data.message || '请求失败', res.status);
+  if (authMode === 'login') {
+    touchAuthActivity();
+  }
   return data as T;
 }
 
@@ -293,7 +321,7 @@ export const api = {
     return final;
   },
 
-  me: () => request<{ user: UserDto }>('/api/me', {}, 'login'),
+  me: () => request<{ user: UserDto; token?: string }>('/api/me', {}, 'login'),
   updateMe: (payload: { username?: string; avatar?: string; password?: string }) =>
     request<{ user: UserDto }>('/api/me', { method: 'PUT', body: JSON.stringify(payload) }, 'login'),
   listMaps: () => request<{ maps: MapSummary[] }>('/api/maps', {}, 'login'),
