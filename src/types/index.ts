@@ -107,8 +107,7 @@ export interface MapSettings {
 }
 
 export const DEFAULT_MAP_SETTINGS: MapSettings = {
-  // 新建项目默认"专业线网"（dot-label）。注意 normalizeMapSettings 的 fallback
-  // 仍是 classic-badge —— 老存档缺 mapStyle 字段时保持原观感，只有新项目吃这个默认。
+  // 全部创作统一采用"专业线网"（dot-label）模式
   mapStyle: 'dot-label',
   canvasTheme: 'light',
   cityStyle: 'standard',
@@ -207,7 +206,7 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
       ? settings.cityStyle
       : 'standard';
   return {
-    mapStyle: settings?.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
+    mapStyle: 'dot-label',
     canvasTheme: settings?.canvasTheme === 'dark' ? 'dark' : 'light',
     cityStyle,
     showLineNameLabels: settings?.showLineNameLabels !== false,

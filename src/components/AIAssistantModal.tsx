@@ -162,6 +162,9 @@ function inferOperationAccentColor(op: AIOperation | undefined, lines: Line[]): 
   return '#2563eb';
 }
 
+const shouldDefaultOpenHistory = () =>
+  typeof window === 'undefined' || !(window.innerWidth > 0 && window.innerWidth <= 640);
+
 const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   open,
   busy,
@@ -181,7 +184,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     const existing = loadAISessions(userId).find((s) => s.mapKey === mapKey);
     return existing || createEmptyAISession(mapKey, mapName);
   });
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState<boolean>(shouldDefaultOpenHistory);
   const [historyScope, setHistoryScope] = useState<'current' | 'all'>('current');
   const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
   const [renamingValue, setRenamingValue] = useState('');
@@ -249,7 +252,12 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     }
   }, [messages, busy]);
 
+  const prevOpenRef = useRef(open);
   useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      setHistoryOpen(shouldDefaultOpenHistory());
+    }
+    prevOpenRef.current = open;
     if (!open && abortRef.current) {
       abortRef.current.abort();
       abortRef.current = null;

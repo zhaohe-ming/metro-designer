@@ -137,7 +137,7 @@ describe('AIAssistantModal', () => {
     expect(receivedHistories[1][1].content).toContain('用户已应用到画布');
     expect(receivedHistories[1][1].content).toContain('新建线路「1号线」');
 
-    // 4. 点击图标按钮「新对话」开启新会话后，再从「对话记录」侧栏切回旧会话
+    // 4. 点击图标按钮「新对话」开启新会话后，默认已展开的「对话记录」侧栏可直接看到并切回旧会话
     const newChatBtn = host.querySelector('button[aria-label="新对话"]') as HTMLButtonElement;
     expect(newChatBtn).not.toBeNull();
     await act(async () => {
@@ -145,11 +145,8 @@ describe('AIAssistantModal', () => {
     });
     expect(host.textContent).toContain('试试');
 
-    const historyBtn = host.querySelector('button[aria-label="对话记录"]') as HTMLButtonElement;
-    await act(async () => {
-      historyBtn.click();
-    });
     const savedSessionItem = host.querySelector('.metro-ai-session-item') as HTMLElement;
+    expect(savedSessionItem).not.toBeNull();
     expect(savedSessionItem?.textContent).toContain('创建红色1号线');
     await act(async () => {
       savedSessionItem.click();

@@ -3529,22 +3529,6 @@ const App: React.FC = () => {
                     </section>
 
                     <section className="metro-settings-section">
-                      <div className="metro-settings-label">{text.mapStyle}</div>
-                      <ElasticCapsuleTabs
-                        ariaLabel={text.mapStyle}
-                        value={mapSettings.mapStyle}
-                        onChange={(next) => {
-                          pushHistory();
-                          setMapSettings((prev) => normalizeMapSettings({ ...prev, mapStyle: next }));
-                        }}
-                        options={[
-                          { value: 'classic-badge', label: text.classicBadge },
-                          { value: 'dot-label', label: text.dotLabel }
-                        ]}
-                      />
-                    </section>
-
-                    <section className="metro-settings-section">
                       <div className="metro-settings-label">{text.cityStyle}</div>
                       <ElasticCapsuleTabs
                         ariaLabel={text.cityStyle}

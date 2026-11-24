@@ -1,6 +1,5 @@
 const DEFAULT_MAP_SETTINGS = {
-  // 与前端 src/types/index.ts 保持一致：新项目默认 dot-label（专业线网）；
-  // normalizeMapSettings 的 fallback 仍是 classic-badge，老数据不受影响。
+  // 与前端 src/types/index.ts 保持一致：全部创作统一采用 dot-label（专业线网）模式
   mapStyle: 'dot-label',
   canvasTheme: 'light',
   cityStyle: 'standard',
@@ -78,7 +77,7 @@ function normalizeMapSettings(settings) {
   const baseMap = settings && settings.baseMap ? settings.baseMap : {};
   const amap = baseMap && baseMap.amap ? baseMap.amap : {};
   return {
-    mapStyle: settings && settings.mapStyle === 'dot-label' ? 'dot-label' : 'classic-badge',
+    mapStyle: 'dot-label',
     canvasTheme: settings && settings.canvasTheme === 'dark' ? 'dark' : 'light',
     cityStyle:
       settings && ['standard', 'beijing', 'shanghai', 'mtr'].includes(settings.cityStyle)
