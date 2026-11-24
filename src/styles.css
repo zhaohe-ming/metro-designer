@@ -3404,23 +3404,25 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   }
 
   .metro-command-bar {
-    right: 304px;
+    right: 348px;
     bottom: 18px;
   }
 
   .metro-canvas-hud {
-    width: 268px;
-    min-width: 268px;
+    width: auto;
+    min-width: 0;
+    padding: 4px 10px;
     bottom: 18px;
-    right: 18px;
+    right: 20px;
     box-sizing: border-box;
-    justify-content: space-between;
+    justify-content: center;
   }
 
   .metro-canvas-hud__value {
-    width: 104px;
-    min-width: 104px;
-    flex: 0 0 104px;
+    width: auto;
+    min-width: 68px;
+    flex: 0 0 auto;
+    justify-content: center;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
@@ -4908,12 +4910,12 @@ body[data-interface-theme="dark"] .metro-settings-panel .ant-radio-button-wrappe
     right: auto;
     bottom: 18px;
     width: 248px;
-    max-width: calc(100% - 312px);
+    max-width: calc(100% - 360px);
     transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .metro-command-bar.is-expanded {
-    width: min(520px, calc(100% - 312px));
+    width: min(520px, calc(100% - 360px));
   }
 
   .metro-command-bar__row {

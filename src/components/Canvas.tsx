@@ -3514,7 +3514,7 @@ const Canvas: React.FC<CanvasProps> = ({
           })}
         </div>
 
-        {!readOnly && activeTool === 'draw' && (
+        {!readOnly && activeTool === 'draw' && (currentLine || lines.length > 0) && (
           <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
             {currentLine ? (
               <span className="metro-draw-subbar__line" title={currentLine.name}>
@@ -3525,18 +3525,9 @@ const Canvas: React.FC<CanvasProps> = ({
               <button
                 type="button"
                 className="metro-draw-subbar__pill"
-                onClick={() => {
-                  if (lines.length === 0) onCreateLine?.();
-                  else onSelectLine?.(lines[0].id);
-                }}
+                onClick={() => onSelectLine?.(lines[0].id)}
               >
-                {lines.length === 0
-                  ? isEn
-                    ? '+ Create a line first'
-                    : '+ 先在左侧新建线路'
-                  : isEn
-                    ? 'Select a line on left'
-                    : '请在左侧选择线路'}
+                {isEn ? 'Select a line on left' : '请在左侧选择线路'}
               </button>
             )}
             {anchorStation ? (
