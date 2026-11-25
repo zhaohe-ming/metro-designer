@@ -156,11 +156,13 @@ const CanvasOnboardingModal: React.FC<CanvasOnboardingModalProps> = ({
 }) => {
   const [view, setView] = useState<'tour' | 'cheatsheet'>(initialView);
   const [step, setStep] = useState(0);
+  const [sheetPage, setSheetPage] = useState(0);
 
   useEffect(() => {
     if (open) {
       setView(initialView);
       setStep(0);
+      setSheetPage(0);
     }
   }, [open, initialView]);
 
@@ -243,44 +245,49 @@ const CanvasOnboardingModal: React.FC<CanvasOnboardingModalProps> = ({
   const shortcutGroups = isCompact
     ? [
         {
-          title: isEn ? 'Touch Navigation' : '触屏视图与选择',
+          badge: isEn ? '1 / 2 · Touch Navigation' : '1 / 2 · 触屏视图与选择',
+          title: isEn ? 'Pinch to zoom, drag to shape & long-press to edit' : '双指缩放平移，按住线段直拉拐点与调圆弧',
           items: [
-            { k: isEn ? '2 Fingers' : '双指捏合 / 拖动', d: isEn ? 'Zoom & pan canvas' : '任意模式下缩放与平移画布' },
-            { k: isEn ? 'Tap Station' : '点按 / 长按站点', d: isEn ? 'Open station menu' : '唤出改名、方位与起笔菜单' },
-            { k: isEn ? 'Drag Track' : '选择态拖线段', d: isEn ? 'Pull out 360° bend' : '在所按位置拉出 360° 途经点' },
-            { k: isEn ? 'Long-Press Bend' : '长按途经点', d: isEn ? 'Open arc editor' : '打开圆弧半径与过点弧调节' }
+            { k: isEn ? '2 Fingers' : '双指捏合 / 拖动', d: isEn ? 'Zoom & pan canvas anytime' : '任意模式下缩放与平移画布' },
+            { k: isEn ? 'Tap Station' : '点按 / 长按站点', d: isEn ? 'Open station action menu' : '唤出改名、标签方位与起笔菜单' },
+            { k: isEn ? 'Drag Track' : '选择态拖线段', d: isEn ? 'Pull out 360° free bend' : '在所按位置直接拉出 360° 途经点' },
+            { k: isEn ? 'Long-Press Bend' : '长按途经点', d: isEn ? 'Open arc radius editor' : '打开圆弧半径与过点正圆弧调节' }
           ]
         },
         {
-          title: isEn ? 'Continuous Drawing' : '连续绘制模式',
+          badge: isEn ? '2 / 2 · Continuous Drawing' : '2 / 2 · 连续绘制模式',
+          title: isEn ? 'Tap to connect stations & lift pen to branch' : '点空白连站，点已有站换乘或抬笔拉支线',
           items: [
-            { k: isEn ? 'Tap Blank' : '点空白处', d: isEn ? 'Add station & connect' : '连续落站并自动顺延连线' },
-            { k: isEn ? 'Tap Station' : '点已有站点', d: isEn ? 'Extend / transfer / loop' : '从该站起笔、换乘接入或闭环' },
-            { k: isEn ? 'Lift Pen' : '点「抬笔」按钮', d: isEn ? 'Switch ends or branch' : '断链后换另一端延伸或拉支线' }
+            { k: isEn ? 'Tap Blank' : '点空白处', d: isEn ? 'Place station & auto-connect' : '连续落站并自动顺延连线' },
+            { k: isEn ? 'Tap Station' : '点已有站点', d: isEn ? 'Extend, transfer, or close loop' : '从该站起笔、换乘接入或闭环' },
+            { k: isEn ? 'Tap Segment' : '点区间线段', d: isEn ? 'Split segment & insert station' : '无损劈开区间并插入中间站' },
+            { k: isEn ? 'Lift Pen' : '点「抬笔」按钮', d: isEn ? 'Switch ends or pull a branch' : '断链后换另一端延伸或拉支线' }
           ]
         }
       ]
     : [
         {
-          title: isEn ? 'Drawing & Shaping' : '连续绘制与圆弧塑形',
+          badge: isEn ? '1 / 2 · Drawing & Shaping' : '1 / 2 · 连续绘制与圆弧塑形',
+          title: isEn ? 'Continuous pen drawing, 360° bends & arc radius' : '一笔连站、自由折角与弯道圆弧核心手势',
           items: [
-            { k: 'V / D / H', d: isEn ? 'Select / Draw / Pan mode' : '切换「选择 / 绘制 / 移动」模式' },
-            { k: isEn ? 'Draw · Click' : '绘制态 · 左键', d: isEn ? 'Add station / transfer / T-split' : '落新站 · 点已有站换乘 · 点线插站' },
-            { k: 'Shift + 左键', d: isEn ? 'Add 360° bends while drawing' : '连笔途中连续打 360° 自由拐点' },
-            { k: isEn ? 'Right Click / Esc' : '绘制态 · 右键 / Esc', d: isEn ? 'Lift pen to branch or switch end' : '抬笔断链，换另一端或拉出支线' },
-            { k: isEn ? 'Drag Track' : '选择态 · 拖线段', d: isEn ? 'Pull out 360° waypoint' : '在所抓位置拉出途经点，右键调圆弧' },
-            { k: 'Alt (按住)', d: isEn ? 'Bypass snap & merge' : '临时关闭角度吸附与叠放合站' }
+            { k: 'D / V / H', d: isEn ? 'Switch Draw / Select / Pan mode' : '切换「绘制 / 选择 / 移动」工作模式' },
+            { k: isEn ? 'Draw · Click' : '绘制态 · 左键', d: isEn ? 'New station · transfer · split line' : '落新站连线 · 点已有站换乘 · 点线插站' },
+            { k: 'Shift + 左键', d: isEn ? 'Place multiple 360° bends inline' : '连笔途中连续打 360° 自由途经点' },
+            { k: isEn ? 'Right Click / Esc' : '绘制态 · 右键 / Esc', d: isEn ? 'Lift pen to switch end or branch' : '抬笔断链，换另一端延伸或拉出支线' },
+            { k: isEn ? 'Select · Drag Line' : '选择态 · 拖线段', d: isEn ? 'Pull out bend, right-click for arc' : '在所抓位置拉出途经点，右键调圆弧' },
+            { k: 'Alt (按住)', d: isEn ? 'Bypass angle snap & station merge' : '临时关闭角度参考吸附与叠放合站' }
           ]
         },
         {
-          title: isEn ? 'Fast Edits & Navigation' : '快改、多选与全局导航',
+          badge: isEn ? '2 / 2 · Fast Edits & Navigation' : '2 / 2 · 快改、多选与全局导航',
+          title: isEn ? 'Inline double-click edits, box move & quick jump' : '高频双击快改、框选整片平移与快捷定位',
           items: [
-            { k: isEn ? 'Double Click' : '双击站点 / 线段 / 拐点', d: isEn ? 'Rename / insert / delete bend' : '原地改名 · 劈线补站 · 删拐点拉直' },
-            { k: isEn ? 'Blank Drag' : '选择态 · 空白拖拽', d: isEn ? 'Box-select & group move' : '矩形框选多站并整片同步平移' },
-            { k: 'Space + 拖拽', d: isEn ? 'Temporary hand pan' : '任意模式下临时抓手平移画布' },
-            { k: 'Ctrl + F', d: isEn ? 'Find & center station' : '搜索站名或线路并平滑居中定位' },
-            { k: 'Delete / Backspace', d: isEn ? 'Delete selected items' : '批量删除选中站点（自动缝合）' },
-            { k: 'Ctrl + Z / Y', d: isEn ? 'Undo / Redo' : '撤销上一步操作 / 重做修改' }
+            { k: isEn ? 'Double Click' : '双击站点 / 线段 / 拐点', d: isEn ? 'Rename · insert station · remove bend' : '原地改站名 · 劈线补站 · 删拐点拉直' },
+            { k: isEn ? 'Select · Blank Drag' : '选择态 · 空白拖拽', d: isEn ? 'Marquee select & move sub-network' : '矩形框选多站并连同拐点整片平移' },
+            { k: 'Space + 拖拽', d: isEn ? 'Temporary hand pan in any tool' : '任意工具下临时抓手平移画布' },
+            { k: 'Ctrl / ⌘ + F', d: isEn ? 'Search station or line & center' : '搜索站名或线路并平滑居中定位' },
+            { k: 'Delete / ⌫', d: isEn ? 'Delete selected stations or bend' : '批量删除选中站点（自动缝合）或拐点' },
+            { k: 'Ctrl / ⌘ + Z', d: isEn ? 'Undo last action (Ctrl+Shift+Z redo)' : '撤销上一步操作（Ctrl+Shift+Z 重做）' }
           ]
         }
       ];
@@ -292,15 +299,23 @@ const CanvasOnboardingModal: React.FC<CanvasOnboardingModalProps> = ({
         e.stopPropagation();
         markCanvasOnboardingSeen();
         onClose();
-      } else if (view === 'tour' && e.key === 'ArrowRight') {
-        setStep((s) => Math.min(3, s + 1));
-      } else if (view === 'tour' && e.key === 'ArrowLeft') {
-        setStep((s) => Math.max(0, s - 1));
+      } else if (e.key === 'ArrowRight') {
+        if (view === 'tour') {
+          setStep((s) => Math.min(3, s + 1));
+        } else {
+          setSheetPage((p) => Math.min(shortcutGroups.length - 1, p + 1));
+        }
+      } else if (e.key === 'ArrowLeft') {
+        if (view === 'tour') {
+          setStep((s) => Math.max(0, s - 1));
+        } else {
+          setSheetPage((p) => Math.max(0, p - 1));
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, view, onClose]);
+  }, [open, view, shortcutGroups.length, onClose]);
 
   const handleFinish = () => {
     markCanvasOnboardingSeen();
@@ -310,6 +325,7 @@ const CanvasOnboardingModal: React.FC<CanvasOnboardingModalProps> = ({
   if (!open || typeof document === 'undefined') return null;
 
   const currentTour = tourSteps[step];
+  const currentSheet = shortcutGroups[Math.min(sheetPage, shortcutGroups.length - 1)];
 
   return createPortal(
     <div
@@ -322,7 +338,7 @@ const CanvasOnboardingModal: React.FC<CanvasOnboardingModalProps> = ({
       }}
     >
       <div
-        className={`metro-onboard-dialog${view === 'cheatsheet' ? ' is-wide' : ''}`}
+        className="metro-onboard-dialog"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="metro-onboard">
@@ -410,29 +426,66 @@ const CanvasOnboardingModal: React.FC<CanvasOnboardingModalProps> = ({
             </div>
           ) : (
             <div className="metro-onboard__sheet">
-              <div className="metro-onboard__grid">
-                {shortcutGroups.map((group) => (
-                  <div key={group.title} className="metro-onboard__group">
-                    <div className="metro-onboard__group-title">{group.title}</div>
-                    <div className="metro-onboard__rows">
-                      {group.items.map((item) => (
-                        <div key={item.k} className="metro-onboard__row">
-                          <kbd className="metro-onboard__kbd">{item.k}</kbd>
-                          <span className="metro-onboard__desc">{item.d}</span>
-                        </div>
-                      ))}
+              <div className="metro-onboard__badge">{currentSheet.badge}</div>
+              <h3 className="metro-onboard__title">{currentSheet.title}</h3>
+              <div className="metro-onboard__group metro-onboard__group--paged">
+                <div className="metro-onboard__rows">
+                  {currentSheet.items.map((item) => (
+                    <div key={item.k} className="metro-onboard__row">
+                      <kbd className="metro-onboard__kbd">{item.k}</kbd>
+                      <span className="metro-onboard__desc">{item.d}</span>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-              <div className="metro-onboard__sheet-footer">
-                <button
-                  type="button"
-                  className="metro-onboard__btn metro-onboard__btn--primary"
-                  onClick={handleFinish}
-                >
-                  {isEn ? 'Got it' : '我知道了'}
-                </button>
+              <div className="metro-onboard__footer">
+                <div className="metro-onboard__dots" role="tablist" aria-label={isEn ? 'Shortcut pages' : '快捷键分页'}>
+                  {shortcutGroups.map((_, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      className={`metro-onboard__dot${idx === sheetPage ? ' is-active' : ''}`}
+                      onClick={() => setSheetPage(idx)}
+                      aria-label={isEn ? `Page ${idx + 1}` : `第 ${idx + 1} 页`}
+                    />
+                  ))}
+                </div>
+                <div className="metro-onboard__actions">
+                  {sheetPage > 0 ? (
+                    <button
+                      type="button"
+                      className="metro-onboard__btn metro-onboard__btn--ghost"
+                      onClick={() => setSheetPage((p) => Math.max(0, p - 1))}
+                    >
+                      <ArrowLeftOutlined /> {isEn ? 'Prev' : '上一页'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="metro-onboard__btn metro-onboard__btn--ghost"
+                      onClick={handleFinish}
+                    >
+                      {isEn ? 'Close' : '关闭'}
+                    </button>
+                  )}
+                  {sheetPage < shortcutGroups.length - 1 ? (
+                    <button
+                      type="button"
+                      className="metro-onboard__btn metro-onboard__btn--primary"
+                      onClick={() => setSheetPage((p) => Math.min(shortcutGroups.length - 1, p + 1))}
+                    >
+                      {isEn ? 'Next' : '下一页'} <ArrowRightOutlined />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="metro-onboard__btn metro-onboard__btn--primary"
+                      onClick={handleFinish}
+                    >
+                      <CheckOutlined /> {isEn ? 'Got it' : '我知道了'}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}

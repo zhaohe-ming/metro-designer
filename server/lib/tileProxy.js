@@ -34,29 +34,38 @@ function setCachedTile(key, buffer, contentType) {
   });
 }
 
-function buildUpstreamUrls(style, z, x, y) {
+function buildUpstreamUrls(style, z, x, y, cartoKey = process.env.CARTO_API_KEY || process.env.REACT_APP_CARTO_API_KEY || '') {
+  const trimmedKey = String(cartoKey || '').trim();
+  if (!trimmedKey) {
+    // 默认零密钥模式：直连无水印 OpenStreetMap 官方源与 Esri 全球底图镜像（注意 Esri 路径为 z/y/x）
+    return [
+      `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
+      `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${x}`
+    ];
+  }
+
   const sub = SUBDOMAINS[Math.abs(x + y) % SUBDOMAINS.length];
+  const q = `?key=${encodeURIComponent(trimmedKey)}`;
   switch (style) {
     case 'dark':
       return [
-        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}@2x.png`,
-        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png`
+        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}@2x.png${q}`,
+        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${x}/${y}.png${q}`
       ];
     case 'grey':
       return [
-        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${x}/${y}@2x.png`,
-        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${x}/${y}.png`
+        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${x}/${y}@2x.png${q}`,
+        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${x}/${y}.png${q}`
       ];
     case 'fresh':
       return [
-        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}@2x.png`,
-        `https://a.tile.openstreetmap.fr/hot/${z}/${x}/${y}.png`,
+        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}@2x.png${q}`,
         `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
       ];
     case 'normal':
     default:
       return [
-        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}@2x.png`,
+        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${x}/${y}@2x.png${q}`,
         `https://tile.openstreetmap.org/${z}/${x}/${y}.png`
       ];
   }
@@ -90,7 +99,7 @@ async function fetchUpstreamTile(urls, fetchImpl = fetch) {
   return { ok: false };
 }
 
-function createTileProxyHandler({ fetchImpl = fetch } = {}) {
+function createTileProxyHandler({ fetchImpl = fetch, cartoApiKey } = {}) {
   return async function handleTileProxy(req, res) {
     const rawStyle = String(req.params.style || 'normal');
     const style = ['normal', 'grey', 'dark', 'fresh'].includes(rawStyle) ? rawStyle : null;
@@ -107,7 +116,9 @@ function createTileProxyHandler({ fetchImpl = fetch } = {}) {
       return res.status(400).json({ message: '瓦片行列坐标超出范围' });
     }
 
-    const cacheKey = `${style}:${z}:${x}:${y}`;
+    const activeCartoKey = String(cartoApiKey ?? process.env.CARTO_API_KEY ?? process.env.REACT_APP_CARTO_API_KEY ?? '').trim();
+    const cachePrefix = activeCartoKey ? style : 'base';
+    const cacheKey = `${cachePrefix}:${z}:${x}:${y}`;
     const cached = getCachedTile(cacheKey);
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
@@ -119,7 +130,7 @@ function createTileProxyHandler({ fetchImpl = fetch } = {}) {
       return res.send(cached.buffer);
     }
 
-    const fetched = await fetchUpstreamTile(buildUpstreamUrls(style, z, x, y), fetchImpl);
+    const fetched = await fetchUpstreamTile(buildUpstreamUrls(style, z, x, y, activeCartoKey), fetchImpl);
     if (!fetched.ok) {
       return res.status(502).json({ message: '上游地理底图瓦片暂时不可达，请稍后重试' });
     }

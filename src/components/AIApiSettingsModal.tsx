@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Button, Input, message } from 'antd';
-import { CheckCircleOutlined, KeyOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import {
+  CheckCircleOutlined,
+  EyeInvisibleOutlined,
+  EyeOutlined,
+  KeyOutlined,
+  SafetyCertificateOutlined
+} from '@ant-design/icons';
 import DraggableModal from './DraggableModal';
 import ElasticCapsuleTabs from './ElasticCapsuleTabs';
 import {
@@ -21,11 +27,13 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
   const [draft, setDraft] = useState<CustomAIConfig>(() => loadCustomAIConfig());
   const [statusInfo, setStatusInfo] = useState<AIStatusInfo | null>(null);
   const [testing, setTesting] = useState(false);
+  const [showKey, setShowKey] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     setDraft(loadCustomAIConfig());
+    setShowKey(false);
     setTestResult(null);
     api
       .aiStatus()
@@ -191,10 +199,38 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
                   {currentPreset.keyHint}
                 </span>
               </div>
-              <Input.Password
+              <Input
+                type="text"
+                name="metro_ai_custom_api_token"
                 placeholder="sk-..."
                 value={draft.apiKey}
                 autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+                spellCheck={false}
+                data-lpignore="true"
+                data-1p-ignore="true"
+                data-bwignore="true"
+                data-form-type="other"
+                className={!showKey && draft.apiKey ? 'metro-secret-token-masked' : undefined}
+                suffix={
+                  <button
+                    type="button"
+                    onClick={() => setShowKey((s) => !s)}
+                    aria-label={showKey ? '隐藏密钥' : '显示密钥'}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      padding: 0,
+                      cursor: 'pointer',
+                      color: 'var(--color-text-muted, #64748b)',
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    {showKey ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                  </button>
+                }
                 onChange={(e) => {
                   setTestResult(null);
                   setDraft((prev) => ({ ...prev, apiKey: e.target.value }));
@@ -206,8 +242,12 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>接口地址 (Base URL)</div>
                 <Input
+                  name="metro_ai_custom_base_url"
                   placeholder="https://api.deepseek.com"
                   value={draft.baseUrl}
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-form-type="other"
                   onChange={(e) => {
                     setTestResult(null);
                     setDraft((prev) => ({ ...prev, baseUrl: e.target.value }));
@@ -217,8 +257,12 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>模型名称 (Model)</div>
                 <Input
+                  name="metro_ai_custom_model"
                   placeholder="deepseek-chat"
                   value={draft.model}
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-form-type="other"
                   onChange={(e) => {
                     setTestResult(null);
                     setDraft((prev) => ({ ...prev, model: e.target.value }));

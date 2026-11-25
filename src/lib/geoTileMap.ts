@@ -4,6 +4,7 @@
 export type GeoMapStyle = 'normal' | 'grey' | 'dark' | 'fresh';
 
 const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '');
+const CARTO_API_KEY = (process.env.REACT_APP_CARTO_API_KEY || '').trim();
 const MAX_MERCATOR_LAT = 85.05112878;
 const TILE_SIZE = 256;
 const MIN_ZOOM = 3;
@@ -46,41 +47,80 @@ function normalizeStyleKey(rawStyle?: string): GeoMapStyle {
 const SUBDOMAINS = ['a', 'b', 'c', 'd'];
 
 /**
- * 为单个瓦片返回按优先级排列的多源候选地址：
- * 1) 优先走后端同源/API 瓦片缓存代理（若已部署后端，国内与全球均稳定且自动 7 天缓存）或全球高速 CARTO Fastly CDN；
- * 2) 自动降级备用 CDN 与 OpenStreetMap 官方源，彻底消除单点网络抖动。
+ * 计算不同底图风格在 Canvas 上的色彩滤镜：
+ * - 默认免 Key 模式下使用无水印的 OpenStreetMap / ArcGIS 全球公开瓦片作为底板，通过高精度色彩映射实时生成「标准 / 浅灰 / 深色 / 清新」四套视觉风格；
+ * - 若额外配置了 REACT_APP_CARTO_API_KEY，则直接使用 CARTO 原生分风格 @2x 瓦片，仅对 fresh 做轻度调色。
  */
-export function getTileCandidateUrls(style: GeoMapStyle, z: number, x: number, y: number): string[] {
+export function getCanvasFilterForStyle(style: GeoMapStyle, hasCartoKey = Boolean(CARTO_API_KEY)): string {
+  if (hasCartoKey) {
+    return style === 'fresh' ? 'saturate(0.82) brightness(1.03) hue-rotate(-4deg)' : 'none';
+  }
+  switch (style) {
+    case 'dark':
+      // 反相 + 180° 色相回正：海洋水体保持深海蓝、绿地保持暗林绿、路网与中文地名转为清晰浅灰白，彻底告别水印
+      return 'invert(1) hue-rotate(180deg) saturate(0.35) brightness(0.84) contrast(1.08)';
+    case 'grey':
+      return 'grayscale(1) brightness(1.06) contrast(0.88)';
+    case 'fresh':
+      return 'saturate(0.76) brightness(1.04) hue-rotate(-8deg) contrast(0.96)';
+    case 'normal':
+    default:
+      return 'none';
+  }
+}
+
+/**
+ * 为单个瓦片返回按优先级排列的多源候选地址：
+ * 1) 未配置 CARTO Key（默认零密钥开箱即用）：绝不请求未鉴权的 cartocdn.com（防止其返回带 API KEY REQUIRED 水印的 200 图片），
+ *    直连免 Key 无水印的 OpenStreetMap 官方源 + 后端缓存代理 + Esri World Street Map 容灾镜像；
+ * 2) 已配置 REACT_APP_CARTO_API_KEY（或显式传入 cartoKey）：优先请求带 ?key= 的 CARTO @2x 原生高清瓦片，并自动降级免 Key 源。
+ */
+export function getTileCandidateUrls(
+  style: GeoMapStyle,
+  z: number,
+  x: number,
+  y: number,
+  cartoKey = CARTO_API_KEY
+): string[] {
   const n = 1 << z;
   const wrappedX = ((x % n) + n) % n;
+  const trimmedKey = String(cartoKey || '').trim();
+
+  if (!trimmedKey) {
+    return [
+      `https://tile.openstreetmap.org/${z}/${wrappedX}/${y}.png`,
+      `${API_BASE_URL}/api/basemap/tile/normal/${z}/${wrappedX}/${y}.png`,
+      `https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/${z}/${y}/${wrappedX}`
+    ];
+  }
+
   const sub = SUBDOMAINS[Math.abs(wrappedX + y) % SUBDOMAINS.length];
-  const osmSub = ['a', 'b', 'c'][Math.abs(wrappedX + y) % 3];
+  const q = `?key=${encodeURIComponent(trimmedKey)}`;
   const proxyUrl = `${API_BASE_URL}/api/basemap/tile/${style}/${z}/${wrappedX}/${y}.png`;
 
   switch (style) {
     case 'dark':
       return [
-        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${wrappedX}/${y}@2x.png`,
+        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${wrappedX}/${y}@2x.png${q}`,
         proxyUrl,
-        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${wrappedX}/${y}.png`
+        `https://${sub}.basemaps.cartocdn.com/dark_all/${z}/${wrappedX}/${y}.png${q}`
       ];
     case 'grey':
       return [
-        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${wrappedX}/${y}@2x.png`,
+        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${wrappedX}/${y}@2x.png${q}`,
         proxyUrl,
-        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${wrappedX}/${y}.png`
+        `https://${sub}.basemaps.cartocdn.com/light_all/${z}/${wrappedX}/${y}.png${q}`
       ];
     case 'fresh':
       return [
-        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${wrappedX}/${y}@2x.png`,
+        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${wrappedX}/${y}@2x.png${q}`,
         proxyUrl,
-        `https://${osmSub}.tile.openstreetmap.fr/hot/${z}/${wrappedX}/${y}.png`,
         `https://tile.openstreetmap.org/${z}/${wrappedX}/${y}.png`
       ];
     case 'normal':
     default:
       return [
-        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${wrappedX}/${y}@2x.png`,
+        `https://${sub}.basemaps.cartocdn.com/rastertiles/voyager/${z}/${wrappedX}/${y}@2x.png${q}`,
         proxyUrl,
         `https://tile.openstreetmap.org/${z}/${wrappedX}/${y}.png`
       ];
@@ -112,7 +152,8 @@ function loadTileWithFallback(
 ): TileEntry {
   const n = 1 << z;
   const wrappedX = ((x % n) + n) % n;
-  const key = `${style}:${z}:${wrappedX}:${y}`;
+  const cachePrefix = CARTO_API_KEY ? style : 'base';
+  const key = `${cachePrefix}:${z}:${wrappedX}:${y}`;
   const existing = sharedTileCache.get(key);
   if (existing) {
     existing.lastUsed = Date.now();
@@ -221,7 +262,7 @@ export class GeoTileMap {
     this.creditEl.style.cssText =
       'position:absolute;right:16px;top:10px;padding:2px 8px;border-radius:999px;font-size:10px;line-height:16px;' +
       'font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;pointer-events:none;opacity:0.72;z-index:2;';
-    this.creditEl.textContent = '© OpenStreetMap · CARTO';
+    this.creditEl.textContent = CARTO_API_KEY ? '© OpenStreetMap · CARTO' : '© OpenStreetMap contributors';
     this.rootEl.appendChild(this.creditEl);
 
     host.innerHTML = '';
@@ -308,10 +349,12 @@ export class GeoTileMap {
             : '#eef2f6';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    if (this.style === 'fresh') {
-      ctx.filter = 'saturate(0.82) brightness(1.03) hue-rotate(-4deg)';
+    const filterStr = getCanvasFilterForStyle(this.style, Boolean(CARTO_API_KEY));
+    if (typeof ctx.filter === 'string') {
+      ctx.filter = filterStr;
+      this.canvas.style.filter = 'none';
     } else {
-      ctx.filter = 'none';
+      this.canvas.style.filter = filterStr === 'none' ? '' : filterStr;
     }
 
     const tileZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.round(this.zoom)));
@@ -361,7 +404,8 @@ export class GeoTileMap {
       const ptx = Math.floor(tx / factor);
       const pty = Math.floor(ty / factor);
       const wrappedPtx = ((ptx % n) + n) % n;
-      const parentEntry = sharedTileCache.get(`${this.style}:${pz}:${wrappedPtx}:${pty}`);
+      const cachePrefix = CARTO_API_KEY ? this.style : 'base';
+      const parentEntry = sharedTileCache.get(`${cachePrefix}:${pz}:${wrappedPtx}:${pty}`);
       if (parentEntry?.status === 'ready' && parentEntry.img) {
         const imgW = parentEntry.img.naturalWidth || TILE_SIZE;
         const imgH = parentEntry.img.naturalHeight || TILE_SIZE;
@@ -574,6 +618,11 @@ export async function stitchGeoStaticMapBlob(params: {
   ctx.fillStyle = style === 'dark' ? '#0f172a' : '#f1f5f9';
   ctx.fillRect(0, 0, outW, outH);
 
+  const filterStr = getCanvasFilterForStyle(style, Boolean(CARTO_API_KEY));
+  if (typeof ctx.filter === 'string') {
+    ctx.filter = filterStr;
+  }
+
   const centerWorld = lngLatToWorldPx(params.center[0], params.center[1], tileZ);
   const leftWorld = centerWorld.x - outW / 2;
   const topWorld = centerWorld.y - outH / 2;
@@ -598,6 +647,9 @@ export async function stitchGeoStaticMapBlob(params: {
   }
 
   await Promise.all(jobs);
+  if (typeof ctx.filter === 'string') {
+    ctx.filter = 'none';
+  }
 
   return new Promise<Blob>((resolve, reject) => {
     canvas.toBlob((blob) => {

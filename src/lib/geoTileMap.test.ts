@@ -1,5 +1,6 @@
 import {
   GeoTileMap,
+  getCanvasFilterForStyle,
   getTileCandidateUrls,
   lngLatToWorldPx,
   worldPxToLngLat
@@ -23,12 +24,17 @@ describe('geoTileMap & aiCustomConfig', () => {
     expect(back.lat).toBeCloseTo(39.907335, 5);
   });
 
-  test('getTileCandidateUrls includes primary CDN, backend cache proxy, and fallback mirror', () => {
-    const urls = getTileCandidateUrls('normal', 11, 1686, 775);
-    expect(urls.length).toBeGreaterThanOrEqual(3);
-    expect(urls.some((u) => u.includes('basemaps.cartocdn.com'))).toBe(true);
-    expect(urls.some((u) => u.includes('/api/basemap/tile/normal/11/1686/775.png'))).toBe(true);
-    expect(urls.some((u) => u.includes('tile.openstreetmap.org'))).toBe(true);
+  test('getTileCandidateUrls avoids watermarked unkeyed CARTO by default and enables ?key= when CARTO key is provided', () => {
+    const zeroKeyUrls = getTileCandidateUrls('dark', 11, 1686, 775, '');
+    expect(zeroKeyUrls.length).toBeGreaterThanOrEqual(3);
+    expect(zeroKeyUrls.some((u) => u.includes('basemaps.cartocdn.com'))).toBe(false);
+    expect(zeroKeyUrls.some((u) => u.includes('tile.openstreetmap.org/11/1686/775.png'))).toBe(true);
+    expect(zeroKeyUrls.some((u) => u.includes('/api/basemap/tile/normal/11/1686/775.png'))).toBe(true);
+    expect(getCanvasFilterForStyle('dark', false)).toContain('invert(1)');
+
+    const keyedUrls = getTileCandidateUrls('dark', 11, 1686, 775, 'my-carto-key');
+    expect(keyedUrls[0]).toContain('basemaps.cartocdn.com/dark_all/11/1686/775@2x.png?key=my-carto-key');
+    expect(getCanvasFilterForStyle('dark', true)).toBe('none');
   });
 
   test('GeoTileMap container projection and panBy shift coordinates consistently', () => {

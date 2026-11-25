@@ -7660,11 +7660,6 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   background: #ffffff;
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.2);
   overflow: hidden;
-  transition: width 180ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.metro-onboard-dialog.is-wide {
-  width: min(784px, 100%);
 }
 
 .metro-onboard {
@@ -7845,21 +7840,18 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   background: #1d4ed8;
 }
 
-.metro-onboard__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 18px;
-  margin-bottom: 20px;
-}
-
 .metro-onboard__group {
-  padding: 18px 20px;
+  padding: 16px 20px;
   border-radius: 16px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+}
+
+.metro-onboard__group--paged {
+  margin-bottom: 20px;
 }
 
 .metro-onboard__group-title {
@@ -7878,14 +7870,14 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 14px;
-  padding: 9px 0;
-  border-bottom: 1px dashed rgba(203, 213, 225, 0.65);
-  font-size: 12.5px;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px dashed rgba(203, 213, 225, 0.7);
+  font-size: 13px;
 }
 
 .metro-onboard__row:first-child {
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
 .metro-onboard__row:last-child {
@@ -7895,28 +7887,22 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
 
 .metro-onboard__kbd {
   flex-shrink: 0;
-  padding: 3px 9px;
-  border-radius: 7px;
+  padding: 3px 10px;
+  border-radius: 8px;
   border: 1px solid #cbd5e1;
   background: #ffffff;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
   color: #0f172a;
   font-family: inherit;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   white-space: nowrap;
 }
 
 .metro-onboard__desc {
-  color: #475569;
+  color: #334155;
   text-align: right;
   line-height: 1.5;
-}
-
-.metro-onboard__sheet-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 14px;
-  border-top: 1px solid #f1f5f9;
 }
 
 /* 深色模式适配 */
@@ -8035,6 +8021,11 @@ body[data-interface-theme="dark"] .metro-onboard__kbd {
   background: #0f172a;
   border-color: rgba(148, 163, 184, 0.3);
   color: #e2e8f0;
+}
+
+input.metro-secret-token-masked,
+.metro-secret-token-masked input {
+  -webkit-text-security: disc;
 }
 
 @media (max-width: 768px) {
