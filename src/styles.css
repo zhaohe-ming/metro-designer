@@ -1575,9 +1575,9 @@ body {
   z-index: 20;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  max-width: calc(100% - 120px);
+  flex-wrap: nowrap;
+  gap: 8px;
+  max-width: calc(100% - 28px);
   pointer-events: none;
 }
 
@@ -8040,9 +8040,16 @@ input.metro-secret-token-masked,
 .metro-lightcity-sculpt-bar {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  max-width: calc(100vw - 380px);
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  gap: 6px;
+  max-width: calc(100vw - 290px);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.metro-lightcity-sculpt-bar::-webkit-scrollbar {
+  display: none;
 }
 
 @media (max-width: 960px) {

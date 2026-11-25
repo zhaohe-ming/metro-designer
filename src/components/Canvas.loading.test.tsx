@@ -6,13 +6,14 @@ import { DEFAULT_MAP_SETTINGS } from '../types';
 let mockGroupProps: any[] = [];
 let mockReadyDocument: string | null = null;
 let mockError = '';
+let mockZoom = 12;
 const mockProject = jest.fn(([lng, lat]: number[]) => ({ x: (lng - 117) * 1000, y: (39.5 - lat) * 1000 }));
 const mockUnproject = jest.fn(({ x, y }: { x: number; y: number }) => ({
   lng: Number((117 + x / 1000).toFixed(6)),
   lat: Number((39.5 - y / 1000).toFixed(6))
 }));
 jest.mock('../lib/useAmapViewport', () => ({ useAmapViewport: (options: any) => ({
-  mapRef: { current: { lngLatToContainer: mockProject, containerToLngLat: mockUnproject, getZoom: () => 12 } },
+  mapRef: { current: { lngLatToContainer: mockProject, containerToLngLat: mockUnproject, getZoom: () => mockZoom } },
   ready: options.documentKey === mockReadyDocument, error: mockError, renderTick: 0
 }) }));
 jest.mock('../lib/useElasticToolbar', () => ({ useElasticToolbar: () => require('react').useRef(null) }));
@@ -47,7 +48,7 @@ const render = (documentKey: string, extra: any = {}) => act(() => root.render(<
   stations={stations} sections={[]} mapSettings={settings} documentKey={documentKey} {...extra} {...({} as any)} />));
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  mockGroupProps=[];mockReadyDocument = null; mockError = '';
+  mockGroupProps=[];mockReadyDocument = null; mockError = ''; mockZoom = 12;
   mockProject.mockImplementation(([lng, lat]: number[]) => ({ x: (lng - 117) * 1000, y: (39.5 - lat) * 1000 }));
   mockUnproject.mockImplementation(({ x, y }: { x: number; y: number }) => ({
     lng: Number((117 + x / 1000).toFixed(6)),
@@ -168,6 +169,63 @@ test('纯画布或轻城市线网切入地理底图后自动绑定经纬度，�
   act(() => {
     editBtn!.click();
   });
-  expect(host.textContent).toContain('正在造景');
+  expect(host.textContent).not.toContain('编辑底图');
+  expect(host.textContent).toContain('塑形');
   expect(host.textContent).toContain('完成造景');
+});
+
+test('地理底图缩远态切换至纯画布时自动径向舒展站间距，避免世界坐标挤成一团', () => {
+  mockReadyDocument = 'stretch';
+  mockZoom = 10.0; // 远低于参考缩放级 11.8，此时屏幕相邻站仅相距 22px
+  const crampedGeoStations = [
+    { id: 's1', name: '甲站', x: 500, y: 400, lng: 117.5, lat: 39.1 },
+    { id: 's2', name: '乙站', x: 522, y: 400, lng: 117.522, lat: 39.1 }
+  ];
+  const crampedSections = [{ id: 'sec1', lineId: 'l', startStationId: 's1', endStationId: 's2' }];
+  let switchedGraph: any = null;
+  const onApplyGraphTransaction = jest.fn((updater: any) => {
+    switchedGraph = updater({
+      lines: [{ ...line, stationIds: ['s1', 's2'], sectionIds: ['sec1'] }],
+      stations: crampedGeoStations,
+      sections: crampedSections
+    });
+  });
+
+  render('stretch', {
+    stations: crampedGeoStations,
+    sections: crampedSections,
+    lines: [{ ...line, stationIds: ['s1', 's2'], sectionIds: ['sec1'] }],
+    onApplyGraphTransaction
+  });
+
+  act(() => {
+    root.render(
+      <Canvas
+        currentLineId="l"
+        lines={[{ ...line, stationIds: ['s1', 's2'], sectionIds: ['sec1'] }]}
+        stations={crampedGeoStations as any}
+        sections={crampedSections as any}
+        mapSettings={{
+          ...DEFAULT_MAP_SETTINGS,
+          baseMap: { mode: 'plain' }
+        }}
+        documentKey="stretch"
+        onApplyGraphTransaction={onApplyGraphTransaction}
+        onAddStation={() => {}}
+        onUpdateStation={() => {}}
+        onAddStationToLine={() => {}}
+        onRenameStation={() => {}}
+        onDeleteSection={() => {}}
+        onReorderStations={() => {}}
+        onDeleteStation={() => {}}
+      />
+    );
+  });
+
+  expect(switchedGraph).not.toBeNull();
+  const [outA, outB] = switchedGraph.stations;
+  const stretchedWorldDist = Math.hypot(outB.x - outA.x, outB.y - outA.y);
+  expect(stretchedWorldDist).toBeGreaterThanOrEqual(75);
+  expect(outA.lng).toBeUndefined();
+  expect(outB.lng).toBeUndefined();
 });

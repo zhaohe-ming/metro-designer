@@ -3,8 +3,7 @@ import { Button, Input, Slider } from 'antd';
 import {
   CheckOutlined,
   DeleteOutlined,
-  ReloadOutlined,
-  SelectOutlined
+  ReloadOutlined
 } from '@ant-design/icons';
 import DraggableModal from './DraggableModal';
 import ElasticCapsuleTabs from './ElasticCapsuleTabs';
@@ -242,83 +241,97 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
         value={tool}
         onChange={onChangeTool}
         options={[
-          { value: 'select', label: isEn ? 'Shape' : '塑形选择' },
-          { value: 'river', label: isEn ? 'River' : '画河流' },
-          { value: 'waterArea', label: isEn ? 'Bay / Island' : '湖海/洲岛' },
-          { value: 'zone', label: isEn ? 'Zone / Park' : '画片区' },
-          { value: 'road', label: isEn ? 'Road' : '画主干道' },
-          { value: 'label', label: isEn ? 'Label' : '标地名' }
+          { value: 'select', label: isEn ? 'Shape' : '塑形' },
+          { value: 'river', label: isEn ? 'River' : '河流' },
+          { value: 'waterArea', label: isEn ? 'Water' : '湖海/洲' },
+          { value: 'zone', label: isEn ? 'Zone' : '片区' },
+          { value: 'road', label: isEn ? 'Road' : '干道' },
+          { value: 'label', label: isEn ? 'Label' : '地名' }
         ]}
       />
 
-      <span className="metro-draw-subbar__sep" />
-
-      {/* 各画笔上下文子控制 */}
+      {/* 各画笔上下文子控制（落点绘制中自动切换为紧凑收笔栏，保证整条工具栏永远单行不折行） */}
       {tool === 'river' && (
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 12, opacity: 0.8 }}>{isEn ? 'Width' : '河宽'} {riverWidth}px</span>
-          <div style={{ width: 78 }}>
-            <Slider min={14} max={160} step={2} value={riverWidth} onChange={onChangeRiverWidth} tooltip={{ open: false }} />
+        <>
+          <span className="metro-draw-subbar__sep" />
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: 12, opacity: 0.82 }}>{riverWidth}px</span>
+            <div style={{ width: 64 }}>
+              <Slider min={14} max={160} step={2} value={riverWidth} onChange={onChangeRiverWidth} tooltip={{ open: false }} />
+            </div>
           </div>
-        </div>
+        </>
       )}
 
-      {tool === 'waterArea' && (
-        <ElasticCapsuleTabs<'water' | 'island'>
-          size="sm"
-          ariaLabel="水域或洲岛"
-          value={waterSubKind}
-          onChange={onChangeWaterSubKind}
-          options={[
-            { value: 'water', label: isEn ? 'Lake / Sea' : '湖海面' },
-            { value: 'island', label: isEn ? 'Island' : '江心洲岛' }
-          ]}
-        />
+      {draftPointCount === 0 && tool === 'waterArea' && (
+        <>
+          <span className="metro-draw-subbar__sep" />
+          <ElasticCapsuleTabs<'water' | 'island'>
+            size="sm"
+            ariaLabel="水域或洲岛"
+            value={waterSubKind}
+            onChange={onChangeWaterSubKind}
+            options={[
+              { value: 'water', label: isEn ? 'Water' : '湖海' },
+              { value: 'island', label: isEn ? 'Island' : '洲岛' }
+            ]}
+          />
+        </>
       )}
 
-      {tool === 'zone' && (
-        <ElasticCapsuleTabs<'urban' | 'park'>
-          size="sm"
-          ariaLabel="片区类型"
-          value={zoneSubKind}
-          onChange={onChangeZoneSubKind}
-          options={[
-            { value: 'urban', label: isEn ? 'Urban' : '城区板块' },
-            { value: 'park', label: isEn ? 'Park' : '公园绿地' }
-          ]}
-        />
+      {draftPointCount === 0 && tool === 'zone' && (
+        <>
+          <span className="metro-draw-subbar__sep" />
+          <ElasticCapsuleTabs<'urban' | 'park'>
+            size="sm"
+            ariaLabel="片区类型"
+            value={zoneSubKind}
+            onChange={onChangeZoneSubKind}
+            options={[
+              { value: 'urban', label: isEn ? 'Urban' : '城区' },
+              { value: 'park', label: isEn ? 'Park' : '绿地' }
+            ]}
+          />
+        </>
       )}
 
-      {tool === 'road' && (
-        <ElasticCapsuleTabs<LightCityRoadKind>
-          size="sm"
-          ariaLabel="干道等级"
-          value={roadSubKind}
-          onChange={onChangeRoadSubKind}
-          options={[
-            { value: 'express', label: isEn ? 'Expressway' : '快速主干道' },
-            { value: 'arterial', label: isEn ? 'Boulevard' : '普通干道' }
-          ]}
-        />
+      {draftPointCount === 0 && tool === 'road' && (
+        <>
+          <span className="metro-draw-subbar__sep" />
+          <ElasticCapsuleTabs<LightCityRoadKind>
+            size="sm"
+            ariaLabel="干道等级"
+            value={roadSubKind}
+            onChange={onChangeRoadSubKind}
+            options={[
+              { value: 'express', label: isEn ? 'Express' : '快速路' },
+              { value: 'arterial', label: isEn ? 'Road' : '主干道' }
+            ]}
+          />
+        </>
       )}
 
-      {tool === 'label' && (
-        <ElasticCapsuleTabs<LightCityLabelKind>
-          size="sm"
-          ariaLabel="地名等级"
-          value={labelSubKind}
-          onChange={onChangeLabelSubKind}
-          options={[
-            { value: 'district', label: isEn ? 'District' : '行政大区' },
-            { value: 'subdistrict', label: isEn ? 'Area' : '功能片区' },
-            { value: 'water', label: isEn ? 'Water' : '水体名称' }
-          ]}
-        />
+      {draftPointCount === 0 && tool === 'label' && (
+        <>
+          <span className="metro-draw-subbar__sep" />
+          <ElasticCapsuleTabs<LightCityLabelKind>
+            size="sm"
+            ariaLabel="地名等级"
+            value={labelSubKind}
+            onChange={onChangeLabelSubKind}
+            options={[
+              { value: 'district', label: isEn ? 'District' : '大区' },
+              { value: 'subdistrict', label: isEn ? 'Area' : '片区' },
+              { value: 'water', label: isEn ? 'Water' : '水体' }
+            ]}
+          />
+        </>
       )}
 
       {/* 正在落点绘制中的收笔控制 */}
       {draftPointCount > 0 && (
         <>
+          <span className="metro-draw-subbar__sep" />
           {draftPointCount >= minPoints && (
             <button
               type="button"
@@ -335,7 +348,7 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
               className="metro-draw-subbar__pill"
               onClick={() => onFinishDraft(true)}
             >
-              {isEn ? 'Close Ring' : '闭合成环'}
+              {isEn ? 'Ring' : '成环'}
             </button>
           )}
           <button
@@ -351,10 +364,11 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
       {/* 选中既有地形要素时的属性与删除控制 */}
       {tool === 'select' && selectedFeature && (
         <>
+          <span className="metro-draw-subbar__sep" />
           {selectedFeature.type === 'river' && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12 }}>{isEn ? 'Width' : '河宽'} {selectedFeature.width}px</span>
-              <div style={{ width: 72 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 12 }}>{selectedFeature.width}px</span>
+              <div style={{ width: 62 }}>
                 <Slider
                   min={14}
                   max={160}
@@ -389,13 +403,13 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
                 } as any)
               }
             >
-              {selectedFeature.closed ? (isEn ? 'Open Road' : '改为开放干道') : isEn ? 'Close Ring' : '闭合成环'}
+              {selectedFeature.closed ? (isEn ? 'Open' : '解环') : isEn ? 'Ring' : '成环'}
             </button>
           )}
           {selectedFeature.type === 'label' && (
             <Input
               size="small"
-              style={{ width: 118, borderRadius: 8 }}
+              style={{ width: 104, borderRadius: 8 }}
               value={selectedFeature.text}
               maxLength={24}
               onChange={(e) => onUpdateSelectedFeature({ text: e.target.value } as any)}
@@ -406,27 +420,20 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
             className="metro-draw-subbar__pill"
             style={{ color: '#ef4444' }}
             onClick={onDeleteSelectedFeature}
-            title="Delete"
+            title={isEn ? 'Delete (Del)' : '删除选中要素 (Delete)'}
           >
-            <DeleteOutlined /> {isEn ? 'Delete' : '删除'}
+            <DeleteOutlined />
           </button>
         </>
-      )}
-
-      {tool === 'select' && !selectedFeature && (
-        <span style={{ fontSize: 12, opacity: 0.72, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-          <SelectOutlined />
-          {isEn ? 'Click any river, zone, road or label to reshape' : '点击河流/片区/干道可拖节点改形'}
-        </span>
       )}
 
       <span className="metro-draw-subbar__sep" />
 
       <button type="button" className="metro-draw-subbar__pill" onClick={onRerollCity} title="随机刷新当前模板城市形态">
-        <ReloadOutlined /> {isEn ? 'Shuffle' : '换一座城'}
+        <ReloadOutlined /> {isEn ? 'Shuffle' : '换城'}
       </button>
       <button type="button" className="metro-draw-subbar__pill" onClick={onOpenTemplatePicker}>
-        {isEn ? 'Templates…' : '模板…'}
+        {isEn ? 'Presets' : '模板'}
       </button>
       <button
         type="button"

@@ -886,9 +886,11 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
   const pal = getLightCityPalette(isDark);
   const vis = lightCity.layerVisibility;
   const zonesOut: string[] = [];
-  const waterOut: string[] = [];
+  const waterBanksOut: string[] = [];
+  const waterFillsOut: string[] = [];
   const islandsOut: string[] = [];
-  const roadsOut: string[] = [];
+  const roadOutersOut: string[] = [];
+  const roadInnersOut: string[] = [];
   const labelsOut: string[] = [];
 
   lightCity.features.forEach((f) => {
@@ -911,14 +913,17 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
       if (!vis.water) return;
       const d = flatToSvgPath(sampleSmoothClosedPolygon(f.points, 3), true);
       if (d) {
-        waterOut.push(`<path d="${d}" fill="${pal.waterFill}" stroke="${pal.waterBank}" stroke-width="1.5" stroke-linejoin="round" />`);
+        waterBanksOut.push(`<path d="${d}" fill="${pal.waterBank}" stroke="${pal.waterBank}" stroke-width="3" stroke-linejoin="round" />`);
+        waterFillsOut.push(`<path d="${d}" fill="${pal.waterFill}" stroke="none" />`);
       }
     } else if (f.type === 'river') {
       if (!vis.water) return;
       const d = flatToSvgPath(sampleSmoothOpenSpline(f.points, 10), false);
       if (d) {
-        waterOut.push(
-          `<path d="${d}" fill="none" stroke="${pal.waterBank}" stroke-width="${r1(f.width + 3)}" stroke-linecap="round" stroke-linejoin="round" />`,
+        waterBanksOut.push(
+          `<path d="${d}" fill="none" stroke="${pal.waterBank}" stroke-width="${r1(f.width + 3)}" stroke-linecap="round" stroke-linejoin="round" />`
+        );
+        waterFillsOut.push(
           `<path d="${d}" fill="none" stroke="${pal.waterFill}" stroke-width="${r1(f.width)}" stroke-linecap="round" stroke-linejoin="round" />`
         );
       }
@@ -930,8 +935,10 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
         const innerW = f.kind === 'express' ? 7 : 4.2;
         const outerC = f.kind === 'express' ? pal.roadExpressOuter : pal.roadArterialOuter;
         const innerC = f.kind === 'express' ? pal.roadExpressInner : pal.roadArterialInner;
-        roadsOut.push(
-          `<path d="${d}" fill="none" stroke="${outerC}" stroke-width="${outerW}" stroke-linecap="round" stroke-linejoin="round" />`,
+        roadOutersOut.push(
+          `<path d="${d}" fill="none" stroke="${outerC}" stroke-width="${outerW}" stroke-linecap="round" stroke-linejoin="round" />`
+        );
+        roadInnersOut.push(
           `<path d="${d}" fill="none" stroke="${innerC}" stroke-width="${innerW}" stroke-linecap="round" stroke-linejoin="round" />`
         );
       }
@@ -953,9 +960,11 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
 
   return `<g id="light-city-basemap" opacity="${r1(lightCity.opacity ?? 1)}">\n    ${[
     ...zonesOut,
-    ...waterOut,
+    ...waterBanksOut,
+    ...waterFillsOut,
     ...islandsOut,
-    ...roadsOut,
+    ...roadOutersOut,
+    ...roadInnersOut,
     ...labelsOut
   ].join('\n    ')}\n  </g>`;
 }
@@ -1008,14 +1017,14 @@ export function drawLightCityToCanvas2D(params: {
     });
   }
 
-  // 2. 水系面与河流
+  // 2. 水系面与河流（双遍同层融合：先画全部外岸线，再统一铺水体填充，彻底消除交汇与分汊接缝）
   if (vis.water) {
     lightCity.features.forEach((f) => {
       if (f.type === 'waterArea') {
         if (!traceFlat(sampleSmoothClosedPolygon(f.points, 3), true)) return;
-        ctx.fillStyle = pal.waterFill;
+        ctx.fillStyle = pal.waterBank;
         ctx.strokeStyle = pal.waterBank;
-        ctx.lineWidth = Math.max(1, 1.5 * worldScale);
+        ctx.lineWidth = Math.max(1.5, 3 * worldScale);
         ctx.fill();
         ctx.stroke();
       } else if (f.type === 'river') {
@@ -1024,8 +1033,17 @@ export function drawLightCityToCanvas2D(params: {
         ctx.strokeStyle = pal.waterBank;
         ctx.lineWidth = w + Math.max(1.5, 3 * worldScale);
         ctx.stroke();
+      }
+    });
+    lightCity.features.forEach((f) => {
+      if (f.type === 'waterArea') {
+        if (!traceFlat(sampleSmoothClosedPolygon(f.points, 3), true)) return;
+        ctx.fillStyle = pal.waterFill;
+        ctx.fill();
+      } else if (f.type === 'river') {
+        if (!traceFlat(sampleSmoothOpenSpline(f.points, 10), false)) return;
         ctx.strokeStyle = pal.waterFill;
-        ctx.lineWidth = w;
+        ctx.lineWidth = Math.max(2, f.width * worldScale);
         ctx.stroke();
       }
     });
@@ -1044,19 +1062,22 @@ export function drawLightCityToCanvas2D(params: {
     });
   }
 
-  // 4. 主干道骨架
+  // 4. 主干道骨架（同样采用双遍融合，让路口交叉处无缝贯通）
   if (vis.roads) {
     lightCity.features.forEach((f) => {
       if (f.type !== 'road') return;
       const closed = Boolean(f.closed);
       if (!traceFlat(sampleRoundedRoadPolyline(f.points, closed, 36), closed)) return;
-      const outerW = Math.max(1.5, (f.kind === 'express' ? 11 : 7) * worldScale);
-      const innerW = Math.max(1, (f.kind === 'express' ? 7 : 4.2) * worldScale);
       ctx.strokeStyle = f.kind === 'express' ? pal.roadExpressOuter : pal.roadArterialOuter;
-      ctx.lineWidth = outerW;
+      ctx.lineWidth = Math.max(1.5, (f.kind === 'express' ? 11 : 7) * worldScale);
       ctx.stroke();
+    });
+    lightCity.features.forEach((f) => {
+      if (f.type !== 'road') return;
+      const closed = Boolean(f.closed);
+      if (!traceFlat(sampleRoundedRoadPolyline(f.points, closed, 36), closed)) return;
       ctx.strokeStyle = f.kind === 'express' ? pal.roadExpressInner : pal.roadArterialInner;
-      ctx.lineWidth = innerW;
+      ctx.lineWidth = Math.max(1, (f.kind === 'express' ? 7 : 4.2) * worldScale);
       ctx.stroke();
     });
   }
@@ -1082,4 +1103,114 @@ export function drawLightCityToCanvas2D(params: {
   }
 
   ctx.restore();
+}
+
+export interface TerrainSnapResult {
+  x: number;
+  y: number;
+  snapped: boolean;
+  kind?: 'vertex' | 'centerline';
+  featureType?: 'river' | 'waterArea' | 'road' | 'zone';
+}
+
+/**
+ * 造景画笔双级磁吸计算：
+ * 1) 优先吸附同类既有要素的控制顶点（屏幕距离 <= 15px），支持从第一条河流/干道的任意历史节点精准起笔或汇合；
+ * 2) 次级吸附既有河流或主干道的平滑中心线（屏幕距离 <= 13px），支持在既有主河道任意弯位直接分汊或汇入。
+ */
+export function snapTerrainDrawPoint(params: {
+  rawPoint: LightCityPoint;
+  lightCity: LightCitySettings | undefined;
+  tool: 'river' | 'waterArea' | 'zone' | 'road';
+  viewportScale: number;
+  altKey?: boolean;
+}): TerrainSnapResult {
+  const { rawPoint, lightCity, tool, viewportScale, altKey } = params;
+  const rx = r1(rawPoint.x);
+  const ry = r1(rawPoint.y);
+  if (altKey || !lightCity || !lightCity.features.length) {
+    return { x: rx, y: ry, snapped: false };
+  }
+
+  const safeScale = Math.max(0.2, viewportScale || 1);
+  const vertexRadiusWorld = 15 / safeScale;
+  const centerlineRadiusWorld = 13 / safeScale;
+
+  const isRelevantFeature = (f: LightCityFeature) => {
+    if (f.type === 'label') return false;
+    if (tool === 'river' || tool === 'waterArea') {
+      return f.type === 'river' || f.type === 'waterArea';
+    }
+    if (tool === 'road') {
+      return f.type === 'road';
+    }
+    return f.type === 'zone';
+  };
+
+  // Pass 1: Vertex snap
+  let bestVertexDist = vertexRadiusWorld;
+  let bestVertex: { x: number; y: number; featureType: 'river' | 'waterArea' | 'road' | 'zone' } | null = null;
+  for (const f of lightCity.features) {
+    if (!isRelevantFeature(f) || f.type === 'label') continue;
+    for (const pt of f.points) {
+      const d = Math.hypot(rx - pt.x, ry - pt.y);
+      if (d <= bestVertexDist) {
+        bestVertexDist = d;
+        bestVertex = { x: pt.x, y: pt.y, featureType: f.type };
+      }
+    }
+  }
+  if (bestVertex) {
+    return {
+      x: bestVertex.x,
+      y: bestVertex.y,
+      snapped: true,
+      kind: 'vertex',
+      featureType: bestVertex.featureType
+    };
+  }
+
+  // Pass 2: Centerline projection snap (for rivers & roads)
+  if (tool === 'river' || tool === 'waterArea' || tool === 'road') {
+    let bestLineDist = centerlineRadiusWorld;
+    let bestProj: { x: number; y: number; featureType: 'river' | 'road' } | null = null;
+    for (const f of lightCity.features) {
+      if (f.type !== 'river' && f.type !== 'road') continue;
+      if (tool === 'road' && f.type !== 'road') continue;
+      if (tool !== 'road' && f.type !== 'river') continue;
+      const flat =
+        f.type === 'river'
+          ? sampleSmoothOpenSpline(f.points, 8)
+          : sampleRoundedRoadPolyline(f.points, Boolean(f.closed), 36);
+      const segPairs = flat.length / 2;
+      for (let i = 0; i < segPairs - 1; i += 1) {
+        const ax = flat[i * 2];
+        const ay = flat[i * 2 + 1];
+        const bx = flat[(i + 1) * 2];
+        const by = flat[(i + 1) * 2 + 1];
+        const dx = bx - ax;
+        const dy = by - ay;
+        const lenSq = dx * dx + dy * dy;
+        const t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((rx - ax) * dx + (ry - ay) * dy) / lenSq));
+        const px = ax + t * dx;
+        const py = ay + t * dy;
+        const d = Math.hypot(rx - px, ry - py);
+        if (d <= bestLineDist) {
+          bestLineDist = d;
+          bestProj = { x: r1(px), y: r1(py), featureType: f.type };
+        }
+      }
+    }
+    if (bestProj) {
+      return {
+        x: bestProj.x,
+        y: bestProj.y,
+        snapped: true,
+        kind: 'centerline',
+        featureType: bestProj.featureType
+      };
+    }
+  }
+
+  return { x: rx, y: ry, snapped: false };
 }

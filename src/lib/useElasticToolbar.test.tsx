@@ -125,3 +125,17 @@ test('桌面停用手势，原生按钮保持可点击', () => {
   act(() => { group().children[0].dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
   expect(click).toHaveBeenCalledTimes(1);
 });
+
+test('切入外部造景态 (active = -1) 时清空 previewIndex 防止首项白字隐身，并可点回第 0 项', () => {
+  act(() => root.render(<Harness active={1} />));
+  settle();
+  expect(group().dataset.previewIndex).toBe('1');
+
+  act(() => root.render(<Harness active={-1} />));
+  settle();
+  expect(group().dataset.previewIndex).toBeUndefined();
+
+  pointer('pointerdown', 38);
+  pointer('pointerup', 38);
+  expect(select).toHaveBeenCalledWith(0);
+});

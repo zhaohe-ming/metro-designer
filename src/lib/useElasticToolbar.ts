@@ -15,7 +15,7 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     let reduced = motion.matches;
     let pitch = 58;
-    let position = latest.current.selectedIndex;
+    let position = Math.max(0, latest.current.selectedIndex);
     let target = position;
     let velocity = 0;
     let press = 0;
@@ -36,7 +36,11 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
       element.style.setProperty('--phone-shell-sy', `${1 + pressure * 0.035 - speed * 0.008}`);
       element.style.setProperty('--phone-lens-sx', `${1 + pressure * 0.035 + speed * 0.04}`);
       element.style.setProperty('--phone-lens-sy', `${1 + pressure * 0.035}`);
-      element.dataset.previewIndex = String(clamp(Math.round(position), 0, count - 1));
+      if (latest.current.selectedIndex < 0 && !pointer) {
+        delete element.dataset.previewIndex;
+      } else {
+        element.dataset.previewIndex = String(clamp(Math.round(position), 0, count - 1));
+      }
     };
     const tick = (time: number) => {
       frame = 0;
@@ -76,8 +80,18 @@ export function useElasticToolbar(selectedIndex: number, count: number, enabled:
         suppressClickUntil = performance.now() + 600; releaseCapture(previous.id);
       }
       delete element.dataset.dragging;
-      target = latest.current.selectedIndex;
-      animate();
+      if (latest.current.selectedIndex >= 0) {
+        target = latest.current.selectedIndex;
+        animate();
+      } else {
+        cancelAnimationFrame(frame);
+        frame = 0;
+        lastFrame = 0;
+        velocity = 0;
+        press = 0;
+        pressVelocity = 0;
+        paint();
+      }
     };
     const measure = () => {
       const button = element.querySelector<HTMLButtonElement>('.metro-tool-button');
