@@ -169,6 +169,10 @@ body {
   pointer-events: auto;
   align-self: flex-start;
   max-width: 100%;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   padding: 6px 12px;
   border-radius: 8px;
   font-size: 13px;
@@ -179,6 +183,18 @@ body {
 }
 .metro-command-bar__feedback.is-ok { color: var(--color-text-soft); }
 .metro-command-bar__feedback.is-error { color: #b42318; border-color: #f0c0b8; background: #fff4f2; }
+.metro-command-bar__ai-btn {
+  cursor: pointer;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 140ms ease;
+}
+.metro-command-bar__ai-btn:hover { background: #dbeafe; }
 .metro-command-bar__suggest {
   pointer-events: auto;
   display: flex;
@@ -187,6 +203,9 @@ body {
 }
 .metro-command-bar__chip {
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   padding: 3px 10px;
   border-radius: 999px;
   border: 1px solid var(--color-border);
@@ -196,6 +215,17 @@ body {
   font-family: "SFMono-Regular", Consolas, monospace;
 }
 .metro-command-bar__chip:hover { border-color: var(--color-primary-600); color: var(--color-primary-600); }
+.metro-command-bar__chip-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.metro-command-bar__chip-hint {
+  font-size: 11px;
+  opacity: 0.62;
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
 
 .metro-app-shell[data-interface-theme="dark"] .metro-command-bar__row,
 .metro-app-shell[data-interface-theme="dark"] .metro-command-bar__feedback,

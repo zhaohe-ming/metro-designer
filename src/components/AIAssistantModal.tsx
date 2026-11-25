@@ -17,7 +17,8 @@ import ElasticCapsuleTabs from './ElasticCapsuleTabs';
 import AIApiSettingsModal from './AIApiSettingsModal';
 import { AIOperation } from '../api';
 import { AI_CONFIG_CHANGED_EVENT, getActiveAiBadgeLabel } from '../lib/aiCustomConfig';
-import { Line, Station } from '../types';
+import { isDefaultPlaceholderStationName } from '../lib/networkEngine';
+import { Line, MapSettings, Station } from '../types';
 import {
   AIChatMessage,
   AIConversationSession,
@@ -46,6 +47,8 @@ interface AIAssistantModalProps {
   mapName: string;
   lines: Line[];
   stations: Station[];
+  mapSettings?: MapSettings;
+  externalPromptRequest?: { seq: number; prompt: string } | null;
   canUndo?: boolean;
   onUndo?: () => void;
   onAnalyzeStream: (
@@ -65,18 +68,49 @@ interface StarterPrompt {
   prompt: string;
 }
 
-function buildContextualPrompts(lines: Line[], stations: Station[]): StarterPrompt[] {
+function buildContextualPrompts(
+  lines: Line[],
+  stations: Station[],
+  mapSettings?: MapSettings
+): StarterPrompt[] {
+  const isLightCity = mapSettings?.baseMap.mode === 'light-city';
+  const defaultNamedCount = stations.filter((s) => isDefaultPlaceholderStationName(s.name)).length;
+
   if (lines.length === 0 || stations.length === 0) {
+    if (isLightCity) {
+      return [
+        {
+          id: 'lc-blank-1',
+          color: '#2563eb',
+          prompt: '结合当前轻城市河流与各大片区坐标，规划 3 条跨江骨干地铁线与 1 条中心环线'
+        },
+        {
+          id: 'lc-blank-2',
+          color: '#dc2626',
+          prompt: '创建红色 1 号线与蓝色 2 号线在核心城区十字换乘，并新建紫色 4 号环线串联四周'
+        },
+        {
+          id: 'lc-blank-3',
+          color: '#0891b2',
+          prompt: '新建青色市域快线连接远郊新城、核心商务区与国际机场'
+        },
+        {
+          id: 'lc-blank-4',
+          color: '#16a34a',
+          prompt: '切换到湾区海港轻城市模板，并规划 3 条跨海湾轨道线网'
+        }
+      ];
+    }
     return [
       {
         id: 'blank-1',
         color: '#dc2626',
-        prompt: '创建红色 1 号线（东西向），包含西站、市民中心、人民广场、科技园、东站'
+        prompt: '创建红色 1 号线与蓝色 2 号线在「人民广场」十字换乘，再加一条紫色 4 号环线'
       },
       {
         id: 'blank-2',
         color: '#2563eb',
-        prompt: '新建 1 号线（#e11d48）与 2 号线（#2563eb），在「人民广场」十字换乘'
+        prompt: '一次性规划一座中型城市的 4 条地铁骨干线网（含东西线、南北线、斜向线与环线）'
       },
       {
         id: 'blank-3',
@@ -85,54 +119,48 @@ function buildContextualPrompts(lines: Line[], stations: Station[]): StarterProm
       },
       {
         id: 'blank-4',
-        color: '#7c3aed',
-        prompt: '新建紫色 3 号线，连接大学城、软件园与南站'
+        color: '#16a34a',
+        prompt: '开启两江交汇轻城市底图，并沿两岸核心片区生成 3 条跨江线路'
       }
     ];
   }
 
   const stationById = new Map(stations.map((s) => [s.id, s]));
   const firstLine = lines[0];
-  const secondLine = lines[1] || firstLine;
   const lineStations = firstLine.stationIds.map((id) => stationById.get(id)).filter(Boolean) as Station[];
   const pivotStation = lineStations[Math.floor(lineStations.length / 2)] || stations[0];
-  const stA = lineStations[0];
-  const stB = lineStations[1];
 
-  const prompts: StarterPrompt[] = [
-    {
-      id: 'ext',
-      color: firstLine.color || '#2563eb',
-      prompt: `将「${firstLine.name}」向终点方向延伸 3 个新站点`
-    },
-    {
-      id: 'branch',
-      color: '#2563eb',
-      prompt: `新建蓝色线路与「${firstLine.name}」在「${pivotStation.name}」换乘，延伸 4 站`
-    }
-  ];
+  const prompts: StarterPrompt[] = [];
 
-  if (stA && stB) {
+  if (defaultNamedCount >= 2) {
     prompts.push({
-      id: 'between',
-      color: secondLine.color || firstLine.color || '#10b981',
-      prompt: `在「${firstLine.name}」的「${stA.name}」和「${stB.name}」之间新增 2 个站点`
-    });
-  } else {
-    prompts.push({
-      id: 'new-ring',
-      color: '#f97316',
-      prompt: '新建橙色联络线（#f97316），包含 5 个站点'
+      id: 'auto-rename',
+      color: '#7c3aed',
+      prompt: `为图上全部 ${defaultNamedCount} 座默认未命名站点按真实城市地标风格批量起名（换乘站起大气枢纽名）`
     });
   }
 
   prompts.push({
-    id: 'recolor',
-    color: '#d23030',
-    prompt: `把「${firstLine.name}」改为深红色 #d23030`
+    id: 'loop-add',
+    color: '#9333ea',
+    prompt: '围绕当前线网中心新建一条环线，自动与现有放射线交汇换乘'
   });
 
-  return prompts;
+  if (pivotStation) {
+    prompts.push({
+      id: 'branch',
+      color: firstLine.color || '#2563eb',
+      prompt: `在「${firstLine.name}」的「${pivotStation.name}」分叉拉出一条 3 站支线`
+    });
+  }
+
+  prompts.push({
+    id: 'ext',
+    color: '#0891b2',
+    prompt: `将「${firstLine.name}」向终点方向继续延伸 3 个新站点`
+  });
+
+  return prompts.slice(0, 4);
 }
 
 const HEX_IN_SUMMARY_RE = /(#[0-9a-fA-F]{6})/g;
@@ -176,6 +204,8 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   mapName,
   lines,
   stations,
+  mapSettings,
+  externalPromptRequest = null,
   canUndo = false,
   onUndo,
   onAnalyzeStream,
@@ -275,7 +305,20 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
     }
   }, [open]);
 
-  const starterPrompts = useMemo(() => buildContextualPrompts(lines, stations), [lines, stations]);
+  const starterPrompts = useMemo(
+    () => buildContextualPrompts(lines, stations, mapSettings),
+    [lines, stations, mapSettings]
+  );
+
+  const handledExternalSeqRef = useRef<number>(0);
+  useEffect(() => {
+    if (!open || !externalPromptRequest || busy) return;
+    if (handledExternalSeqRef.current === externalPromptRequest.seq) return;
+    handledExternalSeqRef.current = externalPromptRequest.seq;
+    if (externalPromptRequest.prompt.trim()) {
+      void sendPrompt(externalPromptRequest.prompt);
+    }
+  }, [open, externalPromptRequest, busy]);
 
   const filteredSessions = useMemo(() => {
     if (historyScope === 'all') return sessions;

@@ -71,16 +71,28 @@ import AboutPanel from './components/AboutPanel';
 import { exportVideoFromStage } from './lib/exportVideo';
 import { VideoExportProgress } from './lib/recordVideo';
 import {
+  connectStationsOnLine as connectGraphStations,
   deleteStationFromGraph,
   MapGraph,
   reconcileGraph,
   removeStationFromLine,
   reorderLineStations
 } from './lib/graphOps';
+import {
+  applyNetworkOperations,
+  buildCompactAIMapState,
+  summarizeAIOperation
+} from './lib/networkEngine';
+import { computeNetworkParallelLayout, moveLineInParallelOrder } from './lib/offsetPath';
 import { buildMetroSvg } from './lib/exportSvg';
 import { DocumentSession } from './lib/documentSession';
-import { interpretCommand, ResolvedCommand, AppAction } from './lib/commandParser';
-import CommandBar from './components/CommandBar';
+import {
+  interpretCommand,
+  ResolvedCommand,
+  AppAction,
+  splitCommandStatements
+} from './lib/commandParser';
+import CommandBar, { CommandSubmitResult } from './components/CommandBar';
 import { isAndroidClient, isAndroidDevice, saveAndroidExport } from './lib/androidClient';
 import {
   DesktopMenuCommand,
@@ -482,8 +494,9 @@ const App: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [mobileViewControlsHost, setMobileViewControlsHost] = useState<HTMLDivElement | null>(null);
   const [createLineRequest, setCreateLineRequest] = useState(0);
-  // AI 助手对话框与本地自有密钥设置
+  // AI 助手对话框、CLI 穿透请求与本地自有密钥设置
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [externalAiPrompt, setExternalAiPrompt] = useState<{ seq: number; prompt: string } | null>(null);
   const [aiApiSettingsOpen, setAiApiSettingsOpen] = useState(false);
   const [customAiBadge, setCustomAiBadge] = useState<string | null>(() => getActiveAiBadgeLabel());
   useEffect(() => {
@@ -2135,484 +2148,46 @@ const App: React.FC = () => {
     }
   };
 
-  // 把 AI 返回的 operations 列表逐条 apply 到 lines / stations / sections 上。
-  // 一组 operations 算作一次撤销单位（开头只 pushHistory 一次）。
-  // 所有操作走"新数组替换"路径，避免半截 React state 引用旧的另一半。
-  const applyAIOperations = (operations: AIOperation[]) => {
+  // 把 AI 或 CLI 返回的 operations 列表通过统一底座 networkEngine 原子应用（一次撤销单位）。
+  const applyAIOperations = (operations: AIOperation[], recordHistory = true) => {
     if (!operations.length) return 0;
-    pushHistory();
-    let nextLines = [...linesRef.current];
-    let nextStations = [...stationsRef.current];
-    let nextSections = [...sectionsRef.current];
-    let applied = 0;
-
-    for (const op of operations) {
-      switch (op.type) {
-        case 'create_new_line_with_stations': {
-          const cleanNames = (op.stationNames || []).map((n) => (typeof n === 'string' ? n.trim() : '')).filter(Boolean);
-          if (cleanNames.length < 2) break;
-
-          const dirOrder = ['east_west', 'north_south', 'nw_se', 'sw_ne'] as const;
-          const dir = op.direction || dirOrder[nextLines.length % dirOrder.length];
-          const vecMap = {
-            east_west: { ux: 1, uy: 0 },
-            north_south: { ux: 0, uy: 1 },
-            nw_se: { ux: Math.SQRT1_2, uy: Math.SQRT1_2 },
-            sw_ne: { ux: Math.SQRT1_2, uy: -Math.SQRT1_2 }
-          };
-          const { ux, uy } = vecMap[dir] || vecMap.east_west;
-          const stepPx = 92;
-          const isAmap = mapSettingsRef.current.baseMap.mode === 'amap';
-          const amapCenter = mapSettingsRef.current.baseMap.amap?.center || [116.397428, 39.90923];
-          const stepLng = 0.015;
-          const stepLat = 0.0125;
-
-          const existingByName = new Map<string, Station>();
-          nextStations.forEach((st) => existingByName.set(st.name.trim(), st));
-
-          // 若新线路穿过已有同名站点，以首个匹配的已有站点为十字换乘锚点对齐坐标；否则围绕画布中心对称排布
-          let pivotIdx = cleanNames.findIndex((n) => existingByName.has(n));
-          let originX = stageRef.current?.width?.() ? stageRef.current.width() / 2 : 520;
-          let originY = stageRef.current?.height?.() ? stageRef.current.height() / 2 : 340;
-          let originLng = amapCenter[0];
-          let originLat = amapCenter[1];
-
-          if (pivotIdx >= 0) {
-            const pivotStation = existingByName.get(cleanNames[pivotIdx])!;
-            originX = pivotStation.x;
-            originY = pivotStation.y;
-            if (typeof pivotStation.lng === 'number' && typeof pivotStation.lat === 'number') {
-              originLng = pivotStation.lng;
-              originLat = pivotStation.lat;
-            }
-          } else {
-            if (nextStations.length > 0) {
-              originX = nextStations.reduce((acc, s) => acc + s.x, 0) / nextStations.length;
-              originY = nextStations.reduce((acc, s) => acc + s.y, 0) / nextStations.length;
-              const geoStations = nextStations.filter((s) => typeof s.lng === 'number' && typeof s.lat === 'number');
-              if (geoStations.length > 0) {
-                originLng = geoStations.reduce((acc, s) => acc + (s.lng || 0), 0) / geoStations.length;
-                originLat = geoStations.reduce((acc, s) => acc + (s.lat || 0), 0) / geoStations.length;
-              }
-              const perpShift = ((nextLines.length % 3) - 1) * 54;
-              originX += -uy * perpShift;
-              originY += ux * perpShift;
-              originLng += -uy * 0.008;
-              originLat += -ux * 0.0065;
-            }
-            pivotIdx = (cleanNames.length - 1) / 2;
-          }
-
-          const lineStations: Station[] = [];
-          const createdStations: Station[] = [];
-          cleanNames.forEach((stName, idx) => {
-            const existing = existingByName.get(stName);
-            if (existing) {
-              lineStations.push(existing);
-              return;
-            }
-            const delta = idx - pivotIdx;
-            const created: Station = {
-              id: createId(),
-              name: stName,
-              x: originX + ux * stepPx * delta,
-              y: originY + uy * stepPx * delta,
-              ...(isAmap
-                ? {
-                    lng: originLng + ux * stepLng * delta,
-                    lat: originLat - uy * stepLat * delta
-                  }
-                : {})
-            };
-            existingByName.set(stName, created);
-            createdStations.push(created);
-            lineStations.push(created);
-          });
-
-          const lineId = createId();
-          const newSectionList: Section[] = [];
-          for (let i = 0; i < lineStations.length - 1; i += 1) {
-            if (lineStations[i].id === lineStations[i + 1].id) continue;
-            newSectionList.push({
-              id: createId(),
-              lineId,
-              startStationId: lineStations[i].id,
-              endStationId: lineStations[i + 1].id
-            });
-          }
-          nextStations = [...nextStations, ...createdStations];
-          nextSections = [...nextSections, ...newSectionList];
-          nextLines.push({
-            id: lineId,
-            name: op.name,
-            color: op.color,
-            stationIds: lineStations.map((s) => s.id),
-            sectionIds: newSectionList.map((s) => s.id)
-          });
-          if (!currentLineIdRef.current) {
-            setCurrentLineId(lineId);
-          }
-          applied += 1;
-          break;
-        }
-        case 'create_line': {
-          // 创建新线路 + 相邻站点之间生成 sections
-          const lineId = createId();
-          const sectionIds: string[] = [];
-          const newSections: Section[] = [];
-          for (let i = 0; i < op.stationIds.length - 1; i += 1) {
-            const sectionId = createId();
-            sectionIds.push(sectionId);
-            newSections.push({
-              id: sectionId,
-              lineId,
-              startStationId: op.stationIds[i],
-              endStationId: op.stationIds[i + 1]
-            });
-          }
-          nextLines.push({ id: lineId, name: op.name, color: op.color, stationIds: [...op.stationIds], sectionIds });
-          nextSections = [...nextSections, ...newSections];
-          applied += 1;
-          break;
-        }
-        case 'create_line_via_extension': {
-          // 新线路 = 锚点（已存在）+ N 个新站点，沿"远离方向参照点"等距外推
-          const anchor = nextStations.find((s) => s.id === op.anchorStationId);
-          if (!anchor) break;
-          const newNames = (op.newStationNames || []).filter((n) => typeof n === 'string' && n.trim());
-          if (newNames.length === 0) break;
-
-          // 方向参照点：
-          // 1) op.directionAwayFromStationId 显式给了 → 直接用
-          // 2) 否则，在 anchor 所在的其他线路上找它的邻站作为方向参照（远离邻站、朝外延伸）
-          // 3) 都找不到 → 默认 +x 方向 + 固定步长
-          let reference: Station | null = null;
-          if (op.directionAwayFromStationId) {
-            reference = nextStations.find((s) => s.id === op.directionAwayFromStationId) || null;
-          }
-          if (!reference) {
-            // 在所有现有线路里找 anchor 的邻居
-            for (const candidateLine of nextLines) {
-              const idx = candidateLine.stationIds.indexOf(anchor.id);
-              if (idx < 0) continue;
-              const neighborId = candidateLine.stationIds[idx - 1] || candidateLine.stationIds[idx + 1];
-              if (neighborId) {
-                reference = nextStations.find((s) => s.id === neighborId) || null;
-                if (reference) break;
-              }
-            }
-          }
-
-          // 方向向量 + 步长
-          let dx: number;
-          let dy: number;
-          let dLng: number | null = null;
-          let dLat: number | null = null;
-          if (reference) {
-            dx = anchor.x - reference.x;
-            dy = anchor.y - reference.y;
-            if (typeof anchor.lng === 'number' && typeof reference.lng === 'number') {
-              dLng = anchor.lng - reference.lng;
-            }
-            if (typeof anchor.lat === 'number' && typeof reference.lat === 'number') {
-              dLat = anchor.lat - reference.lat;
-            }
-            // 太近的话给个最小步长，避免新站全挤在一起
-            const magnitude = Math.hypot(dx, dy);
-            if (magnitude < 30) {
-              const fallback = 80;
-              dx = magnitude === 0 ? fallback : (dx / magnitude) * fallback;
-              dy = magnitude === 0 ? 0 : (dy / magnitude) * fallback;
-            }
-          } else {
-            // 兜底：默认向 +x，每步 80 像素
-            dx = 80;
-            dy = 0;
-          }
-
-          const newStationsList: Station[] = newNames.map((rawName, i) => {
-            const step = i + 1;
-            return {
-              id: createId(),
-              name: rawName.trim(),
-              x: anchor.x + dx * step,
-              y: anchor.y + dy * step,
-              ...(dLng !== null ? { lng: anchor.lng! + dLng * step } : {}),
-              ...(dLat !== null ? { lat: anchor.lat! + dLat * step } : {})
-            };
-          });
-          const chain = [anchor, ...newStationsList];
-          const newSectionList: Section[] = [];
-          const lineId = createId();
-          for (let i = 0; i < chain.length - 1; i += 1) {
-            newSectionList.push({
-              id: createId(),
-              lineId,
-              startStationId: chain[i].id,
-              endStationId: chain[i + 1].id
-            });
-          }
-          nextStations = [...nextStations, ...newStationsList];
-          nextSections = [...nextSections, ...newSectionList];
-          nextLines.push({
-            id: lineId,
-            name: op.name,
-            color: op.color,
-            stationIds: chain.map((s) => s.id),
-            sectionIds: newSectionList.map((s) => s.id)
-          });
-          applied += 1;
-          break;
-        }
-        case 'recolor_line':
-          nextLines = nextLines.map((l) => (l.id === op.lineId ? { ...l, color: op.color } : l));
-          applied += 1;
-          break;
-        case 'rename_line':
-          nextLines = nextLines.map((l) => (l.id === op.lineId ? { ...l, name: op.name } : l));
-          applied += 1;
-          break;
-        case 'delete_line': {
-          nextLines = nextLines.filter((l) => l.id !== op.lineId);
-          nextSections = nextSections.filter((s) => s.lineId !== op.lineId);
-          applied += 1;
-          break;
-        }
-        case 'attach_station_to_line': {
-          const line = nextLines.find((l) => l.id === op.lineId);
-          if (!line) break;
-          if (line.stationIds.includes(op.stationId)) break;
-          const isStart = op.position === 'start';
-          const adjacent = isStart ? line.stationIds[0] : line.stationIds[line.stationIds.length - 1];
-          if (!adjacent) break;
-          const sectionId = createId();
-          const newSection: Section = {
-            id: sectionId,
-            lineId: op.lineId,
-            startStationId: isStart ? op.stationId : adjacent,
-            endStationId: isStart ? adjacent : op.stationId
-          };
-          nextSections = [...nextSections, newSection];
-          nextLines = nextLines.map((l) =>
-            l.id === op.lineId
-              ? {
-                  ...l,
-                  stationIds: isStart ? [op.stationId, ...l.stationIds] : [...l.stationIds, op.stationId],
-                  sectionIds: isStart ? [sectionId, ...l.sectionIds] : [...l.sectionIds, sectionId]
-                }
-              : l
-          );
-          applied += 1;
-          break;
-        }
-        case 'create_station_between': {
-          const line = nextLines.find((l) => l.id === op.lineId);
-          if (!line) break;
-          const aIdx = line.stationIds.indexOf(op.afterStationId);
-          const bIdx = line.stationIds.indexOf(op.beforeStationId);
-          if (aIdx < 0 || bIdx < 0 || Math.abs(aIdx - bIdx) !== 1) break;
-          const stationA = nextStations.find((s) => s.id === op.afterStationId);
-          const stationB = nextStations.find((s) => s.id === op.beforeStationId);
-          if (!stationA || !stationB) break;
-          // 批量：N 个新站点等距分布在 A→B 之间，比例 1/(N+1), 2/(N+1), ...
-          // 原 A→B 区间一拆为 N+1 段
-          const names = (op.names || []).filter((n) => typeof n === 'string' && n.trim());
-          if (names.length === 0) break;
-          const insertIdx = Math.min(aIdx, bIdx);
-          // 注意方向：op.afterStationId 在线路 stationIds 里的"前一位"，所以从这一端开始插
-          const fromStation = line.stationIds[insertIdx] === op.afterStationId ? stationA : stationB;
-          const toStation = fromStation === stationA ? stationB : stationA;
-          const newStations: Station[] = names.map((rawName, i) => {
-            const t = (i + 1) / (names.length + 1);
-            return {
-              id: createId(),
-              name: rawName.trim(),
-              x: fromStation.x + (toStation.x - fromStation.x) * t,
-              y: fromStation.y + (toStation.y - fromStation.y) * t,
-              ...(typeof fromStation.lng === 'number' && typeof toStation.lng === 'number'
-                ? { lng: fromStation.lng + (toStation.lng - fromStation.lng) * t }
-                : {}),
-              ...(typeof fromStation.lat === 'number' && typeof toStation.lat === 'number'
-                ? { lat: fromStation.lat + (toStation.lat - fromStation.lat) * t }
-                : {})
-            };
-          });
-          const oldSectionId = line.sectionIds[insertIdx];
-          // 构造新区间链：fromStation → new[0] → new[1] → ... → toStation
-          const chainIds = [fromStation.id, ...newStations.map((s) => s.id), toStation.id];
-          const newSections: Section[] = [];
-          for (let i = 0; i < chainIds.length - 1; i += 1) {
-            newSections.push({
-              id: createId(),
-              lineId: op.lineId,
-              startStationId: chainIds[i],
-              endStationId: chainIds[i + 1]
-            });
-          }
-          nextStations = [...nextStations, ...newStations];
-          nextSections = nextSections.filter((s) => s.id !== oldSectionId).concat(newSections);
-          nextLines = nextLines.map((l) =>
-            l.id === op.lineId
-              ? {
-                  ...l,
-                  stationIds: [
-                    ...l.stationIds.slice(0, insertIdx + 1),
-                    ...newStations.map((s) => s.id),
-                    ...l.stationIds.slice(insertIdx + 1)
-                  ],
-                  sectionIds: [
-                    ...l.sectionIds.slice(0, insertIdx),
-                    ...newSections.map((s) => s.id),
-                    ...l.sectionIds.slice(insertIdx + 1)
-                  ]
-                }
-              : l
-          );
-          applied += 1;
-          break;
-        }
-        case 'create_station_at_line_end': {
-          const line = nextLines.find((l) => l.id === op.lineId);
-          if (!line || line.stationIds.length < 2) break;
-          const names = (op.names || []).filter((n) => typeof n === 'string' && n.trim());
-          if (names.length === 0) break;
-          const isStart = op.position === 'start';
-          // 取该端点的最后 2 个站点：endStation 是最末端，beforeEnd 是倒数第二
-          // 方向向量 = endStation - beforeEnd；批量延伸 N 站，每一站继续沿该向量再外推一段
-          const endStationId = isStart ? line.stationIds[0] : line.stationIds[line.stationIds.length - 1];
-          const beforeEndId = isStart ? line.stationIds[1] : line.stationIds[line.stationIds.length - 2];
-          const endStation = nextStations.find((s) => s.id === endStationId);
-          const beforeEnd = nextStations.find((s) => s.id === beforeEndId);
-          if (!endStation || !beforeEnd) break;
-          const dx = endStation.x - beforeEnd.x;
-          const dy = endStation.y - beforeEnd.y;
-          const dLng = typeof endStation.lng === 'number' && typeof beforeEnd.lng === 'number'
-            ? endStation.lng - beforeEnd.lng
-            : null;
-          const dLat = typeof endStation.lat === 'number' && typeof beforeEnd.lat === 'number'
-            ? endStation.lat - beforeEnd.lat
-            : null;
-          // 一串新站点：第 i 个在 endStation 沿向量再外推 (i+1) 段距离
-          const newStations: Station[] = names.map((rawName, i) => {
-            const step = i + 1;
-            return {
-              id: createId(),
-              name: rawName.trim(),
-              x: endStation.x + dx * step,
-              y: endStation.y + dy * step,
-              ...(dLng !== null ? { lng: endStation.lng! + dLng * step } : {}),
-              ...(dLat !== null ? { lat: endStation.lat! + dLat * step } : {})
-            };
-          });
-          // 配套 sections：把每相邻两站连上
-          // 顺序：从原端点向外（end 方向: end → new[0] → new[1] ... / start 方向: new[N-1] → ... → new[0] → end）
-          const newSections: Section[] = [];
-          if (isStart) {
-            // start 方向：插到线路开头时，区间方向是 [newest...new[0], end]
-            // 但为了 stationIds/sectionIds 对齐，倒序构造：
-            const reversed = [...newStations].reverse();  // new[N-1] ... new[0]
-            const chain = [...reversed, endStation];  // chain[i] → chain[i+1]
-            for (let i = 0; i < chain.length - 1; i += 1) {
-              newSections.push({
-                id: createId(),
-                lineId: op.lineId,
-                startStationId: chain[i].id,
-                endStationId: chain[i + 1].id
-              });
-            }
-          } else {
-            const chain = [endStation, ...newStations];
-            for (let i = 0; i < chain.length - 1; i += 1) {
-              newSections.push({
-                id: createId(),
-                lineId: op.lineId,
-                startStationId: chain[i].id,
-                endStationId: chain[i + 1].id
-              });
-            }
-          }
-          nextStations = [...nextStations, ...newStations];
-          nextSections = [...nextSections, ...newSections];
-          nextLines = nextLines.map((l) =>
-            l.id === op.lineId
-              ? {
-                  ...l,
-                  // start: 把 new[N-1]...new[0] 接在原 stationIds 前；end: new[0]...new[N-1] 接在后
-                  stationIds: isStart
-                    ? [...[...newStations].reverse().map((s) => s.id), ...l.stationIds]
-                    : [...l.stationIds, ...newStations.map((s) => s.id)],
-                  sectionIds: isStart
-                    ? [...newSections.map((s) => s.id), ...l.sectionIds]
-                    : [...l.sectionIds, ...newSections.map((s) => s.id)]
-                }
-              : l
-          );
-          applied += 1;
-          break;
-        }
-        case 'rename_station':
-          nextStations = nextStations.map((s) => (s.id === op.stationId ? { ...s, name: op.name } : s));
-          applied += 1;
-          break;
-        case 'delete_station': {
-          // 与手动删站共用同一份逻辑：删中间站会自动缝合前后邻站
-          const next = deleteStationFromGraph(op.stationId, {
-            lines: nextLines,
-            stations: nextStations,
-            sections: nextSections
-          });
-          nextLines = next.lines;
-          nextStations = next.stations;
-          nextSections = next.sections;
-          applied += 1;
-          break;
-        }
-      }
+    if (recordHistory) pushHistory();
+    const viewportCenter = {
+      x: stageRef.current?.width?.() ? stageRef.current.width() / 2 : 540,
+      y: stageRef.current?.height?.() ? stageRef.current.height() / 2 : 360
+    };
+    const next = applyNetworkOperations(
+      {
+        lines: linesRef.current,
+        stations: stationsRef.current,
+        sections: sectionsRef.current,
+        mapSettings: mapSettingsRef.current,
+        currentLineId: currentLineIdRef.current
+      },
+      operations,
+      { createId, viewportCenter, language }
+    );
+    linesRef.current = next.lines;
+    stationsRef.current = next.stations;
+    sectionsRef.current = next.sections;
+    mapSettingsRef.current = next.mapSettings;
+    currentLineIdRef.current = next.currentLineId;
+    setLines(next.lines);
+    setStations(next.stations);
+    setSections(next.sections);
+    if (next.mapSettings !== mapSettings) {
+      setMapSettings(next.mapSettings);
     }
-
-    setLines(nextLines);
-    setStations(nextStations);
-    setSections(nextSections);
-    return applied;
+    if (next.currentLineId !== currentLineId) {
+      setCurrentLineId(next.currentLineId);
+    }
+    return next.applied;
   };
 
-  // 把一个 AI 操作 op 转成人类能读的中文摘要，给确认弹窗展示。
-  // 用当前的 lines / stations 解析 id → 名字；解析不到的 fallback 到 id 前 6 位。
-  const summarizeOperation = (op: AIOperation): string => {
-    const curLines = linesRef.current;
-    const curStations = stationsRef.current;
-    const lineName = (id: string) => curLines.find((l) => l.id === id)?.name || `#${id.slice(0, 6)}`;
-    const stationName = (id: string) => curStations.find((s) => s.id === id)?.name || `#${id.slice(0, 6)}`;
-    switch (op.type) {
-      case 'create_new_line_with_stations':
-        return `新建线路「${op.name}」（${op.color}），包含 ${op.stationNames.length} 个站点：${op.stationNames.join('、')}`;
-      case 'create_line':
-        return `新建线路「${op.name}」（${op.color}），共 ${op.stationIds.length} 个站点`;
-      case 'create_line_via_extension':
-        return `新建线路「${op.name}」（${op.color}），从「${stationName(op.anchorStationId)}」延伸 ${op.newStationNames.length} 个新站：${op.newStationNames.join('、')}`;
-      case 'recolor_line':
-        return `「${lineName(op.lineId)}」颜色改为 ${op.color}`;
-      case 'rename_line':
-        return `线路「${lineName(op.lineId)}」改名为「${op.name}」`;
-      case 'delete_line':
-        return `删除线路「${lineName(op.lineId)}」`;
-      case 'attach_station_to_line':
-        return `把「${stationName(op.stationId)}」接到「${lineName(op.lineId)}」的${op.position === 'start' ? '起点' : '终点'}`;
-      case 'create_station_between':
-        return `在「${lineName(op.lineId)}」上「${stationName(op.afterStationId)}」和「${stationName(op.beforeStationId)}」之间新增 ${op.names.length} 个站：${op.names.join('、')}`;
-      case 'create_station_at_line_end':
-        return `在「${lineName(op.lineId)}」的${op.position === 'start' ? '起点' : '终点'}延伸 ${op.names.length} 个新站：${op.names.join('、')}`;
-      case 'rename_station':
-        return `站点「${stationName(op.stationId)}」改名为「${op.name}」`;
-      case 'delete_station':
-        return `删除站点「${stationName(op.stationId)}」`;
-    }
-  };
+  const summarizeOperation = (op: AIOperation): string =>
+    summarizeAIOperation(op, linesRef.current, stationsRef.current);
 
-  // 让 AI 分析意图（多轮 + 流式）：传完整对话历史 + 当前最新地图状态。
-  // onDelta 把 AI 正在生成的文本（累计）实时回吐给弹窗。
-  // signal 让弹窗在关闭 / 重新提交时取消流。
-  // mapState 每次现算，确保即使在多轮里也是最新状态。
+  // 让 AI 分析意图（多轮 + 流式）：注入紧凑空间坐标、换乘/默认站标记与轻城市河流片区摘要。
   const handleAiAnalyzeStream = async (
     messages: { role: 'user' | 'assistant'; content: string }[],
     onDelta: (text: string) => void,
@@ -2620,15 +2195,12 @@ const App: React.FC = () => {
   ) => {
     setAiBusy(true);
     try {
-      const mapState = {
-        lines: linesRef.current.map((l) => ({
-          id: l.id,
-          name: l.name,
-          color: l.color,
-          stationIds: [...l.stationIds]
-        })),
-        stations: stationsRef.current.map((s) => ({ id: s.id, name: s.name }))
-      };
+      const mapState = buildCompactAIMapState({
+        lines: linesRef.current,
+        stations: stationsRef.current,
+        sections: sectionsRef.current,
+        mapSettings: mapSettingsRef.current
+      });
       const result = await api.aiEditStream({ messages, mapState }, { onDelta, signal });
       return {
         explanation: result.explanation || '',
@@ -2642,15 +2214,25 @@ const App: React.FC = () => {
   };
 
   const handleAiApply = (operations: AIOperation[]) => {
-    return applyAIOperations(operations);
+    return applyAIOperations(operations, true);
   };
 
-  // ── 命令行（v1）：新 handler（AIOperation 之外的命令独有变更）+ 执行器 ──────────
-  // 建空线路（自动设为当前线路）
-  const createEmptyLine = (name: string, color: string) => {
-    pushHistory();
+  const triggerAiPromptFromCli = (prompt: string) => {
+    const trimmed = prompt.trim();
+    if (!trimmed) return;
+    if (!userProfile && !hasActiveCustomAiKey()) {
+      setExternalAiPrompt({ seq: Date.now(), prompt: trimmed });
+      requestGuestAuth('ai');
+      return;
+    }
+    setAiModalOpen(true);
+    setExternalAiPrompt({ seq: Date.now(), prompt: trimmed });
+  };
+
+  // ── 灵动命令行 2.0：支持单条与 `;` 多条批量流水线，统一复用 graphOps + networkEngine ──
+  const createEmptyLine = (name: string, color: string, recordHistory = true) => {
+    if (recordHistory) pushHistory();
     const id = createId();
-    // 同步更新 ref（不等 useEffect），让紧接着的命令（如省略线名的 connect）立刻见到这条新线
     const next = [...linesRef.current, { id, name, color, stationIds: [], sectionIds: [] }];
     linesRef.current = next;
     setLines(next);
@@ -2658,98 +2240,179 @@ const App: React.FC = () => {
     setCurrentLineId(id);
   };
 
-  // 按顺序连接已有站点：空线路=初始化路径；非空=从端点延伸（首站为端点已在 resolver 校验）
-  const connectStationsOnLine = (lineId: string, ids: string[]) => {
-    const line = linesRef.current.find(l => l.id === lineId);
-    if (!line) return;
-    pushHistory();
-    const newSections: Section[] = [];
+  const connectStationsByCommand = (lineId: string, ids: string[], recordHistory = true) => {
+    const line = linesRef.current.find((l) => l.id === lineId);
+    if (!line || ids.length < 2) return;
+    if (recordHistory) pushHistory();
+    let working: MapGraph = {
+      lines: linesRef.current,
+      stations: stationsRef.current,
+      sections: sectionsRef.current
+    };
     for (let i = 0; i < ids.length - 1; i += 1) {
-      newSections.push({ id: createId(), lineId, startStationId: ids[i], endStationId: ids[i + 1] });
+      working = connectGraphStations(working, {
+        lineId,
+        fromStationId: ids[i],
+        toStationId: ids[i + 1],
+        makeId: createId
+      }).graph;
     }
-    const newIds = newSections.map(s => s.id);
-    let nextStationIds: string[];
-    let nextSectionIds: string[];
-    if (line.stationIds.length === 0) {
-      nextStationIds = [...ids];
-      nextSectionIds = newIds;
-    } else if (ids[0] === line.stationIds[line.stationIds.length - 1]) {
-      // 首站=末端点 → 往后追加
-      nextStationIds = [...line.stationIds, ...ids.slice(1)];
-      nextSectionIds = [...line.sectionIds, ...newIds];
-    } else {
-      // 首站=起点端点 → 反向前插（保持简单路径）
-      nextStationIds = [...ids.slice(1).reverse(), ...line.stationIds];
-      nextSectionIds = [...newIds.slice().reverse(), ...line.sectionIds];
-    }
-    const nextLines = linesRef.current.map(l => (l.id === lineId ? { ...l, stationIds: nextStationIds, sectionIds: nextSectionIds } : l));
-    const nextSections = [...sectionsRef.current, ...newSections];
-    linesRef.current = nextLines;
-    sectionsRef.current = nextSections;
-    setLines(nextLines);
-    setSections(nextSections);
+    linesRef.current = working.lines;
+    stationsRef.current = working.stations;
+    sectionsRef.current = working.sections;
+    setLines(working.lines);
+    setStations(working.stations);
+    setSections(working.sections);
   };
 
-  // 建独立站点（不挂任何线路）
-  const addStationByCommand = (name: string, x: number, y: number) => {
-    pushHistory();
+  const addStationByCommand = (name: string, x: number, y: number, recordHistory = true) => {
+    if (recordHistory) pushHistory();
     const next = [...stationsRef.current, { id: createId(), name, x, y }];
     stationsRef.current = next;
     setStations(next);
   };
 
-  // 设置/清空某区间的途经点；找不到匹配区间返回 false（由执行器报错）
-  const setSectionWaypointsByCommand = (lineId: string, aId: string, bId: string, points: { x: number; y: number }[]): boolean => {
+  const setSectionWaypointsByCommand = (
+    lineId: string,
+    aId: string,
+    bId: string,
+    points: { x: number; y: number }[],
+    recordHistory = true
+  ): boolean => {
     const target = sectionsRef.current.find(
-      s => s.lineId === lineId &&
-        ((s.startStationId === aId && s.endStationId === bId) || (s.startStationId === bId && s.endStationId === aId))
+      (s) =>
+        s.lineId === lineId &&
+        ((s.startStationId === aId && s.endStationId === bId) ||
+          (s.startStationId === bId && s.endStationId === aId))
     );
     if (!target) return false;
-    pushHistory();
+    if (recordHistory) pushHistory();
     const oriented = target.startStationId === aId ? points : [...points].reverse();
-    const capped = oriented.slice(0, 6).map(p => ({ x: p.x, y: p.y }));
-    const next = sectionsRef.current.map(s => (s.id === target.id ? { ...s, waypoints: capped.length ? capped : undefined } : s));
+    const capped = oriented.slice(0, 8).map((p) => ({ x: p.x, y: p.y }));
+    const next = sectionsRef.current.map((s) =>
+      s.id === target.id ? { ...s, waypoints: capped.length ? capped : undefined } : s
+    );
     sectionsRef.current = next;
     setSections(next);
     return true;
   };
 
-  const executeCommand = (resolved: ResolvedCommand): { ok: boolean; message: string } => {
+  const swapParallelByCommand = (
+    lineId: string,
+    aId: string,
+    bId: string,
+    recordHistory = true
+  ): boolean => {
+    const target = sectionsRef.current.find(
+      (s) =>
+        s.lineId === lineId &&
+        ((s.startStationId === aId && s.endStationId === bId) ||
+          (s.startStationId === bId && s.endStationId === aId))
+    );
+    if (!target) return false;
+    const stById = new Map(stationsRef.current.map((s) => [s.id, s]));
+    const lOrder = new Map(linesRef.current.map((l, idx) => [l.id, idx]));
+    const layout = computeNetworkParallelLayout({
+      sections: sectionsRef.current
+        .filter((s) => stById.has(s.startStationId) && stById.has(s.endStationId))
+        .map((s) => ({
+          id: s.id,
+          lineId: s.lineId,
+          startStationId: s.startStationId,
+          endStationId: s.endStationId,
+          points: [
+            stById.get(s.startStationId)!,
+            ...(s.waypoints || []),
+            stById.get(s.endStationId)!
+          ],
+          parallelOrder: s.parallelOrder
+        })),
+      lineOrderMap: lOrder,
+      gap: 9
+    });
+    const meta = layout.bySectionId.get(target.id);
+    if (!meta || meta.totalSlots < 2) return false;
+    if (recordHistory) pushHistory();
+    const nextOrder = moveLineInParallelOrder(meta.orderedLineIds, lineId, 'swap');
+    const targetSet = new Set(meta.corridorSectionIds);
+    const next = sectionsRef.current.map((s) =>
+      targetSet.has(s.id) ? { ...s, parallelOrder: nextOrder } : s
+    );
+    sectionsRef.current = next;
+    setSections(next);
+    return true;
+  };
+
+  const executeSingleCommand = (
+    resolved: ResolvedCommand,
+    recordHistory: boolean
+  ): CommandSubmitResult => {
     switch (resolved.kind) {
       case 'error':
-        return { ok: false, message: resolved.message };
+        return {
+          ok: false,
+          message: resolved.message,
+          ...(resolved.aiPromptSuggestion ? { aiPromptSuggestion: resolved.aiPromptSuggestion } : {})
+        };
+      case 'ai':
+        triggerAiPromptFromCli(resolved.prompt);
+        return { ok: true, message: resolved.summary };
       case 'guide':
         if (resolved.topic === 'colors') {
-          return { ok: true, message: '配色：blue red green yellow purple cyan pink orange ，或 #rrggbb ，或序号 1-8' };
+          return {
+            ok: true,
+            message: '配色：blue red green yellow purple cyan pink orange / 红蓝绿黄紫青粉橙 / #rrggbb / 1-8'
+          };
         }
-        return { ok: true, message: '命令总览：create line / line connect / station / extend / insert / attach / recolor / rename / delete / select / waypoint / zoom / fit / reset / center / style / theme / corner / undo / redo / save / new' };
+        return {
+          ok: true,
+          message:
+            '快捷命令（免引号，支持 ; 批量）：line 1号线 red 西站 东站 · loop 4号线 purple 站1..站4 · branch 1号线 from 科技园 新站 · close · extend · insert · merge · swap · city river|bay|shuffle · waypoints hide|show · ai 自然语言规划'
+        };
       case 'ops':
-        applyAIOperations(resolved.ops);
+        applyAIOperations(resolved.ops, recordHistory);
         return { ok: true, message: resolved.summary };
       case 'effect': {
         const e = resolved.effect;
-        if (mapSettingsRef.current.baseMap.mode === 'amap' && (e.type === 'add_station' || e.type === 'set_waypoints')) {
-          return { ok: false, message: '地理底图模式暂不支持像素坐标放置，请切到纯画布或直接在画布上点击落站' };
+        if (
+          mapSettingsRef.current.baseMap.mode === 'amap' &&
+          (e.type === 'add_station' || e.type === 'set_waypoints')
+        ) {
+          return {
+            ok: false,
+            message: '地理底图模式暂不支持纯像素坐标放置，请切到纯画布/轻城市或直接点击落站'
+          };
         }
         switch (e.type) {
-          case 'create_empty_line': createEmptyLine(e.name, e.color); break;
-          case 'connect': connectStationsOnLine(e.lineId, e.stationIds); break;
-          case 'add_station': addStationByCommand(e.name, e.x, e.y); break;
+          case 'create_empty_line':
+            createEmptyLine(e.name, e.color, recordHistory);
+            break;
+          case 'connect':
+            connectStationsByCommand(e.lineId, e.stationIds, recordHistory);
+            break;
+          case 'add_station':
+            addStationByCommand(e.name, e.x, e.y, recordHistory);
+            break;
           case 'set_waypoints':
-            if (!setSectionWaypointsByCommand(e.lineId, e.startStationId, e.endStationId, e.points)) {
+            if (!setSectionWaypointsByCommand(e.lineId, e.startStationId, e.endStationId, e.points, recordHistory)) {
               return { ok: false, message: '找不到这两个站之间的区间' };
             }
             break;
           case 'clear_waypoints':
-            if (!setSectionWaypointsByCommand(e.lineId, e.startStationId, e.endStationId, [])) {
+            if (!setSectionWaypointsByCommand(e.lineId, e.startStationId, e.endStationId, [], recordHistory)) {
               return { ok: false, message: '找不到这两个站之间的区间' };
+            }
+            break;
+          case 'swap_parallel':
+            if (!swapParallelByCommand(e.lineId, e.startStationId, e.endStationId, recordHistory)) {
+              return { ok: false, message: '该区间当前没有多线并行，无需对调顺序' };
             }
             break;
         }
         return { ok: true, message: resolved.summary };
       }
       case 'action': {
-        if (resolved.undoable) pushHistory();
+        if (resolved.undoable && recordHistory) pushHistory();
         const a = resolved.action;
         switch (a.type) {
           case 'zoom':
@@ -2758,31 +2421,117 @@ const App: React.FC = () => {
           case 'fit':
           case 'reset':
           case 'center':
-            // 视图类下发到 Canvas（它才持有 scale/position/amapRef）
             setViewCmd({ seq: Date.now() + Math.random(), action: a });
             break;
-          case 'set_style': setMapSettings(prev => normalizeMapSettings({ ...prev, mapStyle: a.mapStyle })); break;
-          case 'set_theme': setMapSettings(prev => normalizeMapSettings({ ...prev, canvasTheme: a.canvasTheme })); break;
-          case 'set_corner': setMapSettings(prev => normalizeMapSettings({ ...prev, cornerRadius: a.cornerRadius })); break;
-          case 'select_line': setCurrentLineId(a.lineId); break;
-          case 'undo': handleUndo(); break;
-          case 'redo': handleRedo(); break;
-          case 'save': handleSaveMap(); break;
-          case 'new': handleNewMap(); break;
+          case 'set_style': {
+            const next = normalizeMapSettings({ ...mapSettingsRef.current, mapStyle: a.mapStyle });
+            mapSettingsRef.current = next;
+            setMapSettings(next);
+            break;
+          }
+          case 'set_theme': {
+            const next = normalizeMapSettings({ ...mapSettingsRef.current, canvasTheme: a.canvasTheme });
+            mapSettingsRef.current = next;
+            setMapSettings(next);
+            break;
+          }
+          case 'set_corner': {
+            const next = normalizeMapSettings({ ...mapSettingsRef.current, cornerRadius: a.cornerRadius });
+            mapSettingsRef.current = next;
+            setMapSettings(next);
+            break;
+          }
+          case 'set_basemap_plain': {
+            const next = normalizeMapSettings({
+              ...mapSettingsRef.current,
+              baseMap: { ...mapSettingsRef.current.baseMap, mode: 'plain' }
+            });
+            mapSettingsRef.current = next;
+            setMapSettings(next);
+            break;
+          }
+          case 'select_line':
+            currentLineIdRef.current = a.lineId;
+            setCurrentLineId(a.lineId);
+            break;
+          case 'undo':
+            handleUndo();
+            break;
+          case 'redo':
+            handleRedo();
+            break;
+          case 'save':
+            handleSaveMap();
+            break;
+          case 'new':
+            handleNewMap();
+            break;
         }
         return { ok: true, message: resolved.summary };
       }
     }
   };
 
-  // 命令栏入口：用 ref 取最新地图状态做上下文，解释 + 执行，返回结果给命令栏展示
-  const runCommand = (input: string): { ok: boolean; message: string } => {
-    const ctx = {
-      lines: linesRef.current.map(l => ({ id: l.id, name: l.name, color: l.color, stationIds: l.stationIds })),
-      stations: stationsRef.current.map(s => ({ id: s.id, name: s.name, x: s.x, y: s.y })),
-      currentLineId: currentLineIdRef.current
+  // 命令栏入口：支持单条指令或用 `;` / 换行分隔的批量指令流（整批共享一次撤销记录）
+  const runCommand = (input: string): CommandSubmitResult => {
+    const trimmed = input.trim();
+    if (!trimmed) return { ok: false, message: '请输入命令' };
+
+    // 若整句是 ai / ? 自然语言请求，保留分号不拆分，整句交给 AI
+    if (/^(ai\s+|ask\s+|\?|？)/i.test(trimmed)) {
+      const ctx = {
+        lines: linesRef.current.map((l) => ({ id: l.id, name: l.name, color: l.color, stationIds: l.stationIds })),
+        stations: stationsRef.current.map((s) => ({ id: s.id, name: s.name, x: s.x, y: s.y })),
+        currentLineId: currentLineIdRef.current
+      };
+      return executeSingleCommand(interpretCommand(trimmed, ctx), true);
+    }
+
+    const statements = splitCommandStatements(trimmed);
+    if (statements.length <= 1) {
+      const ctx = {
+        lines: linesRef.current.map((l) => ({ id: l.id, name: l.name, color: l.color, stationIds: l.stationIds })),
+        stations: stationsRef.current.map((s) => ({ id: s.id, name: s.name, x: s.x, y: s.y })),
+        currentLineId: currentLineIdRef.current
+      };
+      return executeSingleCommand(interpretCommand(statements[0] || trimmed, ctx), true);
+    }
+
+    let historyRecorded = false;
+    const summaries: string[] = [];
+    for (let i = 0; i < statements.length; i += 1) {
+      const ctx = {
+        lines: linesRef.current.map((l) => ({ id: l.id, name: l.name, color: l.color, stationIds: l.stationIds })),
+        stations: stationsRef.current.map((s) => ({ id: s.id, name: s.name, x: s.x, y: s.y })),
+        currentLineId: currentLineIdRef.current
+      };
+      const resolved = interpretCommand(statements[i], ctx);
+      const needsHistory =
+        !historyRecorded &&
+        (resolved.kind === 'ops' ||
+          resolved.kind === 'effect' ||
+          (resolved.kind === 'action' && resolved.undoable));
+      if (needsHistory) {
+        pushHistory();
+        historyRecorded = true;
+      }
+      const res = executeSingleCommand(resolved, false);
+      if (!res.ok) {
+        return {
+          ok: false,
+          message: `第 ${i + 1} 条「${statements[i]}」失败：${res.message}`,
+          ...(res.aiPromptSuggestion ? { aiPromptSuggestion: trimmed } : {})
+        };
+      }
+      summaries.push(res.message);
+    }
+
+    return {
+      ok: true,
+      message: `已批量执行 ${summaries.length} 条指令：${summaries.slice(0, 3).join('；')}${
+        summaries.length > 3 ? '…' : ''
+      }`
     };
-    return executeCommand(interpretCommand(input, ctx));
   };
 
   const handleExportImage = async () => {
@@ -3451,7 +3200,14 @@ const App: React.FC = () => {
                 mobileViewControlsHost={mobileViewControlsHost}
               />
               : <div className="metro-guest-loading" role="status">正在打开本机草稿…</div>}
-              <CommandBar onSubmit={runCommand} inputRef={commandInputRef} />
+              <CommandBar
+                onSubmit={runCommand}
+                onAskAI={triggerAiPromptFromCli}
+                lines={lines}
+                stations={stations}
+                currentLineId={currentLineId}
+                inputRef={commandInputRef}
+              />
             </div>
           </Content>
         </Layout>
@@ -3482,6 +3238,8 @@ const App: React.FC = () => {
           mapName={mapDisplayName}
           lines={lines}
           stations={stations}
+          mapSettings={mapSettings}
+          externalPromptRequest={externalAiPrompt}
           canUndo={canUndo}
           onUndo={handleUndo}
           onAnalyzeStream={handleAiAnalyzeStream}

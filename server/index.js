@@ -1560,7 +1560,7 @@ const AI_EDIT_TOOLS = [
     type: 'function',
     function: {
       name: 'create_new_line_with_stations',
-      description: '从零创建一条包含全新站点序列的新线路（适用于空白画布建线，或新建一条大部分站点尚不存在的线路）。若 stationNames 中某些站名与当前地图已有站点完全同名，前端会自动复用已有站点形成换乘站。',
+      description: '从零创建一条包含全新站点序列的干线或放射线。若 stationNames 中包含 1 个或多个当前地图已有同名站，前端会自动复用所有同名站作为精确换乘锚点并在锚点之间平滑分段排站！还可通过 targetCenter 指定线路围绕某个轻城市片区坐标落位。',
       parameters: {
         type: 'object',
         properties: {
@@ -1574,10 +1574,142 @@ const AI_EDIT_TOOLS = [
           direction: {
             type: 'string',
             enum: ['east_west', 'north_south', 'nw_se', 'sw_ne'],
-            description: '可选：线路整体走向（东西向 east_west / 南北向 north_south / 西北-东南 nw_se / 西南-东北 sw_ne）'
+            description: '可选：整体走向（east_west / north_south / nw_se / sw_ne；穿过已有单站时缺省会自动取正交 90° 方向）'
+          },
+          targetCenter: {
+            type: 'object',
+            properties: {
+              x: { type: 'number' },
+              y: { type: 'number' }
+            },
+            required: ['x', 'y'],
+            description: '可选：希望该线路中心对准的画布坐标（例如对准轻城市某个核心片区坐标）'
           }
         },
         required: ['name', 'color', 'stationNames']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_loop_line',
+      description: '直接创建一条闭合圆弧/多边形环线（如"4号线环线"、"内环线"）。若 stationNames 中包含已有放射线站点名，会自动与这些站点交汇形成换乘站！',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '环线名称，如"4号线"或"2号环线"' },
+          color: { type: 'string', description: '6 位十六进制颜色' },
+          stationNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '按顺时针排列的环线站名列表（首尾不要重复写同一站），最少 3 个，建议 6-14 个。'
+          },
+          radius: { type: 'number', description: '可选：环线半径像素（建议 140-340，不传则根据现有线网尺寸自动匹配）' },
+          centerX: { type: 'number', description: '可选：环心 X 坐标' },
+          centerY: { type: 'number', description: '可选：环心 Y 坐标' }
+        },
+        required: ['name', 'color', 'stationNames']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'close_line_loop',
+      description: '把一条现有的非闭合线路首尾两端直接连起来闭合成为环线。',
+      parameters: {
+        type: 'object',
+        properties: {
+          lineId: { type: 'string', description: '要首尾闭环的既有线路 id' }
+        },
+        required: ['lineId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_branch_line',
+      description: '在某条既有线路的指定站点上分叉拉出一条 Y 型支线（支线仍属于同一条线路，不是新建独立线路）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          lineId: { type: 'string', description: '所属既有线路 id' },
+          branchFromStationId: { type: 'string', description: '分叉起点的既有站点 id（必须在该线路上）' },
+          newStationNames: {
+            type: 'array',
+            items: { type: 'string' },
+            description: '支线上依次延伸的站名列表，1-15 个'
+          },
+          direction: {
+            type: 'string',
+            enum: ['east_west', 'north_south', 'nw_se', 'sw_ne', 'east', 'west', 'north', 'south'],
+            description: '可选：支线延伸方向；不传则自动沿主干线 45° 外侧优雅分叉'
+          }
+        },
+        required: ['lineId', 'branchFromStationId', 'newStationNames']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'batch_rename_stations',
+      description: '一次性批量重命名多个站点（最适合给手绘草图的"站点 1..N"统一按城市/片区/枢纽风格智能起名，或整条线改名）。只需调用一次即可改完所有目标站！',
+      parameters: {
+        type: 'object',
+        properties: {
+          renames: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                stationId: { type: 'string', description: '既有站点 id' },
+                name: { type: 'string', description: '新站名（≤32字）' }
+              },
+              required: ['stationId', 'name']
+            },
+            description: '要重命名的 {stationId, name} 列表，最多 200 项'
+          }
+        },
+        required: ['renames']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'merge_stations',
+      description: '将 sourceStationId 合并入 targetStationId，使两站合二为一成为换乘站。',
+      parameters: {
+        type: 'object',
+        properties: {
+          sourceStationId: { type: 'string', description: '被合并移除的站点 id' },
+          targetStationId: { type: 'string', description: '保留下来的目标换乘站 id' }
+        },
+        required: ['sourceStationId', 'targetStationId']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'configure_map',
+      description: '调整画布主题、城市视觉预设、线路圆角半径、默认隐藏途经点，或切换/刷新「轻城市」极简地理底图模板。',
+      parameters: {
+        type: 'object',
+        properties: {
+          canvasTheme: { type: 'string', enum: ['light', 'dark'] },
+          cityStyle: { type: 'string', enum: ['standard', 'beijing', 'shanghai', 'mtr'] },
+          cornerRadius: { type: 'number', description: '线路转角圆角半径 0-40' },
+          hideWaypoints: { type: 'boolean', description: '是否默认隐藏途经点控制柄' },
+          lightCityArchetype: {
+            type: 'string',
+            enum: ['river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'shuffle'],
+            description: '轻城市地貌模板：river(穿城大江) / confluence(两江交汇) / bay(湾区海港) / ring(平原环城) / delta(河网水乡) / lake(湖山新城) / shuffle(换随机种子)'
+          }
+        }
       }
     }
   },
@@ -1757,6 +1889,68 @@ function validateAIOperation(op, lineIds, stationIds) {
       if (!Array.isArray(op.stationNames) || op.stationNames.length < 2 || op.stationNames.length > 30) return false;
       if (!op.stationNames.every(checkName)) return false;
       if (op.direction !== undefined && !['east_west', 'north_south', 'nw_se', 'sw_ne'].includes(op.direction)) return false;
+      if (op.targetCenter !== undefined) {
+        if (
+          !op.targetCenter ||
+          typeof op.targetCenter.x !== 'number' ||
+          !Number.isFinite(op.targetCenter.x) ||
+          typeof op.targetCenter.y !== 'number' ||
+          !Number.isFinite(op.targetCenter.y)
+        ) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case 'create_loop_line': {
+      if (!checkName(op.name) || !checkColor(op.color)) return false;
+      if (!Array.isArray(op.stationNames) || op.stationNames.length < 3 || op.stationNames.length > 30) return false;
+      if (!op.stationNames.every(checkName)) return false;
+      if (op.radius !== undefined && (typeof op.radius !== 'number' || !Number.isFinite(op.radius))) return false;
+      if (op.centerX !== undefined && (typeof op.centerX !== 'number' || !Number.isFinite(op.centerX))) return false;
+      if (op.centerY !== undefined && (typeof op.centerY !== 'number' || !Number.isFinite(op.centerY))) return false;
+      return true;
+    }
+    case 'close_line_loop':
+      return inLines(op.lineId);
+    case 'create_branch_line': {
+      if (!inLines(op.lineId) || !inStations(op.branchFromStationId)) return false;
+      if (!Array.isArray(op.newStationNames) || op.newStationNames.length < 1 || op.newStationNames.length > 20) return false;
+      if (!op.newStationNames.every(checkName)) return false;
+      if (
+        op.direction !== undefined &&
+        !['east_west', 'north_south', 'nw_se', 'sw_ne', 'east', 'west', 'north', 'south'].includes(op.direction)
+      ) {
+        return false;
+      }
+      return true;
+    }
+    case 'batch_rename_stations': {
+      if (!Array.isArray(op.renames) || op.renames.length < 1 || op.renames.length > 200) return false;
+      return op.renames.every((r) => r && inStations(r.stationId) && checkName(r.name));
+    }
+    case 'merge_stations':
+      return (
+        inStations(op.sourceStationId) &&
+        inStations(op.targetStationId) &&
+        op.sourceStationId !== op.targetStationId
+      );
+    case 'configure_map': {
+      if (op.canvasTheme !== undefined && !['light', 'dark'].includes(op.canvasTheme)) return false;
+      if (op.cityStyle !== undefined && !['standard', 'beijing', 'shanghai', 'mtr'].includes(op.cityStyle)) return false;
+      if (
+        op.cornerRadius !== undefined &&
+        (typeof op.cornerRadius !== 'number' || op.cornerRadius < 0 || op.cornerRadius > 40)
+      ) {
+        return false;
+      }
+      if (op.hideWaypoints !== undefined && typeof op.hideWaypoints !== 'boolean') return false;
+      if (
+        op.lightCityArchetype !== undefined &&
+        !['river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'shuffle'].includes(op.lightCityArchetype)
+      ) {
+        return false;
+      }
       return true;
     }
     case 'create_line':
@@ -1803,23 +1997,22 @@ function validateAIOperation(op, lineIds, stationIds) {
 }
 
 const AI_EDIT_SYSTEM_PROMPT =
-  '你是一个地铁线路图设计助手。\n' +
+  '你是一个专业的城市轨道交通线网规划师与设计助手。\n' +
   '规则：\n' +
-  '1. 用户用中文描述编辑意图，你把它翻译成对当前地图的具体工具调用。\n' +
-  '2. 引用线路 / 站点必须用它们的 id（如 "abc123"），不要用名字。\n' +
-  '3. 颜色必须是 6 位十六进制（如 "#ff0000"）。\n' +
-  '4. 创建新线路时 stationIds 必须按线路顺序、全部是已存在的站点 id。\n' +
-  '5. 区分"新建站点"和"已存在站点"：\n' +
-  '   - 用户要"在线路终点之外加一个或多个新站点"（名字是新的）→ 用 create_station_at_line_end，names 传完整列表\n' +
-  '   - 用户要"在 A、B 之间加一个或多个新站点"（名字是新的、A B 已存在）→ 用 create_station_between，names 传完整列表\n' +
-  '   - 用户要"把已存在的 X 站接到线路尾巴"（X 已经在地图上）→ 用 attach_station_to_line\n' +
-  '   - **用户要"新建一条线路，从 Y 站（已存在）出发，途经 A、B、C... 等新站点"** → 用 create_line_via_extension，anchorStationId = Y，newStationNames = [A, B, C, ...]。如果用户说"与 Z 线换乘"，Y 通常是 Z 线上的某个站；如果能从地图状态看出 Z 线上 Y 的邻站，可把那个邻站填进 directionAwayFromStationId 让新线路朝远离的方向延伸。\n' +
-  '   - **用户要"从零新建一条线路并包含若干新站点"（例如空白画布建第一条线，或新建一条穿过已有同名站点的全新线路）** → 用 create_new_line_with_stations，stationNames 传按顺序排列的完整站名列表，并根据语义选择合适的 direction（如东西干线用 east_west、南北干线用 north_south）；若其中包含已有站点名，会自动在同名站形成十字换乘。\n' +
-  '   - 不要用 create_line 去处理"新站点未存在"的情况 —— create_line 的 stationIds 必须全是已存在的 id。\n' +
-  '6. **批量优先**：用户一次说要加 N 个站点或建多条线，**每条操作必须用一次批量数组工具调用**，不要拆成单站多次调用。\n' +
-  '7. 如果用户的请求无法用工具完成（比如线路只有 1 个站还要端点延伸 / 指定的既有站点不存在），直接用简明友好的中文解释原因并给出替代建议，不要瞎调工具。\n' +
-  '8. 一次可以连续调用多个不同工具（比如"新建 1 号线 + 新建 2 号线十字换乘"或"改颜色 + 加站点"），按逻辑顺序排列，并用简短中文说明本次规划亮点。\n' +
-  '9. 多轮对话：用户可以连续追问（如"把刚刚那条线再往东延伸 3 站"、"换个更搭的颜色"）。注意参考历史消息中标注的【用户已应用 / 未应用】状态以及最新地图状态做判断；不确定就礼貌追问。';
+  '1. 用户用自然语言描述规划或编辑意图，你将其拆解为精准的工具调用，并配一段精炼专业的中文规划说明。\n' +
+  '2. 引用已有线路 / 站点必须严格使用地图状态提供的真实 id，不要编造不存在的 id；颜色使用协调高辨识度的 6 位十六进制色值（如 #e11d48, #2563eb, #16a34a, #d97706, #7c3aed, #0891b2）。\n' +
+  '3. **空间与轻城市地貌感知**：地图状态中每个站点都带有画布坐标 @(x,y)（+x 向东/右，+y 向南/下），若处于「轻城市」模式还会提供河流走向与片区坐标：\n' +
+  '   - 给未命名站（标有 [默认名] 的"站点 1..N"）批量起名时，**必须使用一次 `batch_rename_stations`**！结合每个站的 @(x,y) 方位、与轻城市片区/水系的距离，以及是否标有 [换乘]（换乘站应起大气枢纽名，如市民中心、人民广场、江北嘴、会展中心；靠近水系可起滨江、清澜渡等；末端站可起机场、高铁站、大学城等），严禁拆成几十个单站 rename_station！\n' +
+  '   - 结合轻城市地貌规划线网时，参考各片区 @(x,y) 与河道坐标，用 `create_new_line_with_stations`（可带 targetCenter 或通过共享同名换乘站串联多条跨江干线）与 `create_loop_line`（环线）。\n' +
+  '4. **精准选用高阶拓扑工具**：\n' +
+  '   - **建环线** → 优先用 `create_loop_line`（自动排布平滑圆环，若 stationNames 中包含既有放射线站名会自动形成换乘！）；把现有线路首尾连成环用 `close_line_loop`。\n' +
+  '   - **同线拉 Y 型支线**（如"1号线在科技园分出空港支线"）→ 用 `create_branch_line`。\n' +
+  '   - **建干线/联络线** → 用 `create_new_line_with_stations`（支持穿过多个既有同名站点，前端会自动在多锚点间平滑插值排站！）。\n' +
+  '   - **从既有站向外单向拉新线** → 用 `create_line_via_extension`。\n' +
+  '   - **延长现有线路** → `create_station_at_line_end`；**两站间插站** → `create_station_between`；**合并两站换乘** → `merge_stations`。\n' +
+  '   - **切换轻城市底图/圆角/深浅色/城市风格** → 用 `configure_map`。\n' +
+  '5. **原子与批量优先**：一次请求可组合调用多个工具（如一次生成 3 条跨江骨干线 + 1 条环线），每个批量工具一次传完整数组。\n' +
+  '6. 多轮对话请以【当前地图状态】的最新真实数据为准。';
 
 // 共享的请求预处理：校验 messages + 组装 LLM payload + 收集 id 集合。
 // 返回 { error, status } 表示校验失败；否则 { llmMessages, lineIds, stationIds }。
@@ -1882,14 +2075,36 @@ function prepareAiEdit(req) {
   const stationIds = new Set(stationsArr.map((s) => String(s.id)));
 
   const stateLines = linesArr
-    .slice(0, 50)
-    .map(
-      (l) => `- {id: "${l.id}", name: "${l.name}", color: "${l.color}", stationIds: [${(l.stationIds || []).map((s) => `"${s}"`).join(', ')}]}`
-    )
+    .slice(0, 60)
+    .map((l) => {
+      const flags = [l.isLoop ? '环线' : '', l.hasBranch ? '含支线' : ''].filter(Boolean).join(',');
+      return `- {id: "${l.id}", name: "${l.name}", color: "${l.color}"${flags ? `, tag: "${flags}"` : ''}, stationIds: [${(l.stationIds || []).map((s) => `"${s}"`).join(', ')}]}`;
+    })
     .join('\n');
   const stateStations = stationsArr
     .slice(0, 600)
-    .map((s) => `- {id: "${s.id}", name: "${s.name}"}`)
+    .map((s) => {
+      const coord =
+        typeof s.x === 'number' && typeof s.y === 'number'
+          ? `@(${Math.round(s.x)},${Math.round(s.y)})`
+          : '';
+      const tags = [s.isTransfer ? '[换乘]' : '', s.isDefaultName ? '[默认名]' : ''].filter(Boolean).join('');
+      return `- {id: "${s.id}", name: "${s.name}"}${coord}${tags ? ` ${tags}` : ''}`;
+    })
+    .join('\n');
+
+  const sp = mapState.spatialContext || {};
+  const spatialHeader = [
+    sp.baseMapMode ? `底图模式: ${sp.baseMapMode}` : '',
+    sp.bounds
+      ? `线网范围: X[${sp.bounds.minX}..${sp.bounds.maxX}] Y[${sp.bounds.minY}..${sp.bounds.maxY}] 中心@(${sp.bounds.centerX},${sp.bounds.centerY})`
+      : '',
+    typeof sp.defaultNamedStationCount === 'number' && sp.defaultNamedStationCount > 0
+      ? `待命名默认站点: ${sp.defaultNamedStationCount} 座`
+      : '',
+    sp.lightCitySummary ? `轻城市地理参考: ${sp.lightCitySummary}` : ''
+  ]
+    .filter(Boolean)
     .join('\n');
 
   const llmMessages = [
@@ -1898,6 +2113,7 @@ function prepareAiEdit(req) {
       role: 'user',
       content:
         `【当前地图状态（始终是最新的，先于任何对话历史）】\n` +
+        (spatialHeader ? `${spatialHeader}\n\n` : '') +
         `线路:\n${stateLines || '（无）'}\n\n` +
         `站点:\n${stateStations || '（无）'}`
     },

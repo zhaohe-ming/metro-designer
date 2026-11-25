@@ -94,6 +94,16 @@ export type CheckPendingResult =
 
 // AI 自然语言编辑返回的操作类型。后端用 DeepSeek tool calls 翻译用户意图，
 // 已经过 id / 颜色 / 长度校验，前端直接 apply 即可。
+export type BranchDirection =
+  | 'east_west'
+  | 'north_south'
+  | 'nw_se'
+  | 'sw_ne'
+  | 'east'
+  | 'west'
+  | 'north'
+  | 'south';
+
 export type AIOperation =
   | {
       type: 'create_new_line_with_stations';
@@ -101,6 +111,41 @@ export type AIOperation =
       color: string;
       stationNames: string[];
       direction?: 'east_west' | 'north_south' | 'nw_se' | 'sw_ne';
+      targetCenter?: { x: number; y: number };
+    }
+  | {
+      type: 'create_loop_line';
+      name: string;
+      color: string;
+      stationNames: string[];
+      radius?: number;
+      centerX?: number;
+      centerY?: number;
+    }
+  | { type: 'close_line_loop'; lineId: string }
+  | {
+      type: 'create_branch_line';
+      lineId: string;
+      branchFromStationId: string;
+      newStationNames: string[];
+      direction?: BranchDirection;
+    }
+  | {
+      type: 'batch_rename_stations';
+      renames: Array<{ stationId: string; name: string }>;
+    }
+  | {
+      type: 'merge_stations';
+      sourceStationId: string;
+      targetStationId: string;
+    }
+  | {
+      type: 'configure_map';
+      canvasTheme?: 'light' | 'dark';
+      cityStyle?: 'standard' | 'beijing' | 'shanghai' | 'mtr';
+      cornerRadius?: number;
+      hideWaypoints?: boolean;
+      lightCityArchetype?: 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'shuffle';
     }
   | { type: 'create_line'; name: string; color: string; stationIds: string[] }
   | {
@@ -119,6 +164,31 @@ export type AIOperation =
   | { type: 'create_station_at_line_end'; lineId: string; position: 'start' | 'end'; names: string[] }
   | { type: 'rename_station'; stationId: string; name: string }
   | { type: 'delete_station'; stationId: string };
+
+export interface AIMapStatePayload {
+  lines: Array<{
+    id: string;
+    name: string;
+    color: string;
+    stationIds: string[];
+    isLoop?: boolean;
+    hasBranch?: boolean;
+  }>;
+  stations: Array<{
+    id: string;
+    name: string;
+    x?: number;
+    y?: number;
+    isDefaultName?: boolean;
+    isTransfer?: boolean;
+  }>;
+  spatialContext?: {
+    baseMapMode: 'plain' | 'light-city' | 'amap';
+    bounds?: { minX: number; minY: number; maxX: number; maxY: number; centerX: number; centerY: number };
+    defaultNamedStationCount?: number;
+    lightCitySummary?: string;
+  };
+}
 
 export function getToken() {
   return getStoredToken();
@@ -243,10 +313,7 @@ export const api = {
   // 自然语言编辑（多轮，非流式）：保留给 fallback / 测试。
   aiEdit: (payload: {
     messages: { role: 'user' | 'assistant'; content: string }[];
-    mapState: {
-      lines: { id: string; name: string; color: string; stationIds: string[] }[];
-      stations: { id: string; name: string }[];
-    };
+    mapState: AIMapStatePayload;
   }) =>
     request<{
       operations: AIOperation[];
@@ -265,10 +332,7 @@ export const api = {
   aiEditStream: async (
     payload: {
       messages: { role: 'user' | 'assistant'; content: string }[];
-      mapState: {
-        lines: { id: string; name: string; color: string; stationIds: string[] }[];
-        stations: { id: string; name: string }[];
-      };
+      mapState: AIMapStatePayload;
     },
     opts: { onDelta?: (cumulativeText: string) => void; signal?: AbortSignal } = {}
   ): Promise<{ operations: AIOperation[]; explanation: string; skipped: { name: string; reason: string }[] }> => {
