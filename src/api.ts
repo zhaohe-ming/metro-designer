@@ -5,6 +5,8 @@ import {
   setStoredToken,
   touchAuthActivity
 } from './lib/authSession';
+import { getActiveCustomAiHeaders } from './lib/aiCustomConfig';
+import { stitchGeoStaticMapBlob } from './lib/geoTileMap';
 
 export {
   AUTH_IDLE_TTL_MS,
@@ -19,13 +21,24 @@ const API_BASE_URL = (process.env.REACT_APP_API_BASE_URL || '').replace(/\/$/, '
 
 export class ApiError extends Error {
   status: number;
+  code?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
     Object.setPrototypeOf(this, ApiError.prototype);
   }
+}
+
+export interface AIStatusInfo {
+  officialAvailable: boolean;
+  defaultModel: string;
+  editDailyLimit: number;
+  editRemaining: number;
+  translateDailyLimit: number;
+  translateRemaining: number;
 }
 
 export interface UserDto {
@@ -138,28 +151,11 @@ async function request<T>(
   const url = `${API_BASE_URL}${path}`;
   const res = await fetch(url, { ...options, headers });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(data.message || '请求失败', res.status);
+  if (!res.ok) throw new ApiError(data.message || '请求失败', res.status, data.code);
   if (authMode === 'login') {
     touchAuthActivity();
   }
   return data as T;
-}
-
-async function requestBlob(path: string, options: RequestInit = {}, auth = false): Promise<Blob> {
-  const headers: Record<string, string> = {
-    ...(options.headers as Record<string, string> | undefined)
-  };
-  if (auth) {
-    const token = getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-  }
-  const url = `${API_BASE_URL}${path}`;
-  const res = await fetch(url, { ...options, headers });
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({}));
-    throw new Error(data.message || '请求失败');
-  }
-  return res.blob();
 }
 
 export const api = {
@@ -228,10 +224,19 @@ export const api = {
       body: JSON.stringify({ token: payload.token, password: payload.password })
     }),
 
-  // AI 助手相关接口（后端代理 DeepSeek）
+  // AI 助手相关接口（支持官方免费额度 + 本地自填 API Key 透传）
+  aiStatus: () => request<AIStatusInfo>('/api/ai/status', {}, 'login'),
+
+  testAiKey: (payload: { apiKey: string; baseUrl?: string; model?: string }) =>
+    request<{ ok: boolean; model: string; latencyMs: number }>('/api/ai/test-key', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
   translateStation: (name: string) =>
     request<{ name: string; english: string }>('/api/ai/translate-station', {
       method: 'POST',
+      headers: getActiveCustomAiHeaders(),
       body: JSON.stringify({ name: name.trim() })
     }, 'login'),
 
@@ -249,6 +254,7 @@ export const api = {
       skipped: { name: string; reason: string }[];
     }>('/api/ai/edit', {
       method: 'POST',
+      headers: getActiveCustomAiHeaders(),
       body: JSON.stringify(payload)
     }, 'login'),
 
@@ -266,7 +272,10 @@ export const api = {
     },
     opts: { onDelta?: (cumulativeText: string) => void; signal?: AbortSignal } = {}
   ): Promise<{ operations: AIOperation[]; explanation: string; skipped: { name: string; reason: string }[] }> => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...getActiveCustomAiHeaders()
+    };
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch(`${API_BASE_URL}/api/ai/edit-stream`, {
@@ -277,7 +286,7 @@ export const api = {
     });
     if (!res.ok || !res.body) {
       const data = await res.json().catch(() => ({}));
-      throw new Error((data as any).message || '请求失败');
+      throw new ApiError((data as any).message || '请求失败', res.status, (data as any).code);
     }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -339,16 +348,5 @@ export const api = {
     style?: string;
     scale?: 1 | 2;
     signal?: AbortSignal;
-  }) => {
-    const query = new URLSearchParams({
-      lng: String(params.center[0]),
-      lat: String(params.center[1]),
-      zoom: String(params.zoom),
-      width: String(params.width),
-      height: String(params.height),
-      style: params.style || 'normal',
-      scale: String(params.scale || 1)
-    });
-    return requestBlob(`/api/amap/static-map?${query.toString()}`, { signal: params.signal }, true);
-  }
+  }) => stitchGeoStaticMapBlob(params)
 };

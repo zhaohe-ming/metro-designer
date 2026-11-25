@@ -62,10 +62,13 @@ export type DotLabelStyle = {
 };
 export type BaseMapMode = 'plain' | 'amap';
 export type AmapStyle = 'normal' | 'dark' | 'grey' | 'fresh';
+export type GeoCoordSystem = 'wgs84' | 'gcj02';
 export type AmapBaseMapSettings = {
   center: [number, number];
   zoom: number;
   style: AmapStyle;
+  /** 坐标基准：新版免 Key 开源底图统一存 'wgs84'；未标记的旧版高德存档自动识别为 'gcj02' 并在加载时一次性纠偏 */
+  coordSystem?: GeoCoordSystem;
 };
 export type BaseMapSettings = {
   mode: BaseMapMode;
@@ -138,9 +141,10 @@ export const DEFAULT_MAP_SETTINGS: MapSettings = {
   baseMap: {
     mode: 'plain',
     amap: {
-      center: [116.397428, 39.90923],
+      center: [116.391276, 39.907335],
       zoom: 11,
-      style: 'normal'
+      style: 'normal',
+      coordSystem: 'wgs84'
     }
   },
   // 默认 paper：保持原有"图纸缩放"行为不破坏老用户预期。
@@ -249,7 +253,12 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
         style:
           amap.style === 'dark' || amap.style === 'grey' || amap.style === 'fresh'
             ? amap.style
-            : 'normal'
+            : 'normal',
+        ...(amap.coordSystem === 'wgs84' || amap.coordSystem === 'gcj02'
+          ? { coordSystem: amap.coordSystem }
+          : baseMap.mode !== 'amap'
+            ? { coordSystem: 'wgs84' as const }
+            : {})
       }
     },
     labelDensity:

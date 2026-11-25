@@ -24,7 +24,7 @@ const AboutPanel: React.FC<AboutPanelProps> = ({ language, onClose, onOpenProfil
       <div><dt>{en ? 'Web update' : '网页更新'}</dt><dd>2026-11-17</dd></div>
     </dl>
     <details className="metro-about__changes"><summary>{en ? 'What’s new' : '更新记录'}</summary>
-      <ul><li>{en ? 'Basemap style previews and remembered selection.' : '新增高德底图风格预览与上次选择记忆。'}</li>
+      <ul><li>{en ? 'Open geographic basemap styles and remembered selection.' : '支持免密钥四风格地理底图预览与上次选择记忆。'}</li>
         <li>{en ? 'New canvas start actions and mobile interactions.' : '优化空白画布开始入口和移动端操作。'}</li>
         <li>{en ? 'Product information and privacy resources.' : '补充产品信息、隐私与使用说明入口。'}</li></ul></details>
     <nav className="metro-about__links" aria-label={en ? 'Product information' : '产品信息'}>

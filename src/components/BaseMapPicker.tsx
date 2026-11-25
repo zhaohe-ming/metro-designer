@@ -36,7 +36,7 @@ const BaseMapPicker: React.FC<BaseMapPickerProps> = ({ initialStyle, language, h
           <span className="metro-basemap-option__hint">{en ? style.hintEn : style.hint}</span>
         </label>)}
       </div>
-      <p className="metro-basemap-credit">{en ? 'Same location in all previews · AMap' : '预览使用同一位置 · © 高德地图'}</p>
+      <p className="metro-basemap-credit">{en ? 'Same location in all previews · © OpenStreetMap · CARTO' : '预览使用同一位置 · © OpenStreetMap · CARTO'}</p>
     </DraggableModal>
   );
 };

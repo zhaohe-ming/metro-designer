@@ -23,7 +23,7 @@ const CanvasStartPrompt: React.FC<CanvasStartPromptProps> = ({ language, onCreat
             {english ? 'New line' : '新建线路'}
           </Button>
           <Button icon={<GlobalOutlined />} onClick={onStartWithAmap}>
-            {english ? 'Use AMap basemap' : '导入高德底图'}
+            {english ? 'Use city basemap' : '使用地理底图'}
           </Button>
         </div>
       </div>

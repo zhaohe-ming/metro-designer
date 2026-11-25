@@ -213,7 +213,7 @@ function rebuildApplicationMenu() {
                 message: `Metro Designer v${app.getVersion()}`,
                 detail:
                   '地铁线路图设计器 · Windows 本地原生客户端\n' +
-                  '支持离线绘图、本地 .metro 工程读写及 PNG / MP4 导出；联网后同步云端地图、高德底图与 AI 助手。'
+                  '支持离线绘图、本地 .metro 工程读写及 PNG / SVG / MP4 导出；联网后同步云端地图、开源地理底图与 AI 助手。'
               });
             }
           }
@@ -340,20 +340,13 @@ function createWindow() {
     if (wc.getURL() === offlineURL) win.show();
   });
 
+  // 仅保留菜单「帮助 → 检查客户端更新…」手动触发，启动时不自动弹窗打扰用户
   updatesController = attachUpdates({
     updater: autoUpdater,
     dialog,
     getWindow: () => mainWindow,
     isPackaged: app.isPackaged,
     getVersion: () => app.getVersion()
-  });
-  wc.once('did-finish-load', () => {
-    if (app.isPackaged) {
-      const timer = setTimeout(() => {
-        if (!win.isDestroyed()) void updatesController.check();
-      }, 5000);
-      win.once('closed', () => clearTimeout(timer));
-    }
   });
 
   rebuildApplicationMenu();

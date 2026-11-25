@@ -1365,7 +1365,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
           const image = await loadImageFromBlob(blob, mapController.signal);
           mapResources.push(image);
           if (image.naturalWidth !== patch.imageWidth || image.naturalHeight !== patch.imageHeight) {
-            throw new Error('高德高清底图返回尺寸与请求不一致，请重试');
+            throw new Error('高清地理底图返回尺寸与请求不一致，请重试');
           }
           let surface: CanvasImageSource = image;
           const filter = amapVideoFilter(amapStyle);
@@ -1405,7 +1405,7 @@ export async function exportVideoFromStage(opts: ExportVideoOptions): Promise<Bl
     } catch (error) {
       releaseMaps();
       throwIfVideoAborted(signal);
-      throw new Error(`高德底图加载失败，已停止导出：${error instanceof Error ? error.message : '请检查网络后重试'}`);
+      throw new Error(`地理底图加载失败，已停止导出：${error instanceof Error ? error.message : '请检查网络后重试'}`);
     } finally {
       signal?.removeEventListener('abort', abortMaps);
     }

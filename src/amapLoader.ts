@@ -1,76 +1,29 @@
-type AmapWindow = Window & {
-  AMap?: any;
-  _AMapSecurityConfig?: {
-    securityJsCode?: string;
-  };
+import { GeoBounds, GeoPixel, GeoTileMap } from './lib/geoTileMap';
+
+export interface GeoBaseMapSDK {
+  Map: typeof GeoTileMap;
+  Pixel: typeof GeoPixel;
+  Bounds: typeof GeoBounds;
+}
+
+const SDK_INSTANCE: GeoBaseMapSDK = {
+  Map: GeoTileMap,
+  Pixel: GeoPixel,
+  Bounds: GeoBounds
 };
 
-let amapPromise: Promise<any> | null = null;
-
-const getLoadedAmap = () => {
-  const AMap = (window as AmapWindow).AMap;
-  return AMap?.Map ? AMap : null;
-};
-
+/**
+ * 免 Key 开源瓦片底图已取代旧版高德 JS API，无需任何外部 Key 或安全密钥即可直接使用。
+ * 保留同名导出符号以兼容既有调用方与测试桩。
+ */
 export const getAmapConfig = () => ({
-  key: process.env.REACT_APP_AMAP_KEY || '',
-  securityCode: process.env.REACT_APP_AMAP_SECURITY_CODE || ''
+  key: 'open-tile-builtin',
+  securityCode: 'open-tile-builtin'
 });
 
-export const loadAmap = () => {
-  const { key, securityCode } = getAmapConfig();
-  if (!key || !securityCode) {
-    return Promise.reject(new Error('高德地图 Key 或安全密钥未配置'));
+export const loadAmap = (): Promise<GeoBaseMapSDK> => {
+  if (typeof window !== 'undefined') {
+    (window as any).AMap = SDK_INSTANCE;
   }
-
-  const amapWindow = window as AmapWindow;
-  amapWindow._AMapSecurityConfig = {
-    ...(amapWindow._AMapSecurityConfig || {}),
-    securityJsCode: securityCode
-  };
-
-  const loadedAmap = getLoadedAmap();
-  if (loadedAmap) {
-    return Promise.resolve(loadedAmap);
-  }
-
-  if (!amapPromise) {
-    amapPromise = new Promise((resolve, reject) => {
-      const existing = document.querySelector<HTMLScriptElement>('script[data-amap-jsapi="true"]');
-      if (existing) {
-        const existingAmap = getLoadedAmap();
-        if (existingAmap) {
-          resolve(existingAmap);
-          return;
-        }
-        existing.addEventListener('load', () => {
-          const AMap = getLoadedAmap();
-          if (AMap) {
-            resolve(AMap);
-            return;
-          }
-          reject(new Error('高德地图 SDK 未完成初始化，请检查 Key、安全密钥和域名白名单'));
-        });
-        existing.addEventListener('error', () => reject(new Error('高德地图脚本加载失败')));
-        return;
-      }
-
-      const script = document.createElement('script');
-      script.dataset.amapJsapi = 'true';
-      script.async = true;
-      script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}`;
-      script.onload = () => {
-        const AMap = getLoadedAmap();
-        if (AMap) {
-          resolve(AMap);
-          return;
-        }
-        reject(new Error('高德地图 SDK 未完成初始化，请检查 Key、安全密钥和域名白名单'));
-      };
-      script.onerror = () => reject(new Error('高德地图脚本加载失败'));
-      document.head.appendChild(script);
-    });
-  }
-
-  return amapPromise;
+  return Promise.resolve(SDK_INSTANCE);
 };

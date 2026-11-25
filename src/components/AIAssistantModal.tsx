@@ -7,13 +7,16 @@ import {
   DeleteOutlined,
   EditOutlined,
   HistoryOutlined,
+  KeyOutlined,
   PlusOutlined,
   ReloadOutlined,
   RollbackOutlined
 } from '@ant-design/icons';
 import DraggableModal from './DraggableModal';
 import ElasticCapsuleTabs from './ElasticCapsuleTabs';
+import AIApiSettingsModal from './AIApiSettingsModal';
 import { AIOperation } from '../api';
+import { AI_CONFIG_CHANGED_EVENT, getActiveAiBadgeLabel } from '../lib/aiCustomConfig';
 import { Line, Station } from '../types';
 import {
   AIChatMessage,
@@ -198,6 +201,14 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
   const [lastAppliedMsgId, setLastAppliedMsgId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [error, setError] = useState('');
+  const [apiSettingsOpen, setApiSettingsOpen] = useState(false);
+  const [customAiBadge, setCustomAiBadge] = useState<string | null>(() => getActiveAiBadgeLabel());
+
+  useEffect(() => {
+    const sync = () => setCustomAiBadge(getActiveAiBadgeLabel());
+    window.addEventListener(AI_CONFIG_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(AI_CONFIG_CHANGED_EVENT, sync);
+  }, []);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<any>(null);
@@ -552,6 +563,30 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
           </div>
 
           <div className="metro-ai-header__actions" onMouseDown={(e) => e.stopPropagation()}>
+            <Tooltip title={customAiBadge ? `当前使用本地自有密钥（${customAiBadge}），点击管理` : '配置自有 API Key（支持 DeepSeek / 硅基流动 / OpenAI 等）'}>
+              <button
+                type="button"
+                aria-label="API 设置"
+                onClick={() => setApiSettingsOpen(true)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  height: 28,
+                  padding: '0 10px',
+                  borderRadius: 999,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  border: customAiBadge ? '1px solid rgba(37, 99, 235, 0.38)' : '1px solid var(--color-border, #e2e8f0)',
+                  background: customAiBadge ? 'rgba(37, 99, 235, 0.10)' : 'var(--color-surface-subtle, #f8fafc)',
+                  color: customAiBadge ? '#2563eb' : 'var(--color-text, #334155)'
+                }}
+              >
+                <KeyOutlined style={{ fontSize: 12 }} />
+                <span>{customAiBadge || 'API 设置'}</span>
+              </button>
+            </Tooltip>
             <Tooltip title={sessions.length > 0 ? `对话记录 (${sessions.length})` : '对话记录'}>
               <button
                 type="button"
@@ -770,11 +805,16 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
               className="metro-ai-alert"
               message={error}
               action={
-                lastMessage?.role === 'user' && !busy ? (
-                  <Button size="small" danger onClick={() => handleRetryTrailingUser(lastMessage.id)}>
-                    重试
+                <div style={{ display: 'inline-flex', gap: 6 }}>
+                  <Button size="small" type="primary" onClick={() => setApiSettingsOpen(true)}>
+                    配置 API Key
                   </Button>
-                ) : undefined
+                  {lastMessage?.role === 'user' && !busy ? (
+                    <Button size="small" danger onClick={() => handleRetryTrailingUser(lastMessage.id)}>
+                      重试
+                    </Button>
+                  ) : null}
+                </div>
               }
               closable
               onClose={() => setError('')}
@@ -853,6 +893,7 @@ const AIAssistantModal: React.FC<AIAssistantModalProps> = ({
           </div>
         </div>
       </div>
+      <AIApiSettingsModal open={apiSettingsOpen} onClose={() => setApiSettingsOpen(false)} />
     </DraggableModal>
   );
 };

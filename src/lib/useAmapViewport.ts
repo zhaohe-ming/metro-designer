@@ -42,7 +42,7 @@ interface Options {
 export function useAmapViewport(options: Options) {
   const { enabled, containerRef, viewport, documentKey, width, height } = options;
   const [longitude, latitude] = viewport.center;
-  const { key, securityCode } = getAmapConfig();
+  const { key } = getAmapConfig();
   const sceneKey = JSON.stringify([documentKey, viewport.style, width, height]);
   const latest = useRef({ ...options, sceneKey });
   useLayoutEffect(() => { latest.current = { ...options, sceneKey }; });
@@ -159,9 +159,9 @@ export function useAmapViewport(options: Options) {
       setState({ readyKey: null, error: '' });
       return;
     }
-    if (!key || !securityCode) {
+    if (!key) {
       clearTimers();
-      setState({ readyKey: null, error: '请先配置 REACT_APP_AMAP_KEY 和 REACT_APP_AMAP_SECURITY_CODE' });
+      setState({ readyKey: null, error: '地理底图初始化配置无效' });
       return;
     }
     let disposed = false;
@@ -247,7 +247,7 @@ export function useAmapViewport(options: Options) {
       };
       applyViewport();
     }).catch(error => {
-      if (!disposed) setState({ readyKey: null, error: error?.message || '高德地图加载失败' });
+      if (!disposed) setState({ readyKey: null, error: error?.message || '地理底图加载失败' });
     });
     return () => {
       disposed = true;
@@ -260,7 +260,7 @@ export function useAmapViewport(options: Options) {
       clearTimers();
       latest.current.onInteractionChange(false);
     };
-  }, [enabled, key, securityCode, containerRef, applyViewport, clearTimers, commitReady, reveal, scheduleInitializedSettle, scheduleRender]);
+  }, [enabled, key, containerRef, applyViewport, clearTimers, commitReady, reveal, scheduleInitializedSettle, scheduleRender]);
 
   useLayoutEffect(() => { applyViewport(); }, [applyViewport, enabled, sceneKey, options.documentLoading,
     viewport.zoom, longitude, latitude]);

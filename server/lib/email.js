@@ -1,15 +1,9 @@
-// 邮件发送工具：默认走 Resend；未配置 RESEND_API_KEY 时退化到 console.log，
-// 这样 dev 期可以直接从后端控制台拷贝验证链接走通流程。
-//
-// 设计要点：
-// - 所有 send* 函数都 try/catch 内部，邮件发送失败不会让注册 / 重置请求 500；
-//   失败时返回 { ok: false, reason } 让上层决定是否回滚或重试。
-// - 对外只暴露语义化函数（sendVerificationEmail / sendPasswordResetEmail），
-//   模板内容收敛在这里，不让路由处理函数关心 HTML。
+// 邮件发送工具：默认走 Resend；本地开发环境未配置 RESEND_API_KEY 时退化到 console.log。
+// 生产环境（NODE_ENV === 'production'）或已显式配置 RESEND_API_KEY 时，若发信失败绝不静默伪装成功，
+// 而是明确返回 { ok: false, reason } 以便路由回滚孤儿注册记录并提示用户稍后重试。
 
 const RESEND_API_KEY = (process.env.RESEND_API_KEY || '').trim();
 const EMAIL_FROM = (process.env.EMAIL_FROM || 'Metro Designer <onboarding@resend.dev>').trim();
-// 邮件正文里的链接需要前端 URL；部署时设置成 Vercel 前端域名。
 const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:3000')
   .split(',')[0]
   .trim()
@@ -17,7 +11,11 @@ const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.FRONTEND_ORIGIN ||
 
 const RESEND_ENDPOINT = 'https://api.resend.com/emails';
 
-// dev 兜底：把邮件内容打到后端控制台
+function isStrictEmailDelivery() {
+  if (process.env.EMAIL_CONSOLE_FALLBACK === '1') return false;
+  return process.env.NODE_ENV === 'production' || Boolean(RESEND_API_KEY);
+}
+
 function logToConsole(label, to, subject, html, text) {
   console.log('────────────────────────────────────────────────────────');
   console.log(`[email:${label}] to=${to}`);
@@ -29,12 +27,14 @@ function logToConsole(label, to, subject, html, text) {
   console.log('────────────────────────────────────────────────────────');
 }
 
-async function sendViaResend({ to, subject, html, text }) {
+async function sendViaResend({ to, subject, html, text }, fetchImpl = fetch) {
   if (!RESEND_API_KEY) {
     return { ok: false, reason: 'no_key' };
   }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12_000);
   try {
-    const response = await fetch(RESEND_ENDPOINT, {
+    const response = await fetchImpl(RESEND_ENDPOINT, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -46,7 +46,8 @@ async function sendViaResend({ to, subject, html, text }) {
         subject,
         html,
         text
-      })
+      }),
+      signal: controller.signal
     });
     if (!response.ok) {
       const body = await response.text().catch(() => '');
@@ -55,8 +56,10 @@ async function sendViaResend({ to, subject, html, text }) {
     }
     return { ok: true };
   } catch (err) {
-    console.error('[email] Resend network error', err);
-    return { ok: false, reason: 'network' };
+    console.error('[email] Resend network error', err.message || err);
+    return { ok: false, reason: err.name === 'AbortError' ? 'timeout' : 'network' };
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -80,7 +83,17 @@ function brandedShell(title, body) {
 </body></html>`;
 }
 
-async function sendVerificationEmail({ to, username, token }) {
+async function deliverOrFallback(label, payload, fetchImpl = fetch) {
+  const viaResend = await sendViaResend(payload, fetchImpl);
+  if (viaResend.ok) return viaResend;
+  if (isStrictEmailDelivery()) {
+    return viaResend;
+  }
+  logToConsole(label, payload.to, payload.subject, payload.html, payload.text);
+  return { ok: true, fallback: 'console' };
+}
+
+async function sendVerificationEmail({ to, username, token }, fetchImpl = fetch) {
   const link = `${APP_BASE_URL}/verify-email?token=${encodeURIComponent(token)}`;
   const subject = '验证你的 Metro Designer 邮箱';
   const text = [
@@ -103,15 +116,10 @@ async function sendVerificationEmail({ to, username, token }) {
       如果按钮无法点击，请复制以下链接到浏览器：<br/>${link}
     </p>`
   );
-
-  const viaResend = await sendViaResend({ to, subject, html, text });
-  if (viaResend.ok) return viaResend;
-  // Resend 未配置或失败 → 走 console 兜底，不阻塞业务
-  logToConsole('verify', to, subject, html, text);
-  return { ok: true, fallback: 'console' };
+  return deliverOrFallback('verify', { to, subject, html, text }, fetchImpl);
 }
 
-async function sendPasswordResetEmail({ to, username, token }) {
+async function sendPasswordResetEmail({ to, username, token }, fetchImpl = fetch) {
   const link = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
   const subject = '重置你的 Metro Designer 密码';
   const text = [
@@ -134,17 +142,13 @@ async function sendPasswordResetEmail({ to, username, token }) {
       如果按钮无法点击，请复制以下链接到浏览器：<br/>${link}
     </p>`
   );
-
-  const viaResend = await sendViaResend({ to, subject, html, text });
-  if (viaResend.ok) return viaResend;
-  logToConsole('reset', to, subject, html, text);
-  return { ok: true, fallback: 'console' };
+  return deliverOrFallback('reset', { to, subject, html, text }, fetchImpl);
 }
 
 module.exports = {
   sendVerificationEmail,
   sendPasswordResetEmail,
-  // 暴露这些常量给 server/index.js 用来做配置自检
+  isStrictEmailDelivery,
   APP_BASE_URL,
   EMAIL_FROM,
   hasResendKey: () => Boolean(RESEND_API_KEY)

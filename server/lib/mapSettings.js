@@ -12,9 +12,10 @@ const DEFAULT_MAP_SETTINGS = {
   baseMap: {
     mode: 'plain',
     amap: {
-      center: [116.397428, 39.90923],
+      center: [116.391276, 39.907335],
       zoom: 11,
-      style: 'normal'
+      style: 'normal',
+      coordSystem: 'wgs84'
     }
   },
   labelDensity: 'paper',
@@ -102,7 +103,12 @@ function normalizeMapSettings(settings) {
             ? [amap.center[0], amap.center[1]]
             : DEFAULT_MAP_SETTINGS.baseMap.amap.center,
         zoom: normalizeNumber(amap.zoom, DEFAULT_MAP_SETTINGS.baseMap.amap.zoom, 3, 20),
-        style: ['dark', 'grey', 'fresh'].includes(amap.style) ? amap.style : 'normal'
+        style: ['dark', 'grey', 'fresh'].includes(amap.style) ? amap.style : 'normal',
+        ...(amap.coordSystem === 'wgs84' || amap.coordSystem === 'gcj02'
+          ? { coordSystem: amap.coordSystem }
+          : baseMap.mode !== 'amap'
+            ? { coordSystem: 'wgs84' }
+            : {})
       }
     },
     labelDensity: settings && ['adaptive', 'key'].includes(settings.labelDensity) ? settings.labelDensity : 'paper',

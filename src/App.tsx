@@ -32,7 +32,6 @@ import { createId } from './utils/id';
 import AuthPanel from './components/AuthPanel';
 import { GuestDraft, createGuestDraft, readGuestDraft, writeGuestDraft, deleteGuestDraft, hasGuestSession, setGuestSession } from './lib/guestDraft';
 import GuestAnimationPreview from './components/GuestAnimationPreview';
-import DesktopUpdateNotice from './components/DesktopUpdateNotice';
 import Canvas from './components/Canvas';
 import GalleryPage from './gallery/GalleryPage';
 import PrivateMapThumbnail from './gallery/PrivateMapThumbnail';
@@ -45,6 +44,13 @@ import Sidebar from './components/Sidebar';
 import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
 import AIAssistantModal from './components/AIAssistantModal';
+import AIApiSettingsModal from './components/AIApiSettingsModal';
+import {
+  AI_CONFIG_CHANGED_EVENT,
+  getActiveAiBadgeLabel,
+  hasActiveCustomAiKey
+} from './lib/aiCustomConfig';
+import { migrateLegacyGcj02MapToWgs84 } from './lib/coordTransform';
 import { migrateDraftAISessions } from './lib/aiSessionStore';
 import { AmapStyle, BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
 import BaseMapPicker from './components/BaseMapPicker';
@@ -179,8 +185,8 @@ const i18n = {
     darkCanvas: '深色画布',
     baseMap: '底图模式',
     plainCanvas: '纯画布',
-    amapBaseMap: '高德地图',
-    amapStyle: '高德样式',
+    amapBaseMap: '地理底图',
+    amapStyle: '底图风格',
     amapNormal: '标准',
     amapDark: '深色',
     amapGrey: '灰色',
@@ -253,8 +259,8 @@ const i18n = {
     darkCanvas: 'Dark canvas',
     baseMap: 'Base map',
     plainCanvas: 'Plain canvas',
-    amapBaseMap: 'Amap',
-    amapStyle: 'Amap style',
+    amapBaseMap: 'City basemap',
+    amapStyle: 'Basemap style',
     amapNormal: 'Normal',
     amapDark: 'Dark',
     amapGrey: 'Grey',
@@ -427,8 +433,15 @@ const App: React.FC = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [mobileViewControlsHost, setMobileViewControlsHost] = useState<HTMLDivElement | null>(null);
   const [createLineRequest, setCreateLineRequest] = useState(0);
-  // AI 助手对话框
+  // AI 助手对话框与本地自有密钥设置
   const [aiModalOpen, setAiModalOpen] = useState(false);
+  const [aiApiSettingsOpen, setAiApiSettingsOpen] = useState(false);
+  const [customAiBadge, setCustomAiBadge] = useState<string | null>(() => getActiveAiBadgeLabel());
+  useEffect(() => {
+    const syncAiCfg = () => setCustomAiBadge(getActiveAiBadgeLabel());
+    window.addEventListener(AI_CONFIG_CHANGED_EVENT, syncAiCfg);
+    return () => window.removeEventListener(AI_CONFIG_CHANGED_EVENT, syncAiCfg);
+  }, []);
   const [aiBusy, setAiBusy] = useState(false);
   const [mapName, setMapName] = useState('');
   const [savedMaps, setSavedMaps] = useState<MapSummaryState[]>([]);
@@ -1106,13 +1119,18 @@ const App: React.FC = () => {
     guestDraftIdRef.current = draft.id;
     guestSavedRevisionRef.current = null;
     setGuestDraftId(draft.id);
+    const migrated = migrateLegacyGcj02MapToWgs84({
+      stations: draft.stations,
+      sections: draft.sections,
+      mapSettings: draft.mapSettings
+    });
     const healed = reconcileGraph({
       lines: draft.lines,
-      stations: draft.stations,
-      sections: draft.sections
+      stations: migrated.stations,
+      sections: migrated.sections
     });
     commitGraphState(healed);
-    setMapSettings(draft.mapSettings);
+    setMapSettings(migrated.mapSettings);
     setCurrentLineId(draft.currentLineId);
     setMapName(draft.name);
     setGuestInitialViewport(draft.viewport);
@@ -1350,7 +1368,7 @@ const App: React.FC = () => {
 
     if (nextMode === 'amap') {
       if (!isOnline) {
-        message.info('高德在线地理底图需要联网加载，离线状态下可使用纯画布自由绘制');
+        message.info('在线地理底图需要联网加载瓦片，离线状态下可使用纯画布自由绘制');
         return;
       }
       let style = mapSettings.baseMap.amap?.style || 'normal';
@@ -1377,10 +1395,10 @@ const App: React.FC = () => {
 
     const switchingToPlain = mapSettings.baseMap.mode === 'amap' && nextMode === 'plain';
     Modal.confirm({
-      title: switchingToPlain ? '切换到纯画布？' : '切换到高德地图？',
+      title: switchingToPlain ? '切换到纯画布？' : '切换到地理底图？',
       content: switchingToPlain
-        ? '将把当前高德视图中的站点位置固化为普通画布坐标。切换后不会继续跟随真实地图缩放，但当前视觉位置会尽量保持。'
-        : '高德地图使用真实经纬度定位。已有经纬度的站点会贴合底图；没有经纬度的旧站点需要拖动一次或重新定位后才会绑定真实位置。',
+        ? '将把当前地理底图视图中的站点位置固化为普通画布坐标。切换后不会继续跟随真实地图缩放，但当前视觉位置会保持一致。'
+        : '地理底图使用真实 WGS-84 经纬度定位。已有经纬度的站点会贴合底图；没有经纬度的旧站点拖动一次即可绑定真实位置。',
       okText: '确认切换',
       cancelText: '取消',
       onOk: applyModeChange
@@ -1469,13 +1487,18 @@ const App: React.FC = () => {
     setCurrentMap(null);
 
     const loadedLines = normalizeLoadedLines(project.lines || []);
+    const migrated = migrateLegacyGcj02MapToWgs84({
+      stations: Array.isArray(project.stations) ? project.stations : [],
+      sections: normalizeSections(project.sections),
+      mapSettings: normalizeMapSettings(project.mapSettings)
+    });
     const healed = reconcileGraph({
       lines: loadedLines,
-      stations: Array.isArray(project.stations) ? project.stations : [],
-      sections: normalizeSections(project.sections)
+      stations: migrated.stations,
+      sections: migrated.sections
     });
     commitGraphState(healed);
-    setMapSettings(normalizeMapSettings(project.mapSettings));
+    setMapSettings(migrated.mapSettings);
     setCurrentLineId(project.currentLineId || healed.lines[0]?.id || null);
     setMapName(project.name);
     setGuestInitialViewport(project.viewport);
@@ -1756,18 +1779,23 @@ const App: React.FC = () => {
     setPreviewMode(false);
     if (!/^\/(gallery|works)(\/|$)/.test(window.location.pathname)) window.history.replaceState({}, '', '/');
     const loadedLines = normalizeLoadedLines(map.lines || []);
+    const rawSettings = (map.mapSettings && typeof map.mapSettings === 'object' ? map.mapSettings : undefined) as Partial<MapSettings> | undefined;
+    const baseSettings = normalizeMapSettings(rawSettings);
+    if (!rawSettings?.labelDensity) {
+      baseSettings.labelDensity = readLabelDensity();
+    }
+    const migrated = migrateLegacyGcj02MapToWgs84({
+      stations: Array.isArray(map.stations) ? map.stations : [],
+      sections: normalizeSections(map.sections),
+      mapSettings: baseSettings
+    });
     const healed = reconcileGraph({
       lines: loadedLines,
-      stations: Array.isArray(map.stations) ? map.stations : [],
-      sections: normalizeSections(map.sections)
+      stations: migrated.stations,
+      sections: migrated.sections
     });
     commitGraphState(healed);
-    const rawSettings = (map.mapSettings && typeof map.mapSettings === 'object' ? map.mapSettings : undefined) as Partial<MapSettings> | undefined;
-    const nextSettings = normalizeMapSettings(rawSettings);
-    if (!rawSettings?.labelDensity) {
-      nextSettings.labelDensity = readLabelDensity();
-    }
-    setMapSettings(nextSettings);
+    setMapSettings(migrated.mapSettings);
     setCurrentLineId(healed.lines[0]?.id || null);
     setCurrentMap({
       id: map.id,
@@ -2593,7 +2621,7 @@ const App: React.FC = () => {
       case 'effect': {
         const e = resolved.effect;
         if (mapSettingsRef.current.baseMap.mode === 'amap' && (e.type === 'add_station' || e.type === 'set_waypoints')) {
-          return { ok: false, message: '高德模式暂不支持坐标放置，请切到纯画布，或直接在画布上操作' };
+          return { ok: false, message: '地理底图模式暂不支持像素坐标放置，请切到纯画布或直接在画布上点击落站' };
         }
         switch (e.type) {
           case 'create_empty_line': createEmptyLine(e.name, e.color); break;
@@ -2655,38 +2683,57 @@ const App: React.FC = () => {
     const original = { scale: stage.scaleX(), x: stage.x(), y: stage.y(), width: stage.width(), height: stage.height() };
     let dataUrl = '';
     try {
-      stage.scale({ x: 1, y: 1 });
-      stage.position({ x: 0, y: 0 });
-      let minX = 0;
-      let minY = 0;
-      let maxX = original.width;
-      let maxY = original.height;
-      if (stations.length > 0) {
-        minX = Infinity;
-        minY = Infinity;
-        maxX = -Infinity;
-        maxY = -Infinity;
-        for (let i = 0; i < stations.length; i++) {
-          const sx = stations[i].x;
-          const sy = stations[i].y;
-          if (sx < minX) minX = sx;
-          if (sy < minY) minY = sy;
-          if (sx > maxX) maxX = sx;
-          if (sy > maxY) maxY = sy;
+      if (mapSettingsRef.current.baseMap.mode === 'amap') {
+        // 地理底图模式下直接将免 Key 底图 Canvas 与当前视口 Konva 图层无损合成为高清 PNG
+        const mapCanvas = document.querySelector<HTMLCanvasElement>('.metro-amap-layer canvas');
+        const pr = Math.min(2, window.devicePixelRatio || 2);
+        const stageCanvas = stage.toCanvas({ pixelRatio: pr });
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = stageCanvas.width;
+        outCanvas.height = stageCanvas.height;
+        const outCtx = outCanvas.getContext('2d');
+        if (!outCtx) throw new Error('无法创建导出画布');
+        outCtx.fillStyle = mapSettingsRef.current.baseMap.amap?.style === 'dark' ? '#0f172a' : '#f1f5f9';
+        outCtx.fillRect(0, 0, outCanvas.width, outCanvas.height);
+        if (mapCanvas && mapCanvas.width > 0 && mapCanvas.height > 0) {
+          outCtx.drawImage(mapCanvas, 0, 0, outCanvas.width, outCanvas.height);
         }
+        outCtx.drawImage(stageCanvas, 0, 0, outCanvas.width, outCanvas.height);
+        dataUrl = outCanvas.toDataURL('image/png', 1);
+      } else {
+        stage.scale({ x: 1, y: 1 });
+        stage.position({ x: 0, y: 0 });
+        let minX = 0;
+        let minY = 0;
+        let maxX = original.width;
+        let maxY = original.height;
+        if (stations.length > 0) {
+          minX = Infinity;
+          minY = Infinity;
+          maxX = -Infinity;
+          maxY = -Infinity;
+          for (let i = 0; i < stations.length; i++) {
+            const sx = stations[i].x;
+            const sy = stations[i].y;
+            if (sx < minX) minX = sx;
+            if (sy < minY) minY = sy;
+            if (sx > maxX) maxX = sx;
+            if (sy > maxY) maxY = sy;
+          }
+        }
+        const width = Math.max(maxX - minX + 200, 800);
+        const height = Math.max(maxY - minY + 200, 600);
+        // 大尺寸线网下限制导出纹理边长与总像素预算，防止浏览器/移动端 WebView 超出 Canvas 上限导致空白或崩溃
+        const maxSide = isAndroidClient ? 8192 : 12288;
+        const maxArea = isAndroidClient ? 16_777_216 : 36_000_000;
+        const safePixelRatio = Math.max(
+          0.25,
+          Math.min(2, maxSide / Math.max(1, width, height), Math.sqrt(maxArea / Math.max(1, width * height)))
+        );
+        stage.width(width); stage.height(height);
+        stage.position({ x: (width - maxX + minX) / 2 - minX, y: (height - maxY + minY) / 2 - minY });
+        dataUrl = stage.toDataURL({ pixelRatio: safePixelRatio, mimeType: 'image/png', quality: 1 });
       }
-      const width = Math.max(maxX - minX + 200, 800);
-      const height = Math.max(maxY - minY + 200, 600);
-      // 大尺寸线网下限制导出纹理边长与总像素预算，防止浏览器/移动端 WebView 超出 Canvas 上限导致空白或崩溃
-      const maxSide = isAndroidClient ? 8192 : 12288;
-      const maxArea = isAndroidClient ? 16_777_216 : 36_000_000;
-      const safePixelRatio = Math.max(
-        0.25,
-        Math.min(2, maxSide / Math.max(1, width, height), Math.sqrt(maxArea / Math.max(1, width * height)))
-      );
-      stage.width(width); stage.height(height);
-      stage.position({ x: (width - maxX + minX) / 2 - minX, y: (height - maxY + minY) / 2 - minY });
-      dataUrl = stage.toDataURL({ pixelRatio: safePixelRatio, mimeType: 'image/png', quality: 1 });
     } catch (error) {
       console.error('导出图片失败:', error);
       message.error('导出图片失败，请重试');
@@ -3021,7 +3068,6 @@ const App: React.FC = () => {
           <div className="auth-layout" data-interface-theme={resolvedInterfaceTheme}>
             <AuthPanel onAuthenticated={handleAuthenticated} onPreview={() => { guestRestorePromiseRef.current = startGuestPreview(); }} />
           </div>
-          <DesktopUpdateNotice />
         </AntdApp>
       </ConfigProvider>
     );
@@ -3064,6 +3110,22 @@ const App: React.FC = () => {
         }
         onAuthenticated={handleAuthenticated}
       />
+      {authAction === 'ai' ? (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--color-border, #e2e8f0)', textAlign: 'center' }}>
+          <Button
+            type="link"
+            size="small"
+            onClick={() => {
+              setAuthVisible(false);
+              setAuthAction(null);
+              setAiModalOpen(true);
+              setAiApiSettingsOpen(true);
+            }}
+          >
+            已有 DeepSeek / OpenAI 等密钥？免登录直接填写 API Key 使用 →
+          </Button>
+        </div>
+      ) : null}
     </DraggableModal>
     <div className="metro-app-shell" data-interface-theme={resolvedInterfaceTheme}>
       <input
@@ -3073,7 +3135,6 @@ const App: React.FC = () => {
         onChange={handleLocalFileInputChange}
         style={{ display: 'none' }}
       />
-      <DesktopUpdateNotice />
       <Layout className="metro-workbench">
         <Header className="metro-header">
           <div className="app-header">
@@ -3142,7 +3203,7 @@ const App: React.FC = () => {
                       message.info('当前处于离线状态，联网后可使用 AI 线网助手');
                       return;
                     }
-                    if (userProfile) setAiModalOpen(true);
+                    if (userProfile || hasActiveCustomAiKey()) setAiModalOpen(true);
                     else requestGuestAuth('ai');
                   }}
                 >
@@ -3576,6 +3637,22 @@ const App: React.FC = () => {
                         ]}
                       />
                     </section>
+
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">
+                        {language === 'en-US' ? 'AI Endpoint & API Key' : 'AI 接口与自有密钥'}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                        <span style={{ fontSize: 13, color: 'var(--color-text-muted, #64748b)' }}>
+                          {customAiBadge
+                            ? (language === 'en-US' ? `Active: ${customAiBadge}` : `当前已启用：${customAiBadge}`)
+                            : (language === 'en-US' ? 'Using platform free quota' : '当前使用平台免费通道（支持自填 DeepSeek / OpenAI 等密钥）')}
+                        </span>
+                        <Button size="small" onClick={() => setAiApiSettingsOpen(true)}>
+                          {language === 'en-US' ? 'Configure API Key' : '配置 API Key'}
+                        </Button>
+                      </div>
+                    </section>
                   </div>
                 )
               },
@@ -3841,6 +3918,7 @@ const App: React.FC = () => {
             <Button onClick={() => setSettingsVisible(false)}>{text.close}</Button>
           </div>
         </DraggableModal>
+        <AIApiSettingsModal open={aiApiSettingsOpen} onClose={() => setAiApiSettingsOpen(false)} />
 
         <DraggableModal
           title={text.profile}

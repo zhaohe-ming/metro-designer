@@ -3785,27 +3785,6 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   }
 }
 
-.desktop-update-notice {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  max-width: min(620px, calc(100vw - 32px));
-  padding: 18px 20px;
-  border: 1px solid #bfdbfe;
-  border-radius: 14px;
-  background: #f8fbff;
-  box-shadow: 0 12px 40px rgba(15, 23, 42, 0.16);
-  color: #0f172a;
-  font-size: 14px;
-}
-.desktop-update-notice p { margin: 6px 0 0; color: #475569; line-height: 1.6; }
-.desktop-update-notice a { flex-shrink: 0; color: #1d4ed8; font-weight: 600; }
-.desktop-update-notice button { border: 0; background: transparent; color: #475569; cursor: pointer; padding: 6px; }
-.desktop-update-notice :is(a, button):focus-visible { outline: 2px solid #2563eb; outline-offset: 4px; }
 /* Phone workbench: labelled tools above the canvas, document actions within thumb reach. */
 .metro-toolbar__mobile-view-slot { display: none; }
 .metro-touch-hint, .metro-context-backdrop { display: none; }

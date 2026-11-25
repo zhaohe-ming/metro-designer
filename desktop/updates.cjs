@@ -1,3 +1,20 @@
+function isStrictlyNewerVersion(candidate, current) {
+  const parse = (v) =>
+    String(v || '')
+      .trim()
+      .replace(/^v/i, '')
+      .split('-')[0]
+      .split('.')
+      .map((n) => Number(n));
+  const a = parse(candidate);
+  const b = parse(current);
+  if (a.length < 3 || b.length < 3 || a.some(Number.isNaN) || b.some(Number.isNaN)) return false;
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] > b[i];
+  }
+  return false;
+}
+
 function attachUpdates({ updater, dialog, getWindow, isPackaged, getVersion }) {
   let checking = false;
   let downloading = false;
@@ -22,7 +39,7 @@ function attachUpdates({ updater, dialog, getWindow, isPackaged, getVersion }) {
     if (manual) {
       manual = false;
       void show({ type: 'info', title: '检查更新', message: '暂时未连接到更新服务',
-        detail: '请稍后再试，或在“帮助 → 下载新版”中取得安装包。' });
+        detail: '请稍后再试，或在“帮助 → 前往客户端下载页”中取得安装包。' });
     }
   };
   async function promptInstall() {
@@ -43,6 +60,15 @@ function attachUpdates({ updater, dialog, getWindow, isPackaged, getVersion }) {
   });
   updater.on('update-available', info => {
     checking = false;
+    const currentVer = getVersion();
+    // 严格拦截线上 Release 版本号低于或等于当前本机版本（例如本机 1.2.0 而线上仍挂 1.1.0）时的反向升级弹窗
+    if (!isStrictlyNewerVersion(info?.version, currentVer)) {
+      if (manual) {
+        manual = false;
+        void show({ type: 'info', title: '检查更新', message: `当前已是最新版本 v${currentVer}` });
+      }
+      return;
+    }
     void (async () => {
       const result = await show({
         type: 'info', title: '发现新版', message: `Metro Designer v${info.version} 已发布`,
@@ -77,4 +103,4 @@ function attachUpdates({ updater, dialog, getWindow, isPackaged, getVersion }) {
   }
   return { check };
 }
-module.exports = { attachUpdates };
+module.exports = { attachUpdates, isStrictlyNewerVersion };

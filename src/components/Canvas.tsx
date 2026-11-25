@@ -161,9 +161,10 @@ const getDefaultCanvasBackground = (theme: MapSettings['canvasTheme']) =>
   CANVAS_THEME_PALETTES[theme].background;
 
 const DEFAULT_AMAP_SETTINGS = {
-  center: [116.397428, 39.90923] as [number, number],
+  center: [116.391276, 39.907335] as [number, number],
   zoom: 11,
-  style: 'normal' as const
+  style: 'normal' as const,
+  coordSystem: 'wgs84' as const
 };
 
 export type CanvasTool = 'select' | 'draw' | 'pan';
@@ -1019,9 +1020,10 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const getLngLatFromContainerPoint = (point: { x: number; y: number }) => {
     const map = amapRef.current;
+    if (!isAmapMode || !amapReady || !map) return null;
     const AMap = (window as any).AMap;
-    if (!isAmapMode || !amapReady || !map || !AMap?.Pixel) return null;
-    const lngLat = map.containerToLngLat?.(new AMap.Pixel(point.x, point.y));
+    const pixelArg = AMap?.Pixel ? new AMap.Pixel(point.x, point.y) : { x: point.x, y: point.y };
+    const lngLat = map.containerToLngLat?.(pixelArg);
     if (!lngLat) return null;
     return { lng: lngLat.lng, lat: lngLat.lat };
   };
@@ -2325,17 +2327,16 @@ const Canvas: React.FC<CanvasProps> = ({
         (station) => typeof station.lng === 'number' && typeof station.lat === 'number'
       );
       if (lngLatStations.length) {
+        const sw: [number, number] = [
+          Math.min(...lngLatStations.map((station) => station.lng!)),
+          Math.min(...lngLatStations.map((station) => station.lat!))
+        ];
+        const ne: [number, number] = [
+          Math.max(...lngLatStations.map((station) => station.lng!)),
+          Math.max(...lngLatStations.map((station) => station.lat!))
+        ];
         const AMap = (window as any).AMap;
-        const bounds = new AMap.Bounds(
-          [
-            Math.min(...lngLatStations.map((station) => station.lng!)),
-            Math.min(...lngLatStations.map((station) => station.lat!))
-          ],
-          [
-            Math.max(...lngLatStations.map((station) => station.lng!)),
-            Math.max(...lngLatStations.map((station) => station.lat!))
-          ]
-        );
+        const bounds = AMap?.Bounds ? new AMap.Bounds(sw, ne) : { sw, ne };
         amapRef.current.setBounds?.(bounds, false, [80, 80, 80, 80]);
       }
       return;

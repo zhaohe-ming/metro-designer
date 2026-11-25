@@ -42,3 +42,26 @@ test('background checks stay quiet when current or offline; manual checks report
   await controller.check(true); updater.emit('update-not-available'); await settle();
   assert.match(calls.dialogs[0].message, /1\.1\.0/);
 });
+
+test('never prompts when remote release version is older than or equal to current version (e.g. 1.1.0 vs 1.2.0)', async () => {
+  const updater = new EventEmitter();
+  const dialogs = [];
+  updater.checkForUpdates = async () => {};
+  const controller = attachUpdates({
+    updater,
+    isPackaged: true,
+    getVersion: () => '1.2.0',
+    getWindow: () => ({ isDestroyed: () => false, setProgressBar: () => {} }),
+    dialog: { showMessageBox: async (_w, opts) => { dialogs.push(opts); return { response: 1 }; } }
+  });
+  await controller.check(false);
+  updater.emit('update-available', { version: '1.1.0' });
+  await settle();
+  assert.equal(dialogs.length, 0);
+
+  await controller.check(true);
+  updater.emit('update-available', { version: '1.1.0' });
+  await settle();
+  assert.equal(dialogs.length, 1);
+  assert.match(dialogs[0].message, /已是最新版本 v1\.2\.0/);
+});

@@ -5,11 +5,13 @@ const rateLimit = require('express-rate-limit');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const { sendVerificationEmail, sendPasswordResetEmail, hasResendKey, APP_BASE_URL } = require('./lib/email');
 const ai = require('./lib/ai');
+const { createTileProxyHandler } = require('./lib/tileProxy');
 const { DEFAULT_MAP_SETTINGS, normalizeMapSettings } = require('./lib/mapSettings');
 
 const app = express();
@@ -59,9 +61,21 @@ const allowedOrigins = FRONTEND_ORIGIN
 const pgPool = DATABASE_URL
   ? new Pool({
       connectionString: DATABASE_URL,
+      max: Number(process.env.PG_POOL_MAX) || 15,
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
       ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false }
     })
   : null;
+if (pgPool) {
+  // 防止云端 Postgres（Render / Neon / Supabase）回收空闲连接时触发未捕获 error 事件导致进程崩溃
+  pgPool.on('error', (err) => {
+    console.error('[pg] unexpected idle client error:', err?.message || err);
+  });
+}
+process.on('unhandledRejection', (reason) => {
+  console.error('[process] unhandledRejection:', reason);
+});
 let pgReadyPromise = null;
 
 // Render / Vercel 都把流量走代理，req.ip 必须信任 X-Forwarded-For 第一跳，
@@ -85,8 +99,42 @@ app.use(cors({
       return;
     }
     callback(new Error('Not allowed by CORS'));
-  }
+  },
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Custom-AI-Key',
+    'X-Custom-AI-Base-Url',
+    'X-Custom-AI-Model'
+  ],
+  exposedHeaders: ['X-Request-Id', 'X-AI-Quota-Limit', 'X-AI-Quota-Remaining']
 }));
+// 轻量内置 JSON Gzip 压缩（无需额外外部依赖；对 >1.5KB 的 JSON 响应自动压缩约 80%+，自动跳过 SSE 流）
+app.use((req, res, next) => {
+  const acceptEncoding = String(req.headers['accept-encoding'] || '');
+  if (!/\bgzip\b/i.test(acceptEncoding)) return next();
+  const rawJson = res.json.bind(res);
+  res.json = (body) => {
+    const contentType = String(res.getHeader('Content-Type') || '');
+    if (contentType.includes('text/event-stream') || res.headersSent) {
+      return rawJson(body);
+    }
+    const serialized = JSON.stringify(body);
+    if (!serialized || Buffer.byteLength(serialized, 'utf8') < 1536) {
+      return rawJson(body);
+    }
+    try {
+      const gz = zlib.gzipSync(Buffer.from(serialized, 'utf8'), { level: zlib.constants.Z_BEST_SPEED });
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Vary', 'Accept-Encoding');
+      return res.send(gz);
+    } catch {
+      return rawJson(body);
+    }
+  };
+  next();
+});
 // body limit 收紧到 1MB：avatar 上限 200KB，地图 payload 历史上不超过几百 KB。
 // 真有大数据需求再单独走分块或专用 endpoint。
 app.use(express.json({ limit: '1mb' }));
@@ -381,6 +429,22 @@ const storage = {
     Object.assign(user, updates);
     writeJsonDb(db);
     return user;
+  },
+
+  async deleteUser(userId) {
+    if (!userId) return false;
+    if (pgPool) {
+      await ensurePgSchema();
+      const res = await pgPool.query('DELETE FROM users WHERE id = $1', [userId]);
+      return res.rowCount > 0;
+    }
+    const db = readJsonDb();
+    const idx = db.users.findIndex(item => item.id === userId);
+    if (idx < 0) return false;
+    db.users.splice(idx, 1);
+    db.email_tokens = db.email_tokens.filter(t => t.userId !== userId);
+    writeJsonDb(db);
+    return true;
   },
 
   // ── 邮件 token CRUD ────────────────────────────────────────────────────
@@ -943,9 +1007,39 @@ setInterval(() => {
   storage.cleanupExpiredEmailTokens().catch(() => {});
 }, 30 * 60 * 1000).unref();
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, storage: pgPool ? 'postgres' : 'json', features: { galleryModeration: require('./lib/galleryAccess').resolveGalleryAdmins(process.env.GALLERY_ADMIN_EMAILS).size > 0, worksGallery: true, guestDraftImport: true, amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY) } });
+app.get('/api/health', asyncHandler(async (_req, res) => {
+  let dbOk = true;
+  if (pgPool) {
+    try {
+      await pgPool.query('SELECT 1');
+    } catch {
+      dbOk = false;
+    }
+  }
+  res.status(dbOk ? 200 : 503).json({
+    ok: dbOk,
+    uptimeSec: Math.round(process.uptime()),
+    storage: pgPool ? 'postgres' : 'json',
+    features: {
+      galleryModeration: require('./lib/galleryAccess').resolveGalleryAdmins(process.env.GALLERY_ADMIN_EMAILS).size > 0,
+      worksGallery: true,
+      guestDraftImport: true,
+      openTileProxy: true,
+      officialAi: ai.hasKey(),
+      customAiByok: true,
+      amapStaticMap: Boolean(AMAP_WEB_SERVICE_KEY)
+    }
+  });
+}));
+
+// 免 Key 开源地理底图瓦片缓存代理（每 IP/用户 15 分钟内允许充足的瓦片浏览请求）
+const tileLimiter = buildLimiter({
+  windowMs: 5 * 60 * 1000,
+  max: 900,
+  keyGenerator: (req) => clientKey(req)
 });
+const tileProxyHandler = createTileProxyHandler();
+app.get('/api/basemap/tile/:style/:z/:x/:y', tileLimiter, asyncHandler(tileProxyHandler));
 
 app.get('/api/amap/static-map', auth, amapLimiter, asyncHandler(async (req, res) => {
   if (!AMAP_WEB_SERVICE_KEY) {
@@ -1037,7 +1131,14 @@ app.post('/api/auth/register', authLimiter, asyncHandler(async (req, res) => {
     emailVerified: false
   });
   const raw = await storage.createEmailToken(user.id, 'verify', EMAIL_TOKEN_TTL_MS);
-  await sendVerificationEmail({ to: emailCheck.value, username: usernameCheck.value, token: raw });
+  const mailResult = await sendVerificationEmail({ to: emailCheck.value, username: usernameCheck.value, token: raw });
+  if (!mailResult.ok) {
+    // 生产环境发信失败（如 Resend 额度耗尽）时立即回滚未验证账号，防止该邮箱被死锁无法重试注册
+    await storage.deleteUser(user.id).catch(() => {});
+    return res.status(503).json({
+      message: '验证邮件发送失败（邮件服务暂时繁忙或今日发信额度已满），请稍后重试'
+    });
+  }
   // 跨设备轮询令牌：注册端本来停在"等待验证"状态，
   // 用这个 pollKey 静默 polling /api/auth/check-pending，
   // 一旦用户在另一设备上点验证链接，下次 poll 就回主 JWT。
@@ -1118,7 +1219,12 @@ app.post('/api/auth/upgrade-email', authLimiter, authUpgrade, asyncHandler(async
   }
   await storage.updateUser(user.id, { email: emailCheck.value, emailVerified: false });
   const raw = await storage.createEmailToken(user.id, 'verify', EMAIL_TOKEN_TTL_MS);
-  await sendVerificationEmail({ to: emailCheck.value, username: user.username, token: raw });
+  const mailResult = await sendVerificationEmail({ to: emailCheck.value, username: user.username, token: raw });
+  if (!mailResult.ok) {
+    return res.status(503).json({
+      message: '验证邮件发送失败（邮件服务暂时繁忙或今日发信额度已满），请稍后重试'
+    });
+  }
   // 升级路径同样发 pollKey：legacy 用户在电脑上补完邮箱后，可以在手机点链接，电脑端自动进系统
   const pollKey = await storage.createEmailToken(user.id, 'poll', EMAIL_TOKEN_TTL_MS);
   res.json({ status: 'verify_sent', email: emailCheck.value, pollKey });
@@ -1256,15 +1362,152 @@ app.put('/api/me', auth, meLimiter, asyncHandler(async (req, res) => {
   res.json({ user: sanitizeUser(updatedUser) });
 }));
 
-// ── AI 接入（Phase A）─────────────────────────────────────────────────────
+// ── AI 接入（支持官方每日免费额度 + 用户本地自填 API Key 安全透传）──────────
+const AI_DAILY_EDIT_LIMIT = Math.max(1, Number(process.env.AI_DAILY_EDIT_LIMIT) || 20);
+const AI_DAILY_TRANSLATE_LIMIT = Math.max(1, Number(process.env.AI_DAILY_TRANSLATE_LIMIT) || 80);
+const aiDailyUsageMap = new Map(); // `${utc8Date}:${kind}:${userKey}` -> count
+
+function currentUtc8DateKey() {
+  return new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+function pruneAiUsageIfNeeded(today) {
+  if (aiDailyUsageMap.size < 2000) return;
+  for (const key of aiDailyUsageMap.keys()) {
+    if (!key.startsWith(today)) aiDailyUsageMap.delete(key);
+  }
+}
+
+function getAiQuotaRemaining(kind, userKey) {
+  const limit = kind === 'translate' ? AI_DAILY_TRANSLATE_LIMIT : AI_DAILY_EDIT_LIMIT;
+  if (!userKey) return { limit, used: 0, remaining: limit };
+  const today = currentUtc8DateKey();
+  const used = aiDailyUsageMap.get(`${today}:${kind}:${userKey}`) || 0;
+  return { limit, used, remaining: Math.max(0, limit - used) };
+}
+
+function consumeAiQuota(kind, userKey) {
+  if (!userKey) return;
+  const today = currentUtc8DateKey();
+  pruneAiUsageIfNeeded(today);
+  const k = `${today}:${kind}:${userKey}`;
+  aiDailyUsageMap.set(k, (aiDailyUsageMap.get(k) || 0) + 1);
+}
+
+function readCustomAiHeaders(req) {
+  const apiKey = String(req.headers['x-custom-ai-key'] || '').trim();
+  const baseUrl = String(req.headers['x-custom-ai-base-url'] || '').trim();
+  const model = String(req.headers['x-custom-ai-model'] || '').trim();
+  if (!apiKey) return undefined;
+  return { apiKey, baseUrl, model };
+}
+
+// 允许已登录用户使用官方额度或自有 Key；未登录访客/离线桌面用户若配置了自有 Key 也直接放行
+function authOrCustomKey(req, res, next) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (token) {
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      if (!payload.purpose || payload.purpose === 'login') {
+        req.userId = payload.userId;
+        return next();
+      }
+    } catch {
+      // 若携带了自有 Key，即使登录 token 过期也不阻断 AI 调用
+    }
+  }
+  const custom = readCustomAiHeaders(req);
+  if (custom?.apiKey) {
+    req.userId = null;
+    return next();
+  }
+  return res.status(401).json({
+    code: 'AUTH_OR_KEY_REQUIRED',
+    message: '请先登录使用免费 AI 额度，或在右上角「API 设置」中填入自有 API Key 直接使用'
+  });
+}
+
+function tryReadOptionalUserId(req) {
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!token) return null;
+  try {
+    const payload = jwt.verify(token, JWT_SECRET);
+    return (!payload.purpose || payload.purpose === 'login') ? payload.userId : null;
+  } catch {
+    return null;
+  }
+}
+
+app.get('/api/ai/status', (req, res) => {
+  const uid = tryReadOptionalUserId(req) || `ip:${clientKey(req)}`;
+  const editQ = getAiQuotaRemaining('edit', uid);
+  const transQ = getAiQuotaRemaining('translate', uid);
+  res.json({
+    officialAvailable: ai.hasKey(),
+    defaultModel: ai.DEEPSEEK_MODEL,
+    editDailyLimit: editQ.limit,
+    editRemaining: editQ.remaining,
+    translateDailyLimit: transQ.limit,
+    translateRemaining: transQ.remaining
+  });
+});
+
+app.post('/api/ai/test-key', aiLimiter, asyncHandler(async (req, res) => {
+  const apiKey = String(req.body?.apiKey || req.headers['x-custom-ai-key'] || '').trim();
+  const baseUrl = String(req.body?.baseUrl || req.headers['x-custom-ai-base-url'] || '').trim();
+  const model = String(req.body?.model || req.headers['x-custom-ai-model'] || '').trim();
+  if (!apiKey) {
+    return res.status(400).json({ message: '请先填写 API Key' });
+  }
+  const t0 = Date.now();
+  const result = await ai.chatCompletion({
+    messages: [{ role: 'user', content: 'Reply with OK only.' }],
+    temperature: 0,
+    maxTokens: 8,
+    timeoutMs: 15_000,
+    customConfig: { apiKey, baseUrl, model }
+  });
+  if (!result.ok) {
+    return res.status(400).json({
+      ok: false,
+      reason: result.reason,
+      message: result.message || `连接测试失败（${result.reason}）`
+    });
+  }
+  res.json({
+    ok: true,
+    model: result.model,
+    latencyMs: Date.now() - t0
+  });
+}));
+
 // 站名中 → 英 翻译：单次 chat 调用，限制字数防滥用。
-// 没配 DEEPSEEK_API_KEY 时直接 503，让前端拿到明确提示。
-app.post('/api/ai/translate-station', auth, aiLimiter, asyncHandler(async (req, res) => {
+app.post('/api/ai/translate-station', authOrCustomKey, aiLimiter, asyncHandler(async (req, res) => {
   const name = String(req.body?.name || '').trim();
   if (!name) return res.status(400).json({ message: '请提供要翻译的站名' });
   if (name.length > 64) return res.status(400).json({ message: '站名过长' });
-  if (!ai.hasKey()) {
-    return res.status(503).json({ message: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）' });
+
+  const customConfig = readCustomAiHeaders(req);
+  const quotaKey = req.userId || `ip:${clientKey(req)}`;
+
+  if (!customConfig) {
+    if (!ai.hasKey()) {
+      return res.status(503).json({
+        code: 'AI_KEY_REQUIRED',
+        message: '平台暂未配置官方 AI 密钥，请在 AI 助手「API 设置」中填入自有 API Key'
+      });
+    }
+    const q = getAiQuotaRemaining('translate', quotaKey);
+    res.setHeader('X-AI-Quota-Limit', String(q.limit));
+    res.setHeader('X-AI-Quota-Remaining', String(q.remaining));
+    if (q.remaining <= 0) {
+      return res.status(429).json({
+        code: 'AI_QUOTA_EXCEEDED',
+        message: `今日免费站名翻译额度（${q.limit} 次）已用完，可在 AI 助手「API 设置」填入自有 API Key 继续无限使用`
+      });
+    }
   }
 
   // System prompt 锁死输出格式；约束 LLM 只回拼音 / 英文，不带任何额外文字。
@@ -1284,11 +1527,16 @@ app.post('/api/ai/translate-station', auth, aiLimiter, asyncHandler(async (req, 
       { role: 'user', content: name }
     ],
     temperature: 0.2,
-    maxTokens: 64
+    maxTokens: 64,
+    customConfig
   });
 
   if (!result.ok) {
-    return res.status(502).json({ message: `翻译失败（${result.reason}），请稍后重试` });
+    const status = result.reason?.startsWith('invalid_') || result.reason?.includes('base_url') ? 400 : 502;
+    return res.status(status).json({ message: result.message || `翻译失败（${result.reason}），请稍后重试` });
+  }
+  if (!customConfig) {
+    consumeAiQuota('translate', quotaKey);
   }
   const choice = result.data?.choices?.[0]?.message?.content || '';
   // 防御性裁剪：模型偶尔会回带引号 / 多行的输出
@@ -1599,8 +1847,32 @@ function prepareAiEdit(req) {
   if (history[history.length - 1].role !== 'user') {
     return { error: '最后一条消息必须是用户消息', status: 400 };
   }
-  if (!ai.hasKey()) {
-    return { error: 'AI 功能未配置（管理员未设置 DEEPSEEK_API_KEY）', status: 503 };
+
+  const customConfig = readCustomAiHeaders(req);
+  const quotaKey = req.userId || `ip:${clientKey(req)}`;
+
+  if (!customConfig) {
+    if (!ai.hasKey()) {
+      return {
+        error: '平台暂未配置官方 AI 密钥，请点击右上角「API 设置」填入自有 API Key 继续使用',
+        code: 'AI_KEY_REQUIRED',
+        status: 503
+      };
+    }
+    const q = getAiQuotaRemaining('edit', quotaKey);
+    if (q.remaining <= 0) {
+      return {
+        error: `今日官方免费 AI 规划额度（${q.limit} 次）已用完，点击右上角「API 设置」填入自有 API Key 即可无限畅享`,
+        code: 'AI_QUOTA_EXCEEDED',
+        status: 429,
+        quota: q
+      };
+    }
+  } else {
+    const check = ai.resolveAiEndpointConfig(customConfig);
+    if (!check.ok) {
+      return { error: check.message || '自定义 API 配置无效', code: check.reason, status: 400 };
+    }
   }
 
   const mapState = req.body?.mapState || {};
@@ -1633,7 +1905,7 @@ function prepareAiEdit(req) {
     ...history.map((m) => ({ role: m.role, content: m.content }))
   ];
 
-  return { llmMessages, lineIds, stationIds };
+  return { llmMessages, lineIds, stationIds, customConfig, quotaKey };
 }
 
 // 把 tool calls（可能来自一次性 message.tool_calls，也可能来自流式累加的 {name,arguments}）
@@ -1665,19 +1937,28 @@ function toolCallsToOperations(toolCalls, lineIds, stationIds) {
 }
 
 // 一次性（非流式）AI 编辑路由。保留给老前端 / curl 测试。
-app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
+app.post('/api/ai/edit', authOrCustomKey, aiLimiter, asyncHandler(async (req, res) => {
   const prepared = prepareAiEdit(req);
-  if (prepared.error) return res.status(prepared.status).json({ message: prepared.error });
+  if (prepared.error) {
+    return res.status(prepared.status).json({ message: prepared.error, ...(prepared.code ? { code: prepared.code } : {}) });
+  }
 
   const result = await ai.chatCompletion({
     messages: prepared.llmMessages,
     tools: AI_EDIT_TOOLS,
     toolChoice: 'auto',
     temperature: 0.15,
-    maxTokens: 2000
+    maxTokens: 2000,
+    customConfig: prepared.customConfig
   });
   if (!result.ok) {
-    return res.status(502).json({ message: `AI 调用失败（${result.reason}），请稍后重试` });
+    return res.status(502).json({ message: result.message || `AI 调用失败（${result.reason}），请稍后重试` });
+  }
+  if (!prepared.customConfig) {
+    consumeAiQuota('edit', prepared.quotaKey);
+    const q = getAiQuotaRemaining('edit', prepared.quotaKey);
+    res.setHeader('X-AI-Quota-Limit', String(q.limit));
+    res.setHeader('X-AI-Quota-Remaining', String(q.remaining));
   }
   const msg = result.data?.choices?.[0]?.message;
   const toolCalls = Array.isArray(msg?.tool_calls) ? msg.tool_calls : [];
@@ -1689,11 +1970,13 @@ app.post('/api/ai/edit', auth, aiLimiter, asyncHandler(async (req, res) => {
 // 流式 AI 编辑路由（SSE）。前端默认走这个，文字 token 实时吐，工具调用在流尾汇总成 operations。
 // 事件格式（每条 data: 一个 JSON）：
 //   { type: 'delta', text }                          文本增量
-//   { type: 'done', operations, explanation, skipped } 流结束 + 解析结果
-//   { type: 'error', message }                        出错
-app.post('/api/ai/edit-stream', auth, aiLimiter, asyncHandler(async (req, res) => {
+//   { type: 'done', operations, explanation, skipped, quotaRemaining? } 流结束 + 解析结果
+//   { type: 'error', message, code? }                出错
+app.post('/api/ai/edit-stream', authOrCustomKey, aiLimiter, asyncHandler(async (req, res) => {
   const prepared = prepareAiEdit(req);
-  if (prepared.error) return res.status(prepared.status).json({ message: prepared.error });
+  if (prepared.error) {
+    return res.status(prepared.status).json({ message: prepared.error, ...(prepared.code ? { code: prepared.code } : {}) });
+  }
 
   // SSE headers。X-Accel-Buffering 关掉反向代理缓冲，保证 token 实时到达
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -1710,6 +1993,7 @@ app.post('/api/ai/edit-stream', auth, aiLimiter, asyncHandler(async (req, res) =
     toolChoice: 'auto',
     temperature: 0.15,
     maxTokens: 2000,
+    customConfig: prepared.customConfig,
     onDelta: (token) => {
       fullText += token;
       send({ type: 'delta', text: token });
@@ -1717,11 +2001,26 @@ app.post('/api/ai/edit-stream', auth, aiLimiter, asyncHandler(async (req, res) =
   });
 
   if (!result.ok) {
-    send({ type: 'error', message: `AI 调用失败（${result.reason}），请稍后重试` });
+    send({
+      type: 'error',
+      code: result.status === 402 ? 'AI_KEY_REQUIRED' : result.reason,
+      message: result.message || `AI 调用失败（${result.reason}），请稍后重试`
+    });
     return res.end();
   }
+  let quotaRemaining;
+  if (!prepared.customConfig) {
+    consumeAiQuota('edit', prepared.quotaKey);
+    quotaRemaining = getAiQuotaRemaining('edit', prepared.quotaKey).remaining;
+  }
   const { operations, skipped } = toolCallsToOperations(result.toolCalls, prepared.lineIds, prepared.stationIds);
-  send({ type: 'done', operations, explanation: (result.content || fullText).trim(), skipped });
+  send({
+    type: 'done',
+    operations,
+    explanation: (result.content || fullText).trim(),
+    skipped,
+    ...(typeof quotaRemaining === 'number' ? { quotaRemaining } : {})
+  });
   res.end();
 }));
 
