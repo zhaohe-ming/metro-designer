@@ -19,6 +19,7 @@ import {
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, degToRad, fillCurvedArrowCanvas2d } from './interchange';
 import { drawLightCityToCanvas2D, getLightCityPalette } from './lightCity';
+import { computeNetworkParallelLayout } from './offsetPath';
 import {
   activeVideoStationLines,
   buildVideoRouteGeometry,
@@ -273,10 +274,44 @@ export function createVideoSceneRenderer(opts: VideoSceneOptions): VideoSceneRen
   const toCanvasPoint = (station: Station) => worldToCanvas(stationWorld(station));
   const toFitAllCanvasPoint = (station: Station) => worldToCanvasFitAll(stationWorld(station));
 
+  const lineOrderMap = new Map<string, number>();
+  allLines.forEach((line, index) => lineOrderMap.set(line.id, index));
+  const videoParallelGapWorld =
+    (Math.max(8.8, preset.lineWidth + 4) * mapScale) / Math.max(0.15, defaultCamera.scale);
+  const videoParallelLayout = computeNetworkParallelLayout({
+    sections: allSections
+      .filter((sec) => stationById.has(sec.startStationId) && stationById.has(sec.endStationId))
+      .map((sec) => ({
+        id: sec.id,
+        lineId: sec.lineId,
+        startStationId: sec.startStationId,
+        endStationId: sec.endStationId,
+        points: [
+          stationWorld(stationById.get(sec.startStationId)!),
+          ...(sec.waypoints || []).map((wp) => stationWorld(wp)),
+          stationWorld(stationById.get(sec.endStationId)!)
+        ],
+        parallelOrder: sec.parallelOrder
+      })),
+    lineOrderMap,
+    gap: videoParallelGapWorld,
+    stationLineCounts
+  });
+  const videoSectionOffsets = new Map<string, number>();
+  videoParallelLayout.bySectionId.forEach((meta, secId) => {
+    videoSectionOffsets.set(secId, meta.directedOffset);
+  });
+
   const sectionPoints = new Map(
     allSections.map((section) => [
       section.id,
-      getVideoSectionPoints(section, stationById, stationWorld, settings.cornerRadius)
+      getVideoSectionPoints(
+        section,
+        stationById,
+        stationWorld,
+        settings.cornerRadius,
+        videoSectionOffsets.get(section.id) || 0
+      )
     ])
   );
 
@@ -408,7 +443,8 @@ export function createVideoSceneRenderer(opts: VideoSceneOptions): VideoSceneRen
       item,
       stationById,
       stationWorld,
-      settings.cornerRadius
+      settings.cornerRadius,
+      videoSectionOffsets
     );
     const metrics = getPathMetrics(worldPoints);
     const canvasLength = metrics.totalLength * defaultCamera.scale;
@@ -674,9 +710,13 @@ export function createVideoSceneRenderer(opts: VideoSceneOptions): VideoSceneRen
       const isActive = colors.length > 0;
       if (!isActive && unopenedStyle === 'hidden') return;
 
-      const point = toCanvasPoint(station);
-      const activeColor = colors[0];
       const isInterchange = colors.length > 1;
+      const singleLineNudge = !isInterchange ? videoParallelLayout.stationTrackNudges.get(station.id) : undefined;
+      const baseWorld = stationWorld(station);
+      const point = singleLineNudge
+        ? worldToCanvas({ x: baseWorld.x + singleLineNudge.dx, y: baseWorld.y + singleLineNudge.dy })
+        : toCanvasPoint(station);
+      const activeColor = colors[0];
       const fallbackColor = activeColor || mutedStationStroke;
       const stationScale = mapScale * camRatio;
 

@@ -9,6 +9,7 @@ import {
   Waypoint
 } from '../types';
 import { roundCorners } from './roundedPath';
+import { buildSectionRenderGeometry } from './offsetPath';
 
 export type { VideoSegmentInput } from '../types';
 
@@ -274,37 +275,54 @@ export function getVideoSectionPoints(
   section: Section,
   stationById: Map<string, Station>,
   project: (point: Station | Waypoint) => VideoPoint,
-  radius: number
+  radius: number,
+  directedOffset = 0
 ) {
   const start = stationById.get(section.startStationId);
   const end = stationById.get(section.endStationId);
   if (!start || !end) return [];
-  return roundCorners(
-    [
-      project(start),
-      ...(section.waypoints || []).map((wp) => ({
-        ...project(wp),
-        ...(typeof wp.radius === 'number' ? { radius: wp.radius } : {}),
-        ...(wp.mode ? { mode: wp.mode } : {})
-      })),
-      project(end)
-    ],
-    radius
-  );
+  const controlPoints = [
+    project(start),
+    ...(section.waypoints || []).map((wp) => ({
+      ...project(wp),
+      ...(typeof wp.radius === 'number' ? { radius: wp.radius } : {}),
+      ...(wp.mode ? { mode: wp.mode } : {})
+    })),
+    project(end)
+  ];
+  if (Math.abs(directedOffset) < 1e-6) {
+    return roundCorners(controlPoints, radius);
+  }
+  return buildSectionRenderGeometry(controlPoints, directedOffset, radius).renderPoints;
 }
 
 export function buildVideoRouteGeometry(
   route: ReturnType<typeof resolveVideoRoute>,
   stationById: Map<string, Station>,
   project: (point: Station | Waypoint) => VideoPoint,
-  radius: number
+  radius: number,
+  sectionOffsets?: ReadonlyMap<string, number>
 ) {
-  const points: VideoPoint[] = [project(stationById.get(route.stationIds[0])!)];
+  const points: VideoPoint[] = [];
   const stationDistances = [0];
   let distance = 0;
   route.edges.forEach(({ section, reversed }) => {
-    const sectionPoints = getVideoSectionPoints(section, stationById, project, radius);
+    const offset = sectionOffsets?.get(section.id) || 0;
+    const sectionPoints = getVideoSectionPoints(section, stationById, project, radius, offset);
     if (reversed) sectionPoints.reverse();
+    if (sectionPoints.length === 0) return;
+    if (points.length === 0) {
+      points.push(sectionPoints[0]);
+    } else {
+      const joinDist = Math.hypot(
+        sectionPoints[0].x - points[points.length - 1].x,
+        sectionPoints[0].y - points[points.length - 1].y
+      );
+      if (joinDist > 0.25) {
+        distance += joinDist;
+        points.push(sectionPoints[0]);
+      }
+    }
     sectionPoints.slice(1).forEach((point) => {
       const previous = points[points.length - 1];
       distance += Math.hypot(point.x - previous.x, point.y - previous.y);
@@ -312,6 +330,9 @@ export function buildVideoRouteGeometry(
     });
     stationDistances.push(distance);
   });
+  if (points.length === 0) {
+    points.push(project(stationById.get(route.stationIds[0])!));
+  }
   if (distance <= 0) throw new Error(`区间 ${route.line.name} 的站点重合，无法生成动画`);
   return { points, stationDistances };
 }

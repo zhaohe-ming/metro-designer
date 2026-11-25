@@ -127,7 +127,8 @@ const cloneDoc = (doc: DocSnapshot): DocSnapshot => ({
   lines: doc.lines.map(line => ({ ...line, stationIds: [...line.stationIds], sectionIds: [...line.sectionIds] })),
   sections: doc.sections.map(section => ({
     ...section,
-    waypoints: section.waypoints ? section.waypoints.map(point => ({ ...point })) : undefined
+    waypoints: section.waypoints ? section.waypoints.map(point => ({ ...point })) : undefined,
+    parallelOrder: section.parallelOrder ? [...section.parallelOrder] : undefined
   })),
   stations: doc.stations.map(station => ({ ...station })),
   mapSettings: {

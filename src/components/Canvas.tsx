@@ -12,6 +12,10 @@ import Konva from 'konva';
 import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
 import { Input, Button, message, ColorPicker, Dropdown, Tooltip, Spin } from 'antd';
 import {
+  ArrowDownOutlined,
+  ArrowLeftOutlined,
+  ArrowRightOutlined,
+  ArrowUpOutlined,
   BgColorsOutlined,
   CheckOutlined,
   CloseOutlined,
@@ -30,6 +34,7 @@ import {
   ReloadOutlined,
   SearchOutlined,
   SelectOutlined,
+  SwapOutlined,
   TranslationOutlined
 } from '@ant-design/icons';
 import { api } from '../api';
@@ -68,9 +73,10 @@ import {
 } from '../lib/roundedPath';
 import {
   buildSectionRenderGeometry,
-  canonicalSectionPairKey,
-  computeDirectedParallelOffset,
-  findWaypointInsertIndex
+  computeNetworkParallelLayout,
+  findWaypointInsertIndex,
+  moveLineInParallelOrder,
+  SectionParallelMeta
 } from '../lib/offsetPath';
 import {
   connectStationsOnLine,
@@ -3292,7 +3298,7 @@ const Canvas: React.FC<CanvasProps> = ({
   });
 
   const scaledLineWidth = stylePreset.lineWidth * strokeScale;
-  const scaledParallelGap = Math.max(3.5, 8 * strokeScale);
+  const scaledParallelGap = Math.max(3.8, Math.max(8.8, stylePreset.lineWidth + 4) * strokeScale);
   const scaledNormalStationRadius = stylePreset.normalStationRadius * dotScale;
   const scaledNormalStationStrokeWidth = stylePreset.normalStationStrokeWidth * dotScale;
   const scaledInterchangeRadius = stylePreset.interchangeRadius * dotScale;
@@ -3316,44 +3322,24 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const isLargeGraph = stations.length > 200 || sections.length > 200;
 
-  const preparedLineSegments = useMemo(() => {
+  const parallelSceneData = useMemo(() => {
     if (!canvasSceneReady) {
       sectionParallelOffsetRef.current = new Map();
-      return [];
+      return {
+        segments: [] as Array<{
+          section: Section;
+          line: LineType;
+          start: Station;
+          end: Station;
+          waypoints: Waypoint[];
+          slotIndex: number;
+          shiftedFlat: number[];
+          renderFlat: number[];
+        }>,
+        parallelMetaBySectionId: new Map<string, SectionParallelMeta>(),
+        stationTrackNudges: new Map<string, { dx: number; dy: number }>()
+      };
     }
-    const rawList: Array<{
-      section: Section;
-      line: LineType;
-      start: Station;
-      end: Station;
-      waypoints: Waypoint[];
-      pairKey: string;
-    }> = [];
-    for (let i = 0; i < sections.length; i += 1) {
-      const section = sections[i];
-      const line = lineById.get(section.lineId);
-      const start = stationById.get(section.startStationId);
-      const end = stationById.get(section.endStationId);
-      if (!line || !start || !end) continue;
-      rawList.push({
-        section,
-        line,
-        start,
-        end,
-        waypoints: section.waypoints || [],
-        pairKey: canonicalSectionPairKey(section.startStationId, section.endStationId)
-      });
-    }
-
-    const pairGroups = new Map<string, typeof rawList>();
-    rawList.forEach((item) => {
-      const arr = pairGroups.get(item.pairKey);
-      if (arr) arr.push(item);
-      else pairGroups.set(item.pairKey, [item]);
-    });
-    pairGroups.forEach((arr) => {
-      arr.sort((a, b) => (lineOrderMap.get(a.line.id) ?? 0) - (lineOrderMap.get(b.line.id) ?? 0));
-    });
 
     const map = amapRef.current;
     const projectWp = (point: Waypoint) => {
@@ -3364,24 +3350,27 @@ const Canvas: React.FC<CanvasProps> = ({
       return { x: point.x, y: point.y };
     };
 
-    const offsetMap = new Map<string, number>();
-    const prepared = rawList.map((seg) => {
-      const group = pairGroups.get(seg.pairKey) || [seg];
-      const slotIndex = Math.max(0, group.indexOf(seg));
-      const directedOffset = computeDirectedParallelOffset(
-        seg.section.startStationId,
-        seg.section.endStationId,
-        slotIndex,
-        group.length,
-        scaledParallelGap
-      );
-      offsetMap.set(seg.section.id, directedOffset);
+    const rawList: Array<{
+      section: Section;
+      line: LineType;
+      start: Station;
+      end: Station;
+      waypoints: Waypoint[];
+      controlPoints: RPoint[];
+    }> = [];
 
-      const startPoint = stationDisplayPoints[seg.start.id] || { x: seg.start.x, y: seg.start.y };
-      const endPoint = stationDisplayPoints[seg.end.id] || { x: seg.end.x, y: seg.end.y };
+    for (let i = 0; i < sections.length; i += 1) {
+      const section = sections[i];
+      const line = lineById.get(section.lineId);
+      const start = stationById.get(section.startStationId);
+      const end = stationById.get(section.endStationId);
+      if (!line || !start || !end) continue;
+      const startPoint = stationDisplayPoints[start.id] || { x: start.x, y: start.y };
+      const endPoint = stationDisplayPoints[end.id] || { x: end.x, y: end.y };
+      const wps = section.waypoints || [];
       const controlPoints: RPoint[] = [
         { x: startPoint.x, y: startPoint.y },
-        ...seg.waypoints.map((wp) => {
+        ...wps.map((wp) => {
           const p = projectWp(wp);
           return {
             x: p.x,
@@ -3392,15 +3381,49 @@ const Canvas: React.FC<CanvasProps> = ({
         }),
         { x: endPoint.x, y: endPoint.y }
       ];
+      rawList.push({
+        section,
+        line,
+        start,
+        end,
+        waypoints: wps,
+        controlPoints
+      });
+    }
+
+    const layout = computeNetworkParallelLayout({
+      sections: rawList.map((item) => ({
+        id: item.section.id,
+        lineId: item.section.lineId,
+        startStationId: item.section.startStationId,
+        endStationId: item.section.endStationId,
+        points: item.controlPoints,
+        parallelOrder: item.section.parallelOrder
+      })),
+      lineOrderMap,
+      gap: scaledParallelGap,
+      stationLineCounts
+    });
+
+    const offsetMap = new Map<string, number>();
+    const prepared = rawList.map((seg) => {
+      const meta = layout.bySectionId.get(seg.section.id);
+      const directedOffset = meta?.directedOffset || 0;
+      const slotIndex = meta?.slotIndex || 0;
+      offsetMap.set(seg.section.id, directedOffset);
 
       const { shiftedFlat, renderFlat } = buildSectionRenderGeometry(
-        controlPoints,
+        seg.controlPoints,
         directedOffset,
         lineCornerRadius
       );
 
       return {
-        ...seg,
+        section: seg.section,
+        line: seg.line,
+        start: seg.start,
+        end: seg.end,
+        waypoints: seg.waypoints,
         slotIndex,
         shiftedFlat,
         renderFlat
@@ -3408,13 +3431,18 @@ const Canvas: React.FC<CanvasProps> = ({
     });
 
     sectionParallelOffsetRef.current = offsetMap;
-    return prepared;
+    return {
+      segments: prepared,
+      parallelMetaBySectionId: layout.bySectionId,
+      stationTrackNudges: layout.stationTrackNudges
+    };
   }, [
     canvasSceneReady,
     sections,
     lineById,
     stationById,
     lineOrderMap,
+    stationLineCounts,
     stationDisplayPoints,
     isAmapMode,
     amapReady,
@@ -3423,6 +3451,62 @@ const Canvas: React.FC<CanvasProps> = ({
     scaledParallelGap,
     amapRef
   ]);
+
+  const preparedLineSegments = parallelSceneData.segments;
+  const parallelMetaBySectionId = parallelSceneData.parallelMetaBySectionId;
+  const stationTrackNudges = parallelSceneData.stationTrackNudges;
+
+  const handleReorderParallelSection = useCallback(
+    (
+      sectionId: string,
+      direction: 'swap' | 'prev' | 'next' | 'reset',
+      singleSectionOnly = false
+    ) => {
+      const sec = sectionById.get(sectionId);
+      const meta = parallelMetaBySectionId.get(sectionId);
+      if (!sec || !meta || meta.totalSlots < 2) return;
+
+      const targetIds = new Set(
+        singleSectionOnly ? meta.localGroupSectionIds : meta.corridorSectionIds
+      );
+      const nextOrder =
+        direction === 'reset'
+          ? undefined
+          : moveLineInParallelOrder(meta.orderedLineIds, sec.lineId, direction);
+
+      if (onApplyGraphTransaction) {
+        onApplyGraphTransaction((graph) => ({
+          ...graph,
+          sections: graph.sections.map((item) =>
+            targetIds.has(item.id) ? { ...item, parallelOrder: nextOrder } : item
+          )
+        }));
+      } else if (onUpdateSection) {
+        onBeginInteraction?.();
+        targetIds.forEach((id) => {
+          onUpdateSection(id, { parallelOrder: nextOrder });
+        });
+      }
+
+      if (nextOrder) {
+        const names = nextOrder
+          .map((lid) => lineById.get(lid)?.name || lid)
+          .join(' → ');
+        const axisText = meta.axisHint === 'horizontal' ? '上→下' : '左→右';
+        message.success?.(`已更新并行顺序（${axisText}）：${names}`);
+      } else {
+        message.success?.('已恢复默认并行顺序');
+      }
+    },
+    [
+      lineById,
+      onApplyGraphTransaction,
+      onBeginInteraction,
+      onUpdateSection,
+      parallelMetaBySectionId,
+      sectionById
+    ]
+  );
 
   const isDarkCanvas = mapSettings.canvasTheme === 'dark';
   const canvasPalette = CANVAS_THEME_PALETTES[mapSettings.canvasTheme];
@@ -5361,33 +5445,38 @@ const Canvas: React.FC<CanvasProps> = ({
                       />
                     ) : null}
 
-                    {(isDrawAnchor || isDrawSnapped || isSelected || isMergeTarget || isHighlighted) && (
-                      <Circle
-                        radius={baseR + (isMergeTarget || isHighlighted || isDrawSnapped ? 7 : 5) * dotScale}
-                        fill={
-                          isMergeTarget || isDrawSnapped
-                            ? 'rgba(37, 99, 235, 0.14)'
-                            : isHighlighted
-                              ? 'rgba(245, 158, 11, 0.2)'
-                              : 'transparent'
-                        }
-                        stroke={
-                          isMergeTarget
-                            ? '#10b981'
-                            : isHighlighted
-                              ? '#f59e0b'
-                              : isDrawSnapped
-                                ? currentLine?.color || '#2563eb'
-                                : isDrawAnchor
+                    {(isDrawAnchor || isDrawSnapped || isSelected || isMergeTarget || isHighlighted) && (() => {
+                      const hlNudge = !isInterchangeStation ? stationTrackNudges.get(station.id) : undefined;
+                      return (
+                        <Circle
+                          x={hlNudge ? hlNudge.dx : 0}
+                          y={hlNudge ? hlNudge.dy : 0}
+                          radius={baseR + (isMergeTarget || isHighlighted || isDrawSnapped ? 7 : 5) * dotScale}
+                          fill={
+                            isMergeTarget || isDrawSnapped
+                              ? 'rgba(37, 99, 235, 0.14)'
+                              : isHighlighted
+                                ? 'rgba(245, 158, 11, 0.2)'
+                                : 'transparent'
+                          }
+                          stroke={
+                            isMergeTarget
+                              ? '#10b981'
+                              : isHighlighted
+                                ? '#f59e0b'
+                                : isDrawSnapped
                                   ? currentLine?.color || '#2563eb'
-                                  : '#3b82f6'
-                        }
-                        strokeWidth={2.2 * dotScale}
-                        dash={isDrawAnchor && !isDrawSnapped ? [4, 3] : undefined}
-                        listening={false}
-                        perfectDrawEnabled={false}
-                      />
-                    )}
+                                  : isDrawAnchor
+                                    ? currentLine?.color || '#2563eb'
+                                    : '#3b82f6'
+                          }
+                          strokeWidth={2.2 * dotScale}
+                          dash={isDrawAnchor && !isDrawSnapped ? [4, 3] : undefined}
+                          listening={false}
+                          perfectDrawEnabled={false}
+                        />
+                      );
+                    })()}
 
                     {isInterchangeStation ? (
                       (() => {
@@ -5486,27 +5575,36 @@ const Canvas: React.FC<CanvasProps> = ({
                           </>
                         );
                       })()
-                    ) : stylePreset.stationShape === 'ring' ? (
-                      <Circle
-                        radius={scaledNormalStationRadius}
-                        fill={canvasPalette.stationStroke}
-                        stroke={stationColor}
-                        strokeWidth={scaledNormalStationStrokeWidth}
-                        shadowColor={canvasPalette.dotShadow}
-                        shadowBlur={suppressShadows ? 0 : 4}
-                        perfectDrawEnabled={false}
-                      />
-                    ) : (
-                      <Circle
-                        radius={scaledNormalStationRadius}
-                        fill={stationColor}
-                        stroke={canvasPalette.stationStroke}
-                        strokeWidth={scaledNormalStationStrokeWidth}
-                        shadowColor={canvasPalette.dotShadow}
-                        shadowBlur={suppressShadows ? 0 : 4}
-                        perfectDrawEnabled={false}
-                      />
-                    )}
+                    ) : (() => {
+                      const dotNudge = stationTrackNudges.get(station.id);
+                      const nx = dotNudge ? dotNudge.dx : 0;
+                      const ny = dotNudge ? dotNudge.dy : 0;
+                      return stylePreset.stationShape === 'ring' ? (
+                        <Circle
+                          x={nx}
+                          y={ny}
+                          radius={scaledNormalStationRadius}
+                          fill={canvasPalette.stationStroke}
+                          stroke={stationColor}
+                          strokeWidth={scaledNormalStationStrokeWidth}
+                          shadowColor={canvasPalette.dotShadow}
+                          shadowBlur={suppressShadows ? 0 : 4}
+                          perfectDrawEnabled={false}
+                        />
+                      ) : (
+                        <Circle
+                          x={nx}
+                          y={ny}
+                          radius={scaledNormalStationRadius}
+                          fill={stationColor}
+                          stroke={canvasPalette.stationStroke}
+                          strokeWidth={scaledNormalStationStrokeWidth}
+                          shadowColor={canvasPalette.dotShadow}
+                          shadowBlur={suppressShadows ? 0 : 4}
+                          perfectDrawEnabled={false}
+                        />
+                      );
+                    })()}
 
                     {labelRect ? (
                       <Group x={labelRect.x - stationPoint.x} y={labelRect.y - stationPoint.y} listening={false}>
@@ -6118,6 +6216,131 @@ const Canvas: React.FC<CanvasProps> = ({
                 ) : (
                   <>
                     <div className="metro-floating-menu__header">区间操作</div>
+                    {(() => {
+                      const sec = sectionById.get(sectionKey);
+                      const pMeta = parallelMetaBySectionId.get(sectionKey);
+                      if (!sec || !pMeta || pMeta.totalSlots < 2) return null;
+                      const isHoriz = pMeta.axisHint === 'horizontal';
+                      const isMultiCorridor = pMeta.corridorSectionIds.length > pMeta.localGroupSectionIds.length;
+                      const hasCustomOrder = Boolean(sec.parallelOrder && sec.parallelOrder.length >= 2);
+                      return (
+                        <>
+                          <div
+                            style={{
+                              padding: '4px 10px 6px',
+                              fontSize: 11.5,
+                              display: 'flex',
+                              flexWrap: 'wrap',
+                              alignItems: 'center',
+                              gap: 5,
+                              opacity: 0.88
+                            }}
+                          >
+                            <span style={{ opacity: 0.68 }}>{isHoriz ? '上→下：' : '左→右：'}</span>
+                            {pMeta.orderedLineIds.map((lid, idx) => {
+                              const lObj = lineById.get(lid);
+                              if (!lObj) return null;
+                              return (
+                                <span
+                                  key={lid}
+                                  style={{
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 3,
+                                    fontWeight: lid === sec.lineId ? 700 : 500
+                                  }}
+                                >
+                                  {idx > 0 && <span style={{ opacity: 0.45 }}>·</span>}
+                                  <span
+                                    style={{
+                                      width: 7,
+                                      height: 7,
+                                      borderRadius: '50%',
+                                      backgroundColor: lObj.color,
+                                      display: 'inline-block'
+                                    }}
+                                  />
+                                  <span>{lObj.name}</span>
+                                </span>
+                              );
+                            })}
+                          </div>
+
+                          {pMeta.totalSlots === 2 ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                              <button
+                                type="button"
+                                className="metro-floating-menu__item"
+                                style={{ flex: 1 }}
+                                onClick={(ev) => {
+                                  handleReorderParallelSection(sectionKey, 'swap', Boolean(ev.altKey));
+                                  closeAllFloatingMenus();
+                                }}
+                              >
+                                <SwapOutlined />
+                                <span>{isHoriz ? '对调并行上下顺序' : '对调并行左右顺序'}</span>
+                              </button>
+                              {isMultiCorridor && (
+                                <button
+                                  type="button"
+                                  className="metro-floating-menu__mini-btn"
+                                  title="仅对调当前单区间的并行位置，保持其余共线段不变"
+                                  onClick={() => {
+                                    handleReorderParallelSection(sectionKey, 'swap', true);
+                                    closeAllFloatingMenus();
+                                  }}
+                                >
+                                  仅本段
+                                </button>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ display: 'flex', gap: 4, padding: '2px 6px 4px' }}>
+                              <button
+                                type="button"
+                                className="metro-floating-menu__mini-btn"
+                                style={{ flex: 1, justifyContent: 'center' }}
+                                disabled={pMeta.slotIndex <= 0}
+                                onClick={(ev) => {
+                                  handleReorderParallelSection(sectionKey, 'prev', Boolean(ev.altKey));
+                                  closeAllFloatingMenus();
+                                }}
+                              >
+                                {isHoriz ? <ArrowUpOutlined /> : <ArrowLeftOutlined />}
+                                <span>{isHoriz ? '上移' : '左移'}</span>
+                              </button>
+                              <button
+                                type="button"
+                                className="metro-floating-menu__mini-btn"
+                                style={{ flex: 1, justifyContent: 'center' }}
+                                disabled={pMeta.slotIndex >= pMeta.totalSlots - 1}
+                                onClick={(ev) => {
+                                  handleReorderParallelSection(sectionKey, 'next', Boolean(ev.altKey));
+                                  closeAllFloatingMenus();
+                                }}
+                              >
+                                {isHoriz ? <ArrowDownOutlined /> : <ArrowRightOutlined />}
+                                <span>{isHoriz ? '下移' : '右移'}</span>
+                              </button>
+                              {hasCustomOrder && (
+                                <button
+                                  type="button"
+                                  className="metro-floating-menu__mini-btn"
+                                  title="恢复按左侧线路列表排序"
+                                  onClick={() => {
+                                    handleReorderParallelSection(sectionKey, 'reset', false);
+                                    closeAllFloatingMenus();
+                                  }}
+                                >
+                                  重置
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          <div className="metro-floating-menu__divider" />
+                        </>
+                      );
+                    })()}
                     <button
                       type="button"
                       className="metro-floating-menu__item"

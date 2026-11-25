@@ -41,6 +41,8 @@ export interface Section {
   startStationId: string;
   endStationId: string;
   waypoints?: Waypoint[];
+  /** 可选：共线并行走廊中各线路的上/左 → 下/右槽位顺序（lineId 数组；缺省按左侧线路列表顺序排布） */
+  parallelOrder?: string[];
 }
 
 export interface Line {
@@ -460,6 +462,19 @@ export const normalizeSections = (rawSections: any): Section[] => {
         endStationId: String(section.endStationId)
       };
       if (waypoints.length) normalized.waypoints = waypoints;
+      if (Array.isArray(section.parallelOrder)) {
+        const seen = new Set<string>();
+        const order = section.parallelOrder
+          .filter((item: unknown): item is string => typeof item === 'string' && item.trim().length > 0)
+          .map((item: string) => item.trim())
+          .filter((id: string) => {
+            if (seen.has(id)) return false;
+            seen.add(id);
+            return true;
+          })
+          .slice(0, 16);
+        if (order.length >= 2) normalized.parallelOrder = order;
+      }
       return normalized;
     })
     .filter((section: Section | null): section is Section => section !== null);

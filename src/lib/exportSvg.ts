@@ -5,7 +5,7 @@
 import { Line, MapSettings, Section, Station } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { buildCurvedArrowPath, planInterchange } from './interchange';
-import { buildSectionRenderGeometry, canonicalSectionPairKey, computeDirectedParallelOffset } from './offsetPath';
+import { buildSectionRenderGeometry, computeNetworkParallelLayout } from './offsetPath';
 import { deriveLineTopology } from './graphOps';
 import { buildLightCitySvgLayer, getLightCityPalette } from './lightCity';
 
@@ -147,39 +147,57 @@ export function buildMetroSvg(params: {
   const viewW = Math.max(640, Math.ceil(maxX - minX + padding * 2));
   const viewH = Math.max(480, Math.ceil(maxY - minY + padding * 2));
 
-  // 共线平行分组（按线路顺序确定固定槽位）
+  // 统计站点经过线路
+  const stationToLines = new Map<string, Line[]>();
+  lines.forEach((line) => {
+    line.stationIds.forEach((sid) => {
+      const arr = stationToLines.get(sid);
+      if (arr) {
+        if (!arr.includes(line)) arr.push(line);
+      } else {
+        stationToLines.set(sid, [line]);
+      }
+    });
+  });
+  const stationLineCounts: Record<string, number> = {};
+  stations.forEach((st) => {
+    stationLineCounts[st.id] = stationToLines.get(st.id)?.length || 0;
+  });
+
+  // 统一共线走廊与跨区间快线并行布局
   const validSections = sections.filter(
     (s) => lineById.has(s.lineId) && stationById.has(s.startStationId) && stationById.has(s.endStationId)
   );
-  const pairGroups = new Map<string, Section[]>();
-  validSections.forEach((sec) => {
-    const key = canonicalSectionPairKey(sec.startStationId, sec.endStationId);
-    const arr = pairGroups.get(key);
-    if (arr) arr.push(sec);
-    else pairGroups.set(key, [sec]);
-  });
-  pairGroups.forEach((arr) => {
-    arr.sort((a, b) => (lineOrderMap.get(a.lineId) ?? 0) - (lineOrderMap.get(b.lineId) ?? 0));
-  });
-
-  const parallelGap = 8;
+  const parallelGap = Math.max(8.8, stylePreset.lineWidth + 4);
   const fallbackCornerR = Math.max(0, mapSettings.cornerRadius || 0);
+  const parallelLayout = computeNetworkParallelLayout({
+    sections: validSections.map((sec) => {
+      const start = stationById.get(sec.startStationId)!;
+      const end = stationById.get(sec.endStationId)!;
+      return {
+        id: sec.id,
+        lineId: sec.lineId,
+        startStationId: sec.startStationId,
+        endStationId: sec.endStationId,
+        points: [
+          { x: start.x, y: start.y },
+          ...(sec.waypoints || []).map((wp) => ({ x: wp.x, y: wp.y })),
+          { x: end.x, y: end.y }
+        ],
+        parallelOrder: sec.parallelOrder
+      };
+    }),
+    lineOrderMap,
+    gap: parallelGap,
+    stationLineCounts
+  });
 
   const lineSvgElements: string[] = [];
   validSections.forEach((sec) => {
     const line = lineById.get(sec.lineId)!;
     const start = stationById.get(sec.startStationId)!;
     const end = stationById.get(sec.endStationId)!;
-    const key = canonicalSectionPairKey(sec.startStationId, sec.endStationId);
-    const group = pairGroups.get(key) || [sec];
-    const slotIndex = Math.max(0, group.indexOf(sec));
-    const directedOffset = computeDirectedParallelOffset(
-      sec.startStationId,
-      sec.endStationId,
-      slotIndex,
-      group.length,
-      parallelGap
-    );
+    const directedOffset = parallelLayout.bySectionId.get(sec.id)?.directedOffset || 0;
 
     const controlPoints = [
       { x: start.x, y: start.y },
@@ -197,19 +215,6 @@ export function buildMetroSvg(params: {
     lineSvgElements.push(
       `  <path d="${d}" fill="none" stroke="${escapeXml(line.color)}" stroke-width="${fmt(stylePreset.lineWidth)}" stroke-linecap="round" stroke-linejoin="round" />`
     );
-  });
-
-  // 统计站点经过线路
-  const stationToLines = new Map<string, Line[]>();
-  lines.forEach((line) => {
-    line.stationIds.forEach((sid) => {
-      const arr = stationToLines.get(sid);
-      if (arr) {
-        if (!arr.includes(line)) arr.push(line);
-      } else {
-        stationToLines.set(sid, [line]);
-      }
-    });
   });
 
   // 站名排版与站点符号渲染
@@ -271,8 +276,11 @@ export function buildMetroSvg(params: {
       const r = stylePreset.normalStationRadius;
       const fill = stylePreset.stationShape === 'ring' ? stationStrokeBg : primaryColor;
       const stroke = stylePreset.stationShape === 'ring' ? primaryColor : stationStrokeBg;
+      const nudge = parallelLayout.stationTrackNudges.get(station.id);
+      const cx = nudge ? station.x + nudge.dx : station.x;
+      const cy = nudge ? station.y + nudge.dy : station.y;
       stationSvgElements.push(
-        `  <circle cx="${fmt(station.x)}" cy="${fmt(station.y)}" r="${fmt(r)}" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="${fmt(stylePreset.normalStationStrokeWidth)}" />`
+        `  <circle cx="${fmt(cx)}" cy="${fmt(cy)}" r="${fmt(r)}" fill="${escapeXml(fill)}" stroke="${escapeXml(stroke)}" stroke-width="${fmt(stylePreset.normalStationStrokeWidth)}" />`
       );
     }
 

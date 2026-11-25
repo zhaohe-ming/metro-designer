@@ -35,8 +35,12 @@ function snapshot(map, includeNotes) {
   const sections = map.sections.map(item => {
     if (!lineIds.has(item.lineId) || !stationIds.has(item.startStationId) || !stationIds.has(item.endStationId)) throw fail('地图存在缺失的线路或站点连接');
     if (item.waypoints !== undefined && (!Array.isArray(item.waypoints) || item.waypoints.length > 20)) throw fail('区间折点格式无效');
+    const parallelOrder = Array.isArray(item.parallelOrder)
+      ? [...new Set(item.parallelOrder.filter(id => typeof id === 'string' && lineIds.has(id)))].slice(0, 16)
+      : [];
     return { id: item.id, lineId: item.lineId, startStationId: item.startStationId, endStationId: item.endStationId,
-      ...(item.waypoints?.length ? { waypoints: item.waypoints.map(item => ({ ...point(item), ...(item.hidden ? { hidden: true } : {}) })) } : {}) };
+      ...(item.waypoints?.length ? { waypoints: item.waypoints.map(item => ({ ...point(item), ...(item.hidden ? { hidden: true } : {}) })) } : {}),
+      ...(parallelOrder.length >= 2 ? { parallelOrder } : {}) };
   });
   const lines = map.lines.map(item => {
     if (!Array.isArray(item.stationIds) || !item.stationIds.every(id => stationIds.has(id))) throw fail('线路的站点列表无效');
