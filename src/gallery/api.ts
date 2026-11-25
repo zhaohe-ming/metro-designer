@@ -4,7 +4,7 @@ export type Graph = {lines:Line[];stations:Station[];sections:Section[];mapSetti
 export type Crop = {zoom:number;x:number;y:number};
 export type Metadata = {title:string;description:string;city:string;category:'real'|'fictional'|'concept';allowFork:boolean;includeNotes:boolean;coverCrop:Crop};
 export type Work = Metadata & {id:string;author:{name:string;avatar?:string;official?:boolean};counts:{lines:number;stations:number;sections:number};
-  featured:boolean;example:boolean;baseMap:'plain'|'amap';revision:string;publishedAt:string;updatedAt:string;
+  featured:boolean;example:boolean;baseMap:'plain'|'light-city'|'amap';revision:string;publishedAt:string;updatedAt:string;
   visibility:'public'|'withdrawn'|'hidden';hasPublished?:boolean;sourceMapId?:string;reviewStatus?:'pending'|'approved'|'returned';reviewNote?:string;version?:number;
   likes:number;saves:number;liked:boolean;saved:boolean;snapshot?:Graph;origin?:{id:string;title:string;author:string;revision:string}};
 export type GalleryUser = Pick<UserDto,'id'|'username'|'avatar'>;

@@ -19,8 +19,91 @@ const DEFAULT_MAP_SETTINGS = {
     }
   },
   labelDensity: 'paper',
-  cornerRadius: 0
+  cornerRadius: 0,
+  hideWaypoints: false
 };
+
+const roundCoord = (n) => Math.round(n * 10) / 10;
+
+function normalizeLightCityPoint(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = typeof raw.x === 'number' && Number.isFinite(raw.x) ? roundCoord(raw.x) : null;
+  const y = typeof raw.y === 'number' && Number.isFinite(raw.y) ? roundCoord(raw.y) : null;
+  if (x === null || y === null) return null;
+  return { x, y };
+}
+
+function normalizeLightCitySettings(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const archetypes = ['river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
+  const archetype = archetypes.includes(raw.archetype) ? raw.archetype : 'river';
+  const seed = Math.max(1, Math.min(999999999, Math.round(Number(raw.seed) || 1024)));
+  const opacity = Math.round(normalizeNumber(raw.opacity, 1, 0.25, 1) * 100) / 100;
+  const lv = raw.layerVisibility && typeof raw.layerVisibility === 'object' ? raw.layerVisibility : {};
+  const layerVisibility = {
+    zones: lv.zones !== false,
+    water: lv.water !== false,
+    roads: lv.roads !== false,
+    labels: lv.labels !== false
+  };
+
+  const usedIds = new Set();
+  const rawFeatures = Array.isArray(raw.features) ? raw.features.slice(0, 600) : [];
+  const features = [];
+
+  rawFeatures.forEach((item, idx) => {
+    if (!item || typeof item !== 'object') return;
+    let id = typeof item.id === 'string' && item.id.trim() ? item.id.trim().slice(0, 64) : `lc_${idx + 1}`;
+    while (usedIds.has(id)) id += '_c';
+    usedIds.add(id);
+
+    if (item.type === 'label') {
+      const x = typeof item.x === 'number' && Number.isFinite(item.x) ? roundCoord(item.x) : null;
+      const y = typeof item.y === 'number' && Number.isFinite(item.y) ? roundCoord(item.y) : null;
+      const text = typeof item.text === 'string' ? item.text.trim().slice(0, 32) : '';
+      if (x === null || y === null || !text) return;
+      const kind = item.kind === 'subdistrict' || item.kind === 'water' ? item.kind : 'district';
+      features.push({ id, type: 'label', kind, x, y, text });
+      return;
+    }
+
+    const pts = (Array.isArray(item.points) ? item.points.slice(0, 400) : [])
+      .map(normalizeLightCityPoint)
+      .filter(Boolean);
+
+    if (item.type === 'zone') {
+      if (pts.length < 3) return;
+      const kind = item.kind === 'park' || item.kind === 'island' ? item.kind : 'urban';
+      features.push({ id, type: 'zone', kind, points: pts });
+    } else if (item.type === 'waterArea') {
+      if (pts.length < 3) return;
+      features.push({ id, type: 'waterArea', points: pts });
+    } else if (item.type === 'river') {
+      if (pts.length < 2) return;
+      const width = Math.round(normalizeNumber(item.width, 56, 10, 220));
+      features.push({ id, type: 'river', width, points: pts });
+    } else if (item.type === 'road') {
+      if (pts.length < 2) return;
+      const kind = item.kind === 'express' ? 'express' : 'arterial';
+      features.push({
+        id,
+        type: 'road',
+        kind,
+        ...(item.closed === true && pts.length >= 3 ? { closed: true } : {}),
+        points: pts
+      });
+    }
+  });
+
+  return {
+    theme: 'paper-grey',
+    archetype,
+    seed,
+    opacity,
+    layerVisibility,
+    features
+  };
+}
 
 
 function normalizeNumber(value, fallback, min, max) {
@@ -94,7 +177,7 @@ function normalizeMapSettings(settings) {
           : DEFAULT_MAP_SETTINGS.dotLabelStyle.color
     },
     baseMap: {
-      mode: baseMap.mode === 'amap' ? 'amap' : 'plain',
+      mode: baseMap.mode === 'amap' ? 'amap' : baseMap.mode === 'light-city' ? 'light-city' : 'plain',
       amap: {
         center:
           Array.isArray(amap.center) &&
@@ -109,10 +192,12 @@ function normalizeMapSettings(settings) {
           : baseMap.mode !== 'amap'
             ? { coordSystem: 'wgs84' }
             : {})
-      }
+      },
+      ...(baseMap.lightCity ? { lightCity: normalizeLightCitySettings(baseMap.lightCity) } : {})
     },
     labelDensity: settings && ['adaptive', 'key'].includes(settings.labelDensity) ? settings.labelDensity : 'paper',
     cornerRadius: normalizeNumber(settings && settings.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40),
+    hideWaypoints: Boolean(settings && settings.hideWaypoints === true),
     ...(settings && settings.videoExport ? { videoExport: normalizeVideoExportConfig(settings.videoExport) } : {})
   };
 }

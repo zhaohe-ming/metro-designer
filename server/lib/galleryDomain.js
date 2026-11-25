@@ -86,7 +86,21 @@ function artwork(work, baseImage) {
     }
     return `<circle cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${transfer?6:3.2}" fill="${dark?'#0b2035':'#ffffff'}" stroke="${transfer?(dark?'#ffffff':'#18344b'):color(colors[0])}" stroke-width="${transfer?1.7:1.5}"/>`;
   }).join('');
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(work.title)}"><rect width="100%" height="100%" fill="${dark?'#0b2035':'#f8fbfd'}"/>${baseImage?`<image href="${baseImage}" width="768" height="480"/>`:''}<g font-family="Microsoft YaHei,PingFang SC,sans-serif">${routes}${dots}${labels.join('')}</g>${baseImage?'<text x="754" y="470" font-size="10" fill="#18344b" text-anchor="end">© 高德地图</text>':''}</svg>`;
+  const lc = !geo && graph.mapSettings.baseMap.mode === 'light-city' ? graph.mapSettings.baseMap.lightCity : null;
+  const lcSvg = lc && Array.isArray(lc.features) ? lc.features.map(f => {
+    if (f.type === 'zone' && lc.layerVisibility?.zones !== false) {
+      const fill = f.kind === 'park' ? (dark ? '#132620' : '#dfece3') : f.kind === 'island' ? (dark ? '#0f172a' : '#f6f7f9') : (dark ? '#141e30' : '#eceff4');
+      return `<polygon points="${f.points.map(pos).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}" fill="${fill}"/>`;
+    }
+    if (f.type === 'waterArea' && lc.layerVisibility?.water !== false) {
+      return `<polygon points="${f.points.map(pos).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}" fill="${dark ? '#0f2942' : '#cbe2f4'}"/>`;
+    }
+    if (f.type === 'river' && lc.layerVisibility?.water !== false) {
+      return `<polyline points="${f.points.map(pos).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}" fill="none" stroke="${dark ? '#0f2942' : '#cbe2f4'}" stroke-width="${Math.max(2, f.width * scale).toFixed(1)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+    return '';
+  }).join('') : '';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(work.title)}"><rect width="100%" height="100%" fill="${lc?(dark?'#0f172a':'#f6f7f9'):(dark?'#0b2035':'#f8fbfd')}"/>${baseImage?`<image href="${baseImage}" width="768" height="480"/>`:''}${lcSvg?`<g opacity="${lc.opacity??1}">${lcSvg}</g>`:''}<g font-family="Microsoft YaHei,PingFang SC,sans-serif">${routes}${dots}${labels.join('')}</g>${baseImage?'<text x="754" y="470" font-size="10" fill="#18344b" text-anchor="end">© OpenStreetMap</text>':''}</svg>`;
   return { svg, staticMap: geo ? { center: geoCenter, zoom, width, height } : null };
 }
 function summary(work, owner = false) {

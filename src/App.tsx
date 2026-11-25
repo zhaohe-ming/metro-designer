@@ -52,7 +52,20 @@ import {
 } from './lib/aiCustomConfig';
 import { migrateLegacyGcj02MapToWgs84 } from './lib/coordTransform';
 import { migrateDraftAISessions } from './lib/aiSessionStore';
-import { AmapStyle, BaseMapMode, DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from './types';
+import {
+  AmapStyle,
+  BaseMapMode,
+  DEFAULT_MAP_SETTINGS,
+  LightCityArchetype,
+  Line,
+  MapSettings,
+  Section,
+  Station,
+  normalizeMapSettings,
+  normalizeSections
+} from './types';
+import { generateLightCity } from './lib/lightCity';
+import { LightCityPickerModal } from './components/LightCityPanel';
 import BaseMapPicker from './components/BaseMapPicker';
 import AboutPanel from './components/AboutPanel';
 import { exportVideoFromStage } from './lib/exportVideo';
@@ -131,6 +144,17 @@ const cloneDoc = (doc: DocSnapshot): DocSnapshot => ({
             ...doc.mapSettings.baseMap.amap,
             center: [doc.mapSettings.baseMap.amap.center[0], doc.mapSettings.baseMap.amap.center[1]]
           }
+        : undefined,
+      lightCity: doc.mapSettings.baseMap.lightCity
+        ? {
+            ...doc.mapSettings.baseMap.lightCity,
+            layerVisibility: { ...doc.mapSettings.baseMap.lightCity.layerVisibility },
+            features: doc.mapSettings.baseMap.lightCity.features.map(f =>
+              f.type === 'label'
+                ? { ...f }
+                : { ...f, points: f.points.map(p => ({ ...p })) }
+            )
+          }
         : undefined
     }
   }
@@ -185,6 +209,7 @@ const i18n = {
     darkCanvas: '深色画布',
     baseMap: '底图模式',
     plainCanvas: '纯画布',
+    lightCityBaseMap: '轻城市',
     amapBaseMap: '地理底图',
     amapStyle: '底图风格',
     amapNormal: '标准',
@@ -206,6 +231,9 @@ const i18n = {
     lineCornerSharp: '直角',
     lineCornerRound: '圆角',
     lineCornerRadius: '圆角半径',
+    waypointVisibility: '默认隐藏途经点',
+    waypointShow: '显示控制柄',
+    waypointHide: '默认隐藏',
     dotLabelText: '专业线网站名',
     dotLabelFontSize: '字体大小',
     dotLabelFontWeight: '字体粗细',
@@ -259,6 +287,7 @@ const i18n = {
     darkCanvas: 'Dark canvas',
     baseMap: 'Base map',
     plainCanvas: 'Plain canvas',
+    lightCityBaseMap: 'Light city',
     amapBaseMap: 'City basemap',
     amapStyle: 'Basemap style',
     amapNormal: 'Normal',
@@ -280,6 +309,9 @@ const i18n = {
     lineCornerSharp: 'Sharp',
     lineCornerRound: 'Rounded',
     lineCornerRadius: 'Corner radius',
+    waypointVisibility: 'Hide waypoints by default',
+    waypointShow: 'Show handles',
+    waypointHide: 'Hide by default',
     dotLabelText: 'Transit label text',
     dotLabelFontSize: 'Font size',
     dotLabelFontWeight: 'Font weight',
@@ -326,6 +358,22 @@ const getInitialInterfaceTheme = (): InterfaceTheme => {
 
 const getSystemTheme = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+
+const HIDE_WAYPOINTS_KEY = 'metro_hide_waypoints';
+const readHideWaypoints = (): boolean => {
+  try {
+    return localStorage.getItem(HIDE_WAYPOINTS_KEY) === '1';
+  } catch {
+    return false;
+  }
+};
+const writeHideWaypoints = (hide: boolean) => {
+  try {
+    localStorage.setItem(HIDE_WAYPOINTS_KEY, hide ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+};
 
 const App: React.FC = () => {
   const [publicPath, setPublicPath] = useState(() => window.location.pathname + window.location.search);
@@ -478,12 +526,15 @@ const App: React.FC = () => {
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [aboutVisible, setAboutVisible] = useState(false);
   const [baseMapPickerStyle, setBaseMapPickerStyle] = useState<AmapStyle | null>(null);
+  const [lightCityPickerOpen, setLightCityPickerOpen] = useState(false);
+  const [openTerrainSculptSeq, setOpenTerrainSculptSeq] = useState(0);
   const [language, setLanguage] = useState<AppLanguage>(getInitialLanguage);
   const [interfaceTheme, setInterfaceTheme] = useState<InterfaceTheme>(getInitialInterfaceTheme);
   const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(getSystemTheme);
   const [mapSettings, setMapSettings] = useState<MapSettings>(() => ({
     ...DEFAULT_MAP_SETTINGS,
-    labelDensity: readLabelDensity()
+    labelDensity: readLabelDensity(),
+    hideWaypoints: readHideWaypoints()
   }));
   const [past, setPast] = useState<DocSnapshot[]>([]);
   const [future, setFuture] = useState<DocSnapshot[]>([]);
@@ -1327,10 +1378,12 @@ const App: React.FC = () => {
       // 用户当前的 labelDensity 选择会带到新方案里，不被默认值覆盖
       // (跨 session 也用 localStorage 兜底，所以 readLabelDensity 也能 fallback)
       const stickyLabelDensity = mapSettingsRef.current.labelDensity || readLabelDensity();
+      const stickyHideWaypoints = Boolean(mapSettingsRef.current.hideWaypoints ?? readHideWaypoints());
       if (guestDraftIdRef.current) {
         guestReadFailedRef.current = false;
         const draft = createGuestDraft(true);
         draft.mapSettings.labelDensity = stickyLabelDensity;
+        draft.mapSettings.hideWaypoints = stickyHideWaypoints;
         applyGuestDraft(draft);
         return;
       }
@@ -1340,7 +1393,11 @@ const App: React.FC = () => {
       setCurrentLineId(null);
       setCurrentMap(null);
       setMapName('');
-      setMapSettings({ ...DEFAULT_MAP_SETTINGS, labelDensity: stickyLabelDensity });
+      setMapSettings({
+        ...DEFAULT_MAP_SETTINGS,
+        labelDensity: stickyLabelDensity,
+        hideWaypoints: stickyHideWaypoints
+      });
       try { localStorage.removeItem(LAST_MAP_KEY); } catch { /* ignore */ }
       resetHistory();
       setVideoModalOpen(false);
@@ -1368,7 +1425,7 @@ const App: React.FC = () => {
 
     if (nextMode === 'amap') {
       if (!isOnline) {
-        message.info('在线地理底图需要联网加载瓦片，离线状态下可使用纯画布自由绘制');
+        message.info('在线地理底图需要联网加载瓦片，离线状态下可使用纯画布或轻城市底图自由绘制');
         return;
       }
       let style = mapSettings.baseMap.amap?.style || 'normal';
@@ -1380,28 +1437,56 @@ const App: React.FC = () => {
       return;
     }
 
-    const applyModeChange = () => {
-      pushHistory();
-      setCurrentLineId(null);
-      setMapSettings((prev) => normalizeMapSettings({
-        ...prev,
-        baseMap: { ...prev.baseMap, mode: nextMode }
-      }));
-    };
-    if (lines.length === 0 && stations.length === 0 && sections.length === 0) {
-      applyModeChange();
+    if (nextMode === 'light-city') {
+      const switchIntoLightCity = () => {
+        if (mapSettings.baseMap.lightCity && mapSettings.baseMap.lightCity.features.length > 0) {
+          pushHistory();
+          setMapSettings((prev) =>
+            normalizeMapSettings({
+              ...prev,
+              baseMap: { ...prev.baseMap, mode: 'light-city' }
+            })
+          );
+          return;
+        }
+        setLightCityPickerOpen(true);
+      };
+
+      if (mapSettings.baseMap.mode === 'amap' && (lines.length > 0 || stations.length > 0 || sections.length > 0)) {
+        Modal.confirm({
+          title: '切换到轻城市模式？',
+          content: '将把当前地理底图视图中的站点位置固化为画布坐标，并叠加纸感轻城市地貌。',
+          okText: '确认切换',
+          cancelText: '取消',
+          onOk: switchIntoLightCity
+        });
+        return;
+      }
+      switchIntoLightCity();
       return;
     }
 
-    const switchingToPlain = mapSettings.baseMap.mode === 'amap' && nextMode === 'plain';
+    // nextMode === 'plain'
+    const applyPlainMode = () => {
+      pushHistory();
+      setMapSettings((prev) => normalizeMapSettings({
+        ...prev,
+        baseMap: { ...prev.baseMap, mode: 'plain' }
+      }));
+    };
+
+    // 从「轻城市」切回「纯画布」100% 共享世界像素坐标，零偏移直切，无需打断用户的二次确认弹窗
+    if (mapSettings.baseMap.mode === 'light-city' || (lines.length === 0 && stations.length === 0 && sections.length === 0)) {
+      applyPlainMode();
+      return;
+    }
+
     Modal.confirm({
-      title: switchingToPlain ? '切换到纯画布？' : '切换到地理底图？',
-      content: switchingToPlain
-        ? '将把当前地理底图视图中的站点位置固化为普通画布坐标。切换后不会继续跟随真实地图缩放，但当前视觉位置会保持一致。'
-        : '地理底图使用真实 WGS-84 经纬度定位。已有经纬度的站点会贴合底图；没有经纬度的旧站点拖动一次即可绑定真实位置。',
+      title: '切换到纯画布？',
+      content: '将把当前地理底图视图中的站点位置固化为普通画布坐标。切换后不会继续跟随真实地图缩放，但当前视觉位置会保持一致。',
       okText: '确认切换',
       cancelText: '取消',
-      onOk: applyModeChange
+      onOk: applyPlainMode
     });
   };
 
@@ -3307,10 +3392,15 @@ const App: React.FC = () => {
                   setIsMobileSidebarOpen(false);
                   setCreateLineRequest((request) => request + 1);
                 }}
+                onStartWithLightCity={() => {
+                  setIsMobileSidebarOpen(false);
+                  setLightCityPickerOpen(true);
+                }}
                 onStartWithAmap={() => {
                   setIsMobileSidebarOpen(false);
                   handleBaseMapModeChange('amap');
                 }}
+                externalOpenTerrainSculptSeq={openTerrainSculptSeq}
                 currentLineId={currentLineId}
                 lines={lines}
                 sections={sections}
@@ -3596,6 +3686,38 @@ const App: React.FC = () => {
             setSettingsVisible(false);
           }} />}
 
+        <LightCityPickerModal
+          open={lightCityPickerOpen}
+          initialArchetype={mapSettings.baseMap.lightCity?.archetype || 'river'}
+          initialSeed={mapSettings.baseMap.lightCity?.seed}
+          isDark={mapSettings.canvasTheme === 'dark'}
+          language={language}
+          onCancel={() => setLightCityPickerOpen(false)}
+          onConfirm={(archetype: LightCityArchetype, seed: number, openSculptImmediately: boolean) => {
+            pushHistory();
+            const generated = generateLightCity({ archetype, seed, stations, language });
+            setMapSettings((prev) =>
+              normalizeMapSettings({
+                ...prev,
+                baseMap: {
+                  ...prev.baseMap,
+                  mode: 'light-city',
+                  lightCity: {
+                    ...generated,
+                    opacity: prev.baseMap.lightCity?.opacity ?? 1,
+                    layerVisibility: prev.baseMap.lightCity?.layerVisibility || generated.layerVisibility
+                  }
+                }
+              })
+            );
+            setLightCityPickerOpen(false);
+            setSettingsVisible(false);
+            if (openSculptImmediately) {
+              setOpenTerrainSculptSeq((s) => s + 1);
+            }
+          }}
+        />
+
         {aboutVisible && <AboutPanel language={language} onClose={() => setAboutVisible(false)}
           onOpenProfile={() => { setAboutVisible(false); setProfileVisible(true); }} />}
 
@@ -3773,6 +3895,26 @@ const App: React.FC = () => {
                         </div>
                       )}
                     </section>
+
+                    <section className="metro-settings-section">
+                      <div className="metro-settings-label">{text.waypointVisibility}</div>
+                      <ElasticCapsuleTabs<'show' | 'hide'>
+                        ariaLabel={text.waypointVisibility}
+                        value={mapSettings.hideWaypoints ? 'hide' : 'show'}
+                        onChange={(next) => {
+                          const hide = next === 'hide';
+                          pushHistory();
+                          writeHideWaypoints(hide);
+                          setMapSettings((prev) =>
+                            normalizeMapSettings({ ...prev, hideWaypoints: hide })
+                          );
+                        }}
+                        options={[
+                          { value: 'show', label: text.waypointShow },
+                          { value: 'hide', label: text.waypointHide }
+                        ]}
+                      />
+                    </section>
                   </div>
                 )
               },
@@ -3789,10 +3931,154 @@ const App: React.FC = () => {
                         onChange={(next) => handleBaseMapModeChange(next)}
                         options={[
                           { value: 'plain', label: text.plainCanvas },
+                          { value: 'light-city', label: text.lightCityBaseMap },
                           { value: 'amap', label: text.amapBaseMap }
                         ]}
                       />
                     </section>
+
+                    {mapSettings.baseMap.mode === 'light-city' && (
+                      <section className="metro-settings-section">
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 10
+                          }}
+                        >
+                          <div className="metro-settings-label" style={{ marginBottom: 0 }}>
+                            {language === 'en-US' ? 'Light City Layers & Terrain' : '轻城市地貌与图层'}
+                          </div>
+                          <Space size={6}>
+                            <Button
+                              size="small"
+                              onClick={() => {
+                                const cur = mapSettings.baseMap.lightCity;
+                                const arch = cur?.archetype && cur.archetype !== 'custom' ? cur.archetype : 'river';
+                                const fresh = generateLightCity({
+                                  archetype: arch,
+                                  seed: Math.floor(100000 + Math.random() * 899999),
+                                  stations,
+                                  language
+                                });
+                                pushHistory();
+                                setMapSettings((prev) =>
+                                  normalizeMapSettings({
+                                    ...prev,
+                                    baseMap: {
+                                      ...prev.baseMap,
+                                      mode: 'light-city',
+                                      lightCity: {
+                                        ...fresh,
+                                        opacity: prev.baseMap.lightCity?.opacity ?? 1,
+                                        layerVisibility:
+                                          prev.baseMap.lightCity?.layerVisibility || fresh.layerVisibility
+                                      }
+                                    }
+                                  })
+                                );
+                              }}
+                            >
+                              {language === 'en-US' ? 'Shuffle' : '换一座城'}
+                            </Button>
+                            <Button size="small" type="primary" ghost onClick={() => setLightCityPickerOpen(true)}>
+                              {language === 'en-US' ? 'Templates…' : '选择地貌模板…'}
+                            </Button>
+                          </Space>
+                        </div>
+
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                          {(
+                            [
+                              { key: 'zones', zh: '城区与绿地', en: 'Zones & Parks' },
+                              { key: 'water', zh: '水系与洲岛', en: 'Rivers & Bays' },
+                              { key: 'roads', zh: '骨干街道', en: 'Arterial Roads' },
+                              { key: 'labels', zh: '片区水印名', en: 'District Labels' }
+                            ] as const
+                          ).map((item) => {
+                            const lc =
+                              mapSettings.baseMap.lightCity ||
+                              generateLightCity({ archetype: 'river', stations, language });
+                            const active = lc.layerVisibility[item.key];
+                            return (
+                              <button
+                                key={item.key}
+                                type="button"
+                                onClick={() => {
+                                  pushHistory();
+                                  setMapSettings((prev) => {
+                                    const baseLc =
+                                      prev.baseMap.lightCity ||
+                                      generateLightCity({ archetype: 'river', stations, language });
+                                    return normalizeMapSettings({
+                                      ...prev,
+                                      baseMap: {
+                                        ...prev.baseMap,
+                                        mode: 'light-city',
+                                        lightCity: {
+                                          ...baseLc,
+                                          layerVisibility: {
+                                            ...baseLc.layerVisibility,
+                                            [item.key]: !baseLc.layerVisibility[item.key]
+                                          }
+                                        }
+                                      }
+                                    });
+                                  });
+                                }}
+                                style={{
+                                  padding: '4px 12px',
+                                  borderRadius: 999,
+                                  fontSize: 12.5,
+                                  fontWeight: 600,
+                                  cursor: 'pointer',
+                                  border: active ? '1px solid #2563eb' : '1px solid var(--color-border, #cbd5e1)',
+                                  background: active ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
+                                  color: active ? '#2563eb' : 'var(--color-text-muted, #64748b)'
+                                }}
+                              >
+                                {active ? '✓ ' : ''}
+                                {language === 'en-US' ? item.en : item.zh}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="metro-settings-control">
+                          <div className="metro-settings-control__row">
+                            <span>{language === 'en-US' ? 'Basemap Opacity' : '底图克制浓度'}</span>
+                            <strong>{Math.round((mapSettings.baseMap.lightCity?.opacity ?? 1) * 100)}%</strong>
+                          </div>
+                          <Slider
+                            min={30}
+                            max={100}
+                            step={5}
+                            value={Math.round((mapSettings.baseMap.lightCity?.opacity ?? 1) * 100)}
+                            onChange={(val) => {
+                              beginSettingsInteraction();
+                              setMapSettings((prev) => {
+                                const baseLc =
+                                  prev.baseMap.lightCity ||
+                                  generateLightCity({ archetype: 'river', stations, language });
+                                return normalizeMapSettings({
+                                  ...prev,
+                                  baseMap: {
+                                    ...prev.baseMap,
+                                    mode: 'light-city',
+                                    lightCity: {
+                                      ...baseLc,
+                                      opacity: val / 100
+                                    }
+                                  }
+                                });
+                              });
+                            }}
+                            onChangeComplete={endSettingsInteraction}
+                          />
+                        </div>
+                      </section>
+                    )}
 
                     {mapSettings.baseMap.mode === 'amap' && (
                       <section className="metro-settings-section">

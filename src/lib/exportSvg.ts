@@ -5,12 +5,9 @@
 import { Line, MapSettings, Section, Station } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { buildCurvedArrowPath, planInterchange } from './interchange';
-import {
-  buildSectionRenderGeometry,
-  canonicalSectionPairKey,
-  computeDirectedParallelOffset
-} from './offsetPath';
+import { buildSectionRenderGeometry, canonicalSectionPairKey, computeDirectedParallelOffset } from './offsetPath';
 import { deriveLineTopology } from './graphOps';
+import { buildLightCitySvgLayer, getLightCityPalette } from './lightCity';
 
 function escapeXml(raw: string): string {
   return String(raw)
@@ -74,7 +71,14 @@ export function buildMetroSvg(params: {
 }): string {
   const { lines, stations, sections, mapSettings } = params;
   const isDark = mapSettings.canvasTheme === 'dark';
-  const bg = params.backgroundColor || (isDark ? '#0b1220' : '#f8fafc');
+  const isLightCity = mapSettings.baseMap.mode === 'light-city';
+  const bg =
+    params.backgroundColor ||
+    (isLightCity
+      ? getLightCityPalette(isDark).canvasBg
+      : isDark
+        ? '#0b1220'
+        : '#f8fafc');
   const stylePreset = getCityStylePreset(mapSettings);
   const stationStrokeBg = isDark ? '#0f172a' : '#ffffff';
   const labelHalo = isDark ? '#0b1220' : '#ffffff';
@@ -111,6 +115,24 @@ export function buildMetroSvg(params: {
       maxY = Math.max(maxY, wp.y);
     });
   });
+
+  if (!Number.isFinite(minX) && isLightCity && mapSettings.baseMap.lightCity?.features.length) {
+    mapSettings.baseMap.lightCity.features.forEach((f) => {
+      if (f.type === 'label') {
+        minX = Math.min(minX, f.x);
+        minY = Math.min(minY, f.y);
+        maxX = Math.max(maxX, f.x);
+        maxY = Math.max(maxY, f.y);
+      } else {
+        f.points.forEach((p) => {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        });
+      }
+    });
+  }
 
   if (!Number.isFinite(minX)) {
     minX = 0;
@@ -330,10 +352,13 @@ export function buildMetroSvg(params: {
     });
   }
 
+  const lightCitySvg = isLightCity ? buildLightCitySvgLayer(mapSettings.baseMap.lightCity, isDark) : '';
+
   return [
     `<?xml version="1.0" encoding="UTF-8"?>`,
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewX} ${viewY} ${viewW} ${viewH}" width="${viewW}" height="${viewH}">`,
     `  <rect x="${viewX}" y="${viewY}" width="${viewW}" height="${viewH}" fill="${escapeXml(bg)}" />`,
+    ...(lightCitySvg ? [`  ${lightCitySvg}`] : []),
     ...lineSvgElements,
     ...pillSvgElements,
     ...stationSvgElements,

@@ -18,6 +18,7 @@ import {
 } from '../types';
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, degToRad, fillCurvedArrowCanvas2d } from './interchange';
+import { drawLightCityToCanvas2D, getLightCityPalette } from './lightCity';
 import {
   activeVideoStationLines,
   buildVideoRouteGeometry,
@@ -529,6 +530,22 @@ export function createVideoSceneRenderer(opts: VideoSceneOptions): VideoSceneRen
 
     const drawBackdrop = () => {
       ctx.clearRect(0, 0, width, height);
+      const isLightCityVideo = settings.baseMap.mode === 'light-city' && Boolean(settings.baseMap.lightCity);
+      if (isLightCityVideo) {
+        const lcPal = getLightCityPalette(usesDarkVideoSurface);
+        ctx.fillStyle = lcPal.canvasBg;
+        ctx.fillRect(0, 0, width, height);
+        drawLightCityToCanvas2D({
+          ctx,
+          lightCity: settings.baseMap.lightCity,
+          isDark: usesDarkVideoSurface,
+          worldToCanvas,
+          worldScale: camera.scale,
+          fontStack: FONT_STACK
+        });
+        return;
+      }
+
       const gradient = ctx.createLinearGradient(0, 0, width, height);
       if (usesDarkVideoSurface) {
         gradient.addColorStop(0, '#07111f');

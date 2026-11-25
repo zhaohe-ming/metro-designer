@@ -15,6 +15,7 @@ import {
   BgColorsOutlined,
   CheckOutlined,
   CloseOutlined,
+  CompassOutlined,
   DeleteOutlined,
   DisconnectOutlined,
   DownOutlined,
@@ -33,14 +34,29 @@ import {
 } from '@ant-design/icons';
 import { api } from '../api';
 import {
+  LightCityFeature,
+  LightCityLabelKind,
+  LightCityPoint,
+  LightCityRoadKind,
+  LightCitySettings,
+  LightCityZoneKind,
   MapSettings,
   Station,
   StationLabelPosition,
   Line as LineType,
   Section,
   Waypoint,
-  LINE_COLORS
+  LINE_COLORS,
+  normalizeMapSettings
 } from '../types';
+import {
+  generateLightCity,
+  getLightCityPalette,
+  sampleRoundedRoadPolyline,
+  sampleSmoothClosedPolygon,
+  sampleSmoothOpenSpline
+} from '../lib/lightCity';
+import { LightCitySculptBar, TerrainTool } from './LightCityPanel';
 import { getCityStylePreset } from '../stylePresets';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
 import {
@@ -224,7 +240,9 @@ interface CanvasProps {
   onStageReady?: (stage: any) => void;
   onBeginInteraction?: () => void;
   onCreateLine?: () => void;
+  onStartWithLightCity?: () => void;
   onStartWithAmap?: () => void;
+  externalOpenTerrainSculptSeq?: number;
   viewCommand?: { seq: number; action: AppAction } | null;
   mobileViewControlsHost?: HTMLDivElement | null;
   isGuest?: boolean;
@@ -259,7 +277,9 @@ const Canvas: React.FC<CanvasProps> = ({
   onStageReady,
   onBeginInteraction,
   onCreateLine,
+  onStartWithLightCity,
   onStartWithAmap,
+  externalOpenTerrainSculptSeq,
   viewCommand,
   mobileViewControlsHost,
   initialViewport,
@@ -461,6 +481,176 @@ const Canvas: React.FC<CanvasProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
   const isAmapMode = mapSettings.baseMap.mode === 'amap';
+  const isLightCityMode = mapSettings.baseMap.mode === 'light-city';
+  const lightCity = mapSettings.baseMap.lightCity;
+
+  // 轻城市「底图造景」独立状态（平时关闭，地形元素 100% 锁定防误触）
+  const [terrainEditMode, setTerrainEditMode] = useState(false);
+  const [terrainTool, setTerrainTool] = useState<TerrainTool>('select');
+  const [terrainRiverWidth, setTerrainRiverWidth] = useState(68);
+  const [terrainWaterSubKind, setTerrainWaterSubKind] = useState<'water' | 'island'>('water');
+  const [terrainZoneSubKind, setTerrainZoneSubKind] = useState<'urban' | 'park'>('park');
+  const [terrainRoadSubKind, setTerrainRoadSubKind] = useState<LightCityRoadKind>('express');
+  const [terrainLabelSubKind, setTerrainLabelSubKind] = useState<LightCityLabelKind>('district');
+  const [terrainDraftPoints, setTerrainDraftPoints] = useState<LightCityPoint[]>([]);
+  const [terrainHoverWorld, setTerrainHoverWorld] = useState<LightCityPoint | null>(null);
+  const [selectedTerrainFeatureId, setSelectedTerrainFeatureId] = useState<string | null>(null);
+  const [terrainLabelDraft, setTerrainLabelDraft] = useState<{
+    x: number;
+    y: number;
+    value: string;
+    editingFeatureId?: string;
+  } | null>(null);
+  const terrainLabelInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!isLightCityMode && terrainEditMode) {
+      setTerrainEditMode(false);
+      setTerrainDraftPoints([]);
+      setSelectedTerrainFeatureId(null);
+      setTerrainLabelDraft(null);
+    }
+  }, [isLightCityMode, terrainEditMode]);
+
+  useEffect(() => {
+    if (externalOpenTerrainSculptSeq && isLightCityMode && !readOnly) {
+      setTerrainEditMode(true);
+      setTerrainTool('river');
+      setTerrainDraftPoints([]);
+      setSelectedTerrainFeatureId(null);
+    }
+  }, [externalOpenTerrainSculptSeq, isLightCityMode, readOnly]);
+
+  useEffect(() => {
+    if (terrainLabelDraft) {
+      requestAnimationFrame(() => {
+        terrainLabelInputRef.current?.focus();
+        terrainLabelInputRef.current?.select();
+      });
+    }
+  }, [terrainLabelDraft]);
+
+  const commitLightCityUpdate = useCallback(
+    (updater: (current: LightCitySettings) => LightCitySettings, recordHistory = true) => {
+      if (!onMapSettingsChange) return;
+      if (recordHistory) onBeginInteraction?.();
+      const baseCurrent: LightCitySettings =
+        latestMapSettingsRef.current.baseMap.lightCity ||
+        generateLightCity({ archetype: 'river', stations, language });
+      const nextLc = updater(baseCurrent);
+      onMapSettingsChange(
+        normalizeMapSettings({
+          ...latestMapSettingsRef.current,
+          baseMap: {
+            ...latestMapSettingsRef.current.baseMap,
+            mode: 'light-city',
+            lightCity: nextLc
+          }
+        })
+      );
+    },
+    [language, onBeginInteraction, onMapSettingsChange, stations]
+  );
+
+  const selectedTerrainFeature = useMemo(
+    () => lightCity?.features.find((f) => f.id === selectedTerrainFeatureId) || null,
+    [lightCity, selectedTerrainFeatureId]
+  );
+
+  const finishTerrainDraft = useCallback(
+    (closeLoop = false) => {
+      if (!terrainDraftPoints.length) return;
+      const pts = terrainDraftPoints.map((p) => ({
+        x: Math.round(p.x * 10) / 10,
+        y: Math.round(p.y * 10) / 10
+      }));
+      const newId = `lc_${Date.now().toString(36)}_${Math.floor(Math.random() * 999)}`;
+      let newFeature: LightCityFeature | null = null;
+      if (terrainTool === 'river' && pts.length >= 2) {
+        newFeature = { id: newId, type: 'river', width: terrainRiverWidth, points: pts };
+      } else if (terrainTool === 'waterArea' && pts.length >= 3) {
+        newFeature =
+          terrainWaterSubKind === 'island'
+            ? { id: newId, type: 'zone', kind: 'island', points: pts }
+            : { id: newId, type: 'waterArea', points: pts };
+      } else if (terrainTool === 'zone' && pts.length >= 3) {
+        newFeature = { id: newId, type: 'zone', kind: terrainZoneSubKind, points: pts };
+      } else if (terrainTool === 'road' && pts.length >= 2) {
+        newFeature = {
+          id: newId,
+          type: 'road',
+          kind: terrainRoadSubKind,
+          ...(closeLoop && pts.length >= 3 ? { closed: true } : {}),
+          points: pts
+        };
+      }
+      setTerrainDraftPoints([]);
+      if (newFeature) {
+        commitLightCityUpdate((cur) => ({
+          ...cur,
+          features: [...cur.features, newFeature!]
+        }));
+        setSelectedTerrainFeatureId(newFeature.id);
+      }
+    },
+    [
+      commitLightCityUpdate,
+      terrainDraftPoints,
+      terrainRiverWidth,
+      terrainRoadSubKind,
+      terrainTool,
+      terrainWaterSubKind,
+      terrainZoneSubKind
+    ]
+  );
+
+  const commitTerrainLabelDraft = useCallback(() => {
+    if (!terrainLabelDraft) return;
+    const val = terrainLabelDraft.value.trim();
+    const editingId = terrainLabelDraft.editingFeatureId;
+    const { x, y } = terrainLabelDraft;
+    setTerrainLabelDraft(null);
+    if (!val) return;
+    if (editingId) {
+      commitLightCityUpdate((cur) => ({
+        ...cur,
+        features: cur.features.map((f) => (f.id === editingId && f.type === 'label' ? { ...f, text: val } : f))
+      }));
+      return;
+    }
+    const newId = `lbl_${Date.now().toString(36)}_${Math.floor(Math.random() * 999)}`;
+    commitLightCityUpdate((cur) => ({
+      ...cur,
+      features: [
+        ...cur.features,
+        { id: newId, type: 'label', kind: terrainLabelSubKind, x, y, text: val }
+      ]
+    }));
+    setSelectedTerrainFeatureId(newId);
+  }, [commitLightCityUpdate, terrainLabelDraft, terrainLabelSubKind]);
+
+  const deleteSelectedTerrainFeature = useCallback(() => {
+    if (!selectedTerrainFeatureId) return;
+    const targetId = selectedTerrainFeatureId;
+    setSelectedTerrainFeatureId(null);
+    commitLightCityUpdate((cur) => ({
+      ...cur,
+      features: cur.features.filter((f) => f.id !== targetId)
+    }));
+  }, [commitLightCityUpdate, selectedTerrainFeatureId]);
+
+  const handleRerollLightCity = useCallback(() => {
+    const currentArch = lightCity?.archetype && lightCity.archetype !== 'custom' ? lightCity.archetype : 'river';
+    const nextSeed = Math.floor(100000 + Math.random() * 899999);
+    const fresh = generateLightCity({ archetype: currentArch, seed: nextSeed, stations, language });
+    commitLightCityUpdate((cur) => ({
+      ...fresh,
+      opacity: cur.opacity,
+      layerVisibility: cur.layerVisibility
+    }));
+    setSelectedTerrainFeatureId(null);
+    setTerrainDraftPoints([]);
+  }, [commitLightCityUpdate, language, lightCity?.archetype, stations]);
 
   // O(1) 主键与拓扑缓存表
   const lineOrderMap = useMemo(() => {
@@ -808,6 +998,20 @@ const Canvas: React.FC<CanvasProps> = ({
           setSearchOpen(false);
           return;
         }
+        if (terrainLabelDraft) {
+          setTerrainLabelDraft(null);
+          return;
+        }
+        if (terrainEditMode) {
+          if (terrainDraftPoints.length > 0) {
+            setTerrainDraftPoints([]);
+          } else if (selectedTerrainFeatureId) {
+            setSelectedTerrainFeatureId(null);
+          } else {
+            setTerrainEditMode(false);
+          }
+          return;
+        }
         if (inlineRename) {
           setInlineRename(null);
           return;
@@ -836,6 +1040,25 @@ const Canvas: React.FC<CanvasProps> = ({
 
       if (isInputTarget(e.target)) return;
       if (document.querySelector('.ant-modal-wrap:not([style*="display: none"])')) return;
+
+      if (terrainEditMode) {
+        if (e.key === 'Enter' && terrainDraftPoints.length > 0) {
+          e.preventDefault();
+          finishTerrainDraft(false);
+          return;
+        }
+        if (e.key === 'Backspace' && terrainDraftPoints.length > 0) {
+          e.preventDefault();
+          setTerrainDraftPoints((prev) => prev.slice(0, -1));
+          return;
+        }
+        if ((e.key === 'Delete' || e.key === 'Backspace') && selectedTerrainFeatureId) {
+          e.preventDefault();
+          deleteSelectedTerrainFeature();
+          return;
+        }
+        return;
+      }
 
       if (e.key === 'Backspace' && activeTool === 'draw' && drawPendingWaypoints.length > 0) {
         e.preventDefault();
@@ -917,8 +1140,14 @@ const Canvas: React.FC<CanvasProps> = ({
     readOnly,
     searchOpen,
     selectedStationIds.size,
+    selectedTerrainFeatureId,
     selectedWaypoint,
-    setCanvasTool
+    setCanvasTool,
+    terrainDraftPoints.length,
+    terrainEditMode,
+    terrainLabelDraft,
+    deleteSelectedTerrainFeature,
+    finishTerrainDraft
   ]);
 
   useEffect(() => {
@@ -1773,7 +2002,13 @@ const Canvas: React.FC<CanvasProps> = ({
   // ==================== 0ms 原生容器级 PointerMove 预览（彻底消除 Konva 拾取延迟） ====================
 
   const handleContainerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (readOnly || activeTool !== 'draw' || isSpaceHeldRef.current || e.pointerType === 'touch') {
+    if (
+      readOnly ||
+      terrainEditMode ||
+      activeTool !== 'draw' ||
+      isSpaceHeldRef.current ||
+      e.pointerType === 'touch'
+    ) {
       hideCursorDot();
       return;
     }
@@ -2083,7 +2318,7 @@ const Canvas: React.FC<CanvasProps> = ({
       if (activeTool === 'pan') {
         setIsDragging(true);
         if (!isAmapMode) startCanvasInteraction();
-      } else if (activeTool === 'select' && !readOnly) {
+      } else if (!terrainEditMode && activeTool === 'select' && !readOnly) {
         const worldPos = getPointerWorldPosition(stage, pointer);
         setMarqueeWorldRect({
           x1: worldPos.x,
@@ -2128,7 +2363,12 @@ const Canvas: React.FC<CanvasProps> = ({
       }
     }
 
-    if (marqueeWorldRect && activeTool === 'select') {
+    if (terrainEditMode && terrainTool !== 'select' && terrainTool !== 'label') {
+      const worldPos = getPointerWorldPosition(stage, pointer);
+      setTerrainHoverWorld({ x: Math.round(worldPos.x * 10) / 10, y: Math.round(worldPos.y * 10) / 10 });
+    }
+
+    if (marqueeWorldRect && activeTool === 'select' && !terrainEditMode) {
       const worldPos = getPointerWorldPosition(stage, pointer);
       setMarqueeWorldRect((prev) => (prev ? { ...prev, x2: worldPos.x, y2: worldPos.y } : null));
     }
@@ -2140,6 +2380,45 @@ const Canvas: React.FC<CanvasProps> = ({
     if (!stage) return;
     const pointer = stage.getPointerPosition();
     if (!pointer) return;
+
+    if (terrainEditMode) {
+      if (terrainLabelDraft) {
+        commitTerrainLabelDraft();
+        return;
+      }
+      const rawWorld = getPointerWorldPosition(stage, pointer);
+      const pt = { x: Math.round(rawWorld.x * 10) / 10, y: Math.round(rawWorld.y * 10) / 10 };
+
+      if (terrainTool === 'select') {
+        setSelectedTerrainFeatureId(null);
+        return;
+      }
+
+      if (terrainTool === 'label') {
+        setTerrainLabelDraft({
+          x: pt.x,
+          y: pt.y,
+          value: terrainLabelSubKind === 'water' ? '清澜江' : terrainLabelSubKind === 'district' ? '中心城区' : '科创片区'
+        });
+        return;
+      }
+
+      // 若在闭合多边形/环路绘制中点回首个顶点附近，自动闭合完成
+      if (
+        (terrainTool === 'waterArea' || terrainTool === 'zone' || terrainTool === 'road') &&
+        terrainDraftPoints.length >= 3
+      ) {
+        const first = terrainDraftPoints[0];
+        const closeDistWorld = 18 / Math.max(0.25, scale);
+        if (Math.hypot(pt.x - first.x, pt.y - first.y) <= closeDistWorld) {
+          finishTerrainDraft(true);
+          return;
+        }
+      }
+
+      setTerrainDraftPoints((prev) => [...prev, pt]);
+      return;
+    }
 
     if (activeTool === 'select') {
       commitInlineRenameIfNeeded();
@@ -2555,6 +2834,12 @@ const Canvas: React.FC<CanvasProps> = ({
       return;
     }
     e.evt.preventDefault();
+    if (terrainEditMode) {
+      if (terrainDraftPoints.length > 0) {
+        finishTerrainDraft(false);
+      }
+      return;
+    }
     if (activeTool === 'draw' && (drawAnchorStationId || drawPendingWaypoints.length > 0)) {
       liftDrawingPen();
       return;
@@ -3377,9 +3662,16 @@ const Canvas: React.FC<CanvasProps> = ({
       ? isDragging
         ? 'grabbing'
         : 'grab'
-      : activeTool === 'draw'
-        ? 'crosshair'
-        : 'default';
+      : terrainEditMode
+        ? terrainTool === 'select'
+          ? 'default'
+          : 'crosshair'
+        : activeTool === 'draw'
+          ? 'crosshair'
+          : 'default';
+
+  const lightCityPalette = getLightCityPalette(isDarkCanvas);
+  const effectiveCanvasBg = isLightCityMode ? lightCityPalette.canvasBg : canvasBackgroundColor;
 
   return (
     <div
@@ -3394,12 +3686,12 @@ const Canvas: React.FC<CanvasProps> = ({
         {
           width: '100%',
           height: '100%',
-          '--metro-canvas-bg': canvasBackgroundColor,
-          backgroundColor: canvasBackgroundColor,
-          backgroundImage: !isAmapMode && canvasBackgroundImage ? `url(${canvasBackgroundImage})` : undefined,
-          backgroundSize: !isAmapMode && canvasBackgroundImage ? 'cover' : undefined,
-          backgroundPosition: !isAmapMode && canvasBackgroundImage ? 'center' : undefined,
-          backgroundRepeat: !isAmapMode && canvasBackgroundImage ? 'no-repeat' : undefined
+          '--metro-canvas-bg': effectiveCanvasBg,
+          backgroundColor: effectiveCanvasBg,
+          backgroundImage: !isAmapMode && !isLightCityMode && canvasBackgroundImage ? `url(${canvasBackgroundImage})` : undefined,
+          backgroundSize: !isAmapMode && !isLightCityMode && canvasBackgroundImage ? 'cover' : undefined,
+          backgroundPosition: !isAmapMode && !isLightCityMode && canvasBackgroundImage ? 'center' : undefined,
+          backgroundRepeat: !isAmapMode && !isLightCityMode && canvasBackgroundImage ? 'no-repeat' : undefined
         } as React.CSSProperties
       }
     >
@@ -3437,15 +3729,22 @@ const Canvas: React.FC<CanvasProps> = ({
         stations.length === 0 &&
         sections.length === 0 &&
         !isAmapMode &&
+        !isLightCityMode &&
         !canvasBackgroundImage &&
         onCreateLine &&
         onStartWithAmap && (
-          <CanvasStartPrompt language={language} onCreateLine={onCreateLine} onStartWithAmap={onStartWithAmap} />
+          <CanvasStartPrompt
+            language={language}
+            onCreateLine={onCreateLine}
+            onStartWithLightCity={onStartWithLightCity}
+            onStartWithAmap={onStartWithAmap}
+          />
         )}
 
       {isAmapMode && (
         <div
           ref={amapContainerRef}
+          className="metro-amap-layer"
           style={{
             position: 'absolute',
             inset: 0,
@@ -3501,11 +3800,17 @@ const Canvas: React.FC<CanvasProps> = ({
               >
                 <button
                   type="button"
-                  className={`metro-tool-button ${active ? 'is-active' : ''}`}
+                  className={`metro-tool-button ${active && !terrainEditMode ? 'is-active' : ''}`}
                   data-tool-index={index}
-                  onClick={() => setCanvasTool(tool.key)}
+                  onClick={() => {
+                    if (terrainEditMode && tool.key !== 'pan') {
+                      setTerrainEditMode(false);
+                      setTerrainDraftPoints([]);
+                    }
+                    setCanvasTool(tool.key);
+                  }}
                   aria-label={tool.label}
-                  aria-pressed={active}
+                  aria-pressed={active && !terrainEditMode}
                 >
                   <span className="metro-tool-button__icon">{tool.icon}</span>
                   <span className="metro-tool-button__label">{tool.label}</span>
@@ -3515,7 +3820,97 @@ const Canvas: React.FC<CanvasProps> = ({
           })}
         </div>
 
-        {!readOnly && activeTool === 'draw' && (currentLine || lines.length > 0) && (
+        {!readOnly && isLightCityMode && (
+          <button
+            type="button"
+            className={`metro-draw-subbar__pill ${terrainEditMode ? 'is-active' : ''}`}
+            style={{
+              height: 36,
+              padding: '0 13px',
+              borderRadius: 999,
+              border: terrainEditMode ? '1px solid #2563eb' : '1px solid rgba(148, 163, 184, 0.35)',
+              background: terrainEditMode
+                ? '#2563eb'
+                : isDarkCanvas
+                  ? 'rgba(15, 23, 42, 0.92)'
+                  : 'rgba(255, 255, 255, 0.94)',
+              color: terrainEditMode ? '#ffffff' : isDarkCanvas ? '#e2e8f0' : '#0f172a',
+              boxShadow: '0 4px 16px rgba(15, 23, 42, 0.08)',
+              fontWeight: 600,
+              fontSize: 12.5,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+              cursor: 'pointer'
+            }}
+            onClick={() => {
+              setTerrainEditMode((prev) => {
+                const next = !prev;
+                if (next) {
+                  liftDrawingPen();
+                  setSelectedStationIds(new Set());
+                  setSelectedSectionId(null);
+                  setSelectedWaypoint(null);
+                  setArcEditorWaypoint(null);
+                } else {
+                  setTerrainDraftPoints([]);
+                  setSelectedTerrainFeatureId(null);
+                  setTerrainLabelDraft(null);
+                }
+                return next;
+              });
+            }}
+          >
+            <CompassOutlined />
+            <span>{terrainEditMode ? (isEn ? 'Sculpting Terrain' : '正在造景') : isEn ? 'Edit Basemap' : '编辑底图'}</span>
+          </button>
+        )}
+
+        {!readOnly && isLightCityMode && terrainEditMode && (
+          <LightCitySculptBar
+            tool={terrainTool}
+            onChangeTool={(next) => {
+              setTerrainDraftPoints([]);
+              setTerrainLabelDraft(null);
+              setTerrainTool(next);
+            }}
+            riverWidth={terrainRiverWidth}
+            onChangeRiverWidth={setTerrainRiverWidth}
+            waterSubKind={terrainWaterSubKind}
+            onChangeWaterSubKind={setTerrainWaterSubKind}
+            zoneSubKind={terrainZoneSubKind}
+            onChangeZoneSubKind={setTerrainZoneSubKind}
+            roadSubKind={terrainRoadSubKind}
+            onChangeRoadSubKind={setTerrainRoadSubKind}
+            labelSubKind={terrainLabelSubKind}
+            onChangeLabelSubKind={setTerrainLabelSubKind}
+            draftPointCount={terrainDraftPoints.length}
+            onFinishDraft={finishTerrainDraft}
+            onCancelDraft={() => setTerrainDraftPoints([])}
+            selectedFeature={selectedTerrainFeature}
+            onUpdateSelectedFeature={(patch) => {
+              if (!selectedTerrainFeatureId) return;
+              commitLightCityUpdate((cur) => ({
+                ...cur,
+                features: cur.features.map((f) =>
+                  f.id === selectedTerrainFeatureId ? ({ ...f, ...patch } as LightCityFeature) : f
+                )
+              }));
+            }}
+            onDeleteSelectedFeature={deleteSelectedTerrainFeature}
+            onRerollCity={handleRerollLightCity}
+            onOpenTemplatePicker={() => onStartWithLightCity?.()}
+            onExitSculpt={() => {
+              setTerrainDraftPoints([]);
+              setSelectedTerrainFeatureId(null);
+              setTerrainLabelDraft(null);
+              setTerrainEditMode(false);
+            }}
+            language={language}
+          />
+        )}
+
+        {!readOnly && !terrainEditMode && activeTool === 'draw' && (currentLine || lines.length > 0) && (
           <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
             {currentLine ? (
               <span className="metro-draw-subbar__line" title={currentLine.name}>
@@ -3769,10 +4164,458 @@ const Canvas: React.FC<CanvasProps> = ({
                 y={-10000}
                 width={20000}
                 height={20000}
-                fill={isAmapMode ? 'rgba(0,0,0,0)' : canvasBackgroundColor}
+                fill={isAmapMode ? 'rgba(0,0,0,0)' : effectiveCanvasBg}
                 listening={false}
               />
 
+              {/* 轻城市（Light City）克制底图矢量层：日常画线时 listening=false 100% 穿透防误触；造景态下可点选拖拽节点塑形 */}
+              {isLightCityMode && lightCity && (
+                <Group
+                  opacity={Math.max(0.25, Math.min(1, lightCity.opacity ?? 1))}
+                  listening={!readOnly && terrainEditMode && terrainTool === 'select' && activeTool !== 'pan' && !isSpaceHeld}
+                >
+                  {/* 1. 城区板块与公园绿地 */}
+                  {lightCity.layerVisibility.zones &&
+                    lightCity.features.map((f) => {
+                      if (f.type !== 'zone' || f.kind === 'island') return null;
+                      const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
+                      const flat = sampleSmoothClosedPolygon(f.points, 3);
+                      return (
+                        <Line
+                          key={f.id}
+                          points={flat}
+                          closed
+                          fill={f.kind === 'park' ? lightCityPalette.parkFill : lightCityPalette.urbanFill}
+                          stroke={
+                            isSel
+                              ? '#2563eb'
+                              : f.kind === 'park'
+                                ? lightCityPalette.parkStroke
+                                : lightCityPalette.urbanStroke
+                          }
+                          strokeWidth={isSel ? 2.4 / Math.max(0.35, viewportScaleForHit) : 1.2}
+                          perfectDrawEnabled={false}
+                          onClick={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                          onTap={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                        />
+                      );
+                    })}
+
+                  {/* 2. 湖海面与主干河流 */}
+                  {lightCity.layerVisibility.water &&
+                    lightCity.features.map((f) => {
+                      const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
+                      if (f.type === 'waterArea') {
+                        const flat = sampleSmoothClosedPolygon(f.points, 3);
+                        return (
+                          <Line
+                            key={f.id}
+                            points={flat}
+                            closed
+                            fill={lightCityPalette.waterFill}
+                            stroke={isSel ? '#2563eb' : lightCityPalette.waterBank}
+                            strokeWidth={isSel ? 2.4 / Math.max(0.35, viewportScaleForHit) : 1.5}
+                            perfectDrawEnabled={false}
+                            onClick={(e) => {
+                              if (!terrainEditMode || terrainTool !== 'select') return;
+                              e.cancelBubble = true;
+                              setSelectedTerrainFeatureId(f.id);
+                            }}
+                            onTap={(e) => {
+                              if (!terrainEditMode || terrainTool !== 'select') return;
+                              e.cancelBubble = true;
+                              setSelectedTerrainFeatureId(f.id);
+                            }}
+                          />
+                        );
+                      }
+                      if (f.type === 'river') {
+                        const flat = sampleSmoothOpenSpline(f.points, 10);
+                        return (
+                          <Group
+                            key={f.id}
+                            onClick={(e) => {
+                              if (!terrainEditMode || terrainTool !== 'select') return;
+                              e.cancelBubble = true;
+                              setSelectedTerrainFeatureId(f.id);
+                            }}
+                            onTap={(e) => {
+                              if (!terrainEditMode || terrainTool !== 'select') return;
+                              e.cancelBubble = true;
+                              setSelectedTerrainFeatureId(f.id);
+                            }}
+                          >
+                            <Line
+                              points={flat}
+                              stroke={isSel ? '#2563eb' : lightCityPalette.waterBank}
+                              strokeWidth={f.width + 3}
+                              lineCap="round"
+                              lineJoin="round"
+                              perfectDrawEnabled={false}
+                              listening={false}
+                            />
+                            <Line
+                              points={flat}
+                              stroke={lightCityPalette.waterFill}
+                              strokeWidth={f.width}
+                              hitStrokeWidth={Math.max(f.width, 22 / Math.max(0.35, viewportScaleForHit))}
+                              lineCap="round"
+                              lineJoin="round"
+                              perfectDrawEnabled={false}
+                            />
+                          </Group>
+                        );
+                      }
+                      return null;
+                    })}
+
+                  {/* 3. 江心洲与海湾离岛 */}
+                  {(lightCity.layerVisibility.water || lightCity.layerVisibility.zones) &&
+                    lightCity.features.map((f) => {
+                      if (f.type !== 'zone' || f.kind !== 'island') return null;
+                      const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
+                      const flat = sampleSmoothClosedPolygon(f.points, 3);
+                      return (
+                        <Line
+                          key={f.id}
+                          points={flat}
+                          closed
+                          fill={lightCityPalette.islandFill}
+                          stroke={isSel ? '#2563eb' : lightCityPalette.islandStroke}
+                          strokeWidth={isSel ? 2.4 / Math.max(0.35, viewportScaleForHit) : 1.5}
+                          perfectDrawEnabled={false}
+                          onClick={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                          onTap={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                        />
+                      );
+                    })}
+
+                  {/* 4. 骨干街道与环路 */}
+                  {lightCity.layerVisibility.roads &&
+                    lightCity.features.map((f) => {
+                      if (f.type !== 'road') return null;
+                      const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
+                      const closed = Boolean(f.closed);
+                      const flat = sampleRoundedRoadPolyline(f.points, closed, 36);
+                      const outerW = f.kind === 'express' ? 11 : 7;
+                      const innerW = f.kind === 'express' ? 7 : 4.2;
+                      return (
+                        <Group
+                          key={f.id}
+                          onClick={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                          onTap={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                        >
+                          <Line
+                            points={flat}
+                            closed={closed}
+                            stroke={
+                              isSel
+                                ? '#2563eb'
+                                : f.kind === 'express'
+                                  ? lightCityPalette.roadExpressOuter
+                                  : lightCityPalette.roadArterialOuter
+                            }
+                            strokeWidth={outerW}
+                            lineCap="round"
+                            lineJoin="round"
+                            perfectDrawEnabled={false}
+                            listening={false}
+                          />
+                          <Line
+                            points={flat}
+                            closed={closed}
+                            stroke={
+                              f.kind === 'express'
+                                ? lightCityPalette.roadExpressInner
+                                : lightCityPalette.roadArterialInner
+                            }
+                            strokeWidth={innerW}
+                            hitStrokeWidth={Math.max(outerW + 10, 20 / Math.max(0.35, viewportScaleForHit))}
+                            lineCap="round"
+                            lineJoin="round"
+                            perfectDrawEnabled={false}
+                          />
+                        </Group>
+                      );
+                    })}
+
+                  {/* 5. 极简片区水印地名 */}
+                  {lightCity.layerVisibility.labels &&
+                    lightCity.features.map((f) => {
+                      if (f.type !== 'label') return null;
+                      const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
+                      const fontSize = f.kind === 'district' ? 20 : f.kind === 'water' ? 15 : 16;
+                      const boxW = Math.max(120, f.text.length * (fontSize + 6));
+                      const fill = isSel
+                        ? '#2563eb'
+                        : f.kind === 'district'
+                          ? lightCityPalette.labelDistrict
+                          : f.kind === 'water'
+                            ? lightCityPalette.labelWater
+                            : lightCityPalette.labelSubdistrict;
+                      return (
+                        <Text
+                          key={f.id}
+                          x={f.x - boxW / 2}
+                          y={f.y - fontSize * 0.7}
+                          width={boxW}
+                          height={fontSize * 1.4}
+                          align="center"
+                          verticalAlign="middle"
+                          text={f.text}
+                          fontSize={fontSize}
+                          fontStyle={f.kind === 'water' ? 'italic bold' : 'bold'}
+                          letterSpacing={3}
+                          fill={fill}
+                          perfectDrawEnabled={false}
+                          draggable={!readOnly && terrainEditMode && terrainTool === 'select' && !isSpaceHeld}
+                          onClick={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                          onTap={(e) => {
+                            if (!terrainEditMode || terrainTool !== 'select') return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                          }}
+                          onDblClick={(e) => {
+                            if (!terrainEditMode) return;
+                            e.cancelBubble = true;
+                            setSelectedTerrainFeatureId(f.id);
+                            setTerrainLabelDraft({
+                              x: f.x,
+                              y: f.y,
+                              value: f.text,
+                              editingFeatureId: f.id
+                            });
+                          }}
+                          onDragEnd={(e) => {
+                            const nx = Math.round((e.target.x() + boxW / 2) * 10) / 10;
+                            const ny = Math.round((e.target.y() + fontSize * 0.7) * 10) / 10;
+                            commitLightCityUpdate((cur) => ({
+                              ...cur,
+                              features: cur.features.map((item) =>
+                                item.id === f.id && item.type === 'label' ? { ...item, x: nx, y: ny } : item
+                              )
+                            }));
+                          }}
+                        />
+                      );
+                    })}
+                </Group>
+              )}
+
+              {/* 底图造景态：选中要素的节点拖拽与中点插入控制柄 + 正在绘制的河道/片区/干道实时预览 */}
+              {!readOnly && isLightCityMode && terrainEditMode && (
+                <Group listening={activeTool !== 'pan' && !isSpaceHeld}>
+                  {terrainTool === 'select' &&
+                    selectedTerrainFeature &&
+                    selectedTerrainFeature.type !== 'label' && (() => {
+                      const pts = selectedTerrainFeature.points;
+                      const isClosed =
+                        selectedTerrainFeature.type === 'zone' ||
+                        selectedTerrainFeature.type === 'waterArea' ||
+                        Boolean(selectedTerrainFeature.type === 'road' && selectedTerrainFeature.closed);
+                      const minPts =
+                        selectedTerrainFeature.type === 'river' ||
+                        (selectedTerrainFeature.type === 'road' && !selectedTerrainFeature.closed)
+                          ? 2
+                          : 3;
+                      const handleR = 6 / Math.max(0.35, viewportScaleForHit);
+                      const midR = 4.2 / Math.max(0.35, viewportScaleForHit);
+                      const edgeCount = isClosed ? pts.length : Math.max(0, pts.length - 1);
+
+                      return (
+                        <>
+                          <Line
+                            points={pts.flatMap((p) => [p.x, p.y])}
+                            closed={isClosed}
+                            stroke="#3b82f6"
+                            strokeWidth={1.3 / Math.max(0.35, viewportScaleForHit)}
+                            dash={[5 / Math.max(0.35, viewportScaleForHit), 4 / Math.max(0.35, viewportScaleForHit)]}
+                            listening={false}
+                            perfectDrawEnabled={false}
+                          />
+                          {/* 边中点加点手柄：单击即可在该边插入新节点方便精细塑形 */}
+                          {Array.from({ length: edgeCount }).map((_, idx) => {
+                            const a = pts[idx];
+                            const b = pts[(idx + 1) % pts.length];
+                            const mx = Math.round(((a.x + b.x) / 2) * 10) / 10;
+                            const my = Math.round(((a.y + b.y) / 2) * 10) / 10;
+                            return (
+                              <Circle
+                                key={`lc_mid_${selectedTerrainFeature.id}_${idx}`}
+                                x={mx}
+                                y={my}
+                                radius={midR}
+                                fill="#dbeafe"
+                                stroke="#2563eb"
+                                strokeWidth={1.4 / Math.max(0.35, viewportScaleForHit)}
+                                hitStrokeWidth={12 / Math.max(0.35, viewportScaleForHit)}
+                                onClick={(e) => {
+                                  e.cancelBubble = true;
+                                  commitLightCityUpdate((cur) => ({
+                                    ...cur,
+                                    features: cur.features.map((item) => {
+                                      if (item.id !== selectedTerrainFeature.id || item.type === 'label') return item;
+                                      const nextPts = [
+                                        ...item.points.slice(0, idx + 1),
+                                        { x: mx, y: my },
+                                        ...item.points.slice(idx + 1)
+                                      ];
+                                      return { ...item, points: nextPts };
+                                    })
+                                  }));
+                                }}
+                              />
+                            );
+                          })}
+                          {/* 顶点拖拽与双击删点手柄 */}
+                          {pts.map((pt, idx) => (
+                            <Circle
+                              key={`lc_vtx_${selectedTerrainFeature.id}_${idx}`}
+                              x={pt.x}
+                              y={pt.y}
+                              radius={handleR}
+                              fill="#ffffff"
+                              stroke="#2563eb"
+                              strokeWidth={2 / Math.max(0.35, viewportScaleForHit)}
+                              hitStrokeWidth={14 / Math.max(0.35, viewportScaleForHit)}
+                              draggable
+                              onClick={(e) => {
+                                e.cancelBubble = true;
+                              }}
+                              onDblClick={(e) => {
+                                e.cancelBubble = true;
+                                if (pts.length <= minPts) return;
+                                commitLightCityUpdate((cur) => ({
+                                  ...cur,
+                                  features: cur.features.map((item) => {
+                                    if (item.id !== selectedTerrainFeature.id || item.type === 'label') return item;
+                                    return {
+                                      ...item,
+                                      points: item.points.filter((_, i) => i !== idx)
+                                    };
+                                  })
+                                }));
+                              }}
+                              onDragEnd={(e) => {
+                                const nx = Math.round(e.target.x() * 10) / 10;
+                                const ny = Math.round(e.target.y() * 10) / 10;
+                                commitLightCityUpdate((cur) => ({
+                                  ...cur,
+                                  features: cur.features.map((item) => {
+                                    if (item.id !== selectedTerrainFeature.id || item.type === 'label') return item;
+                                    return {
+                                      ...item,
+                                      points: item.points.map((p, i) => (i === idx ? { x: nx, y: ny } : p))
+                                    };
+                                  })
+                                }));
+                              }}
+                            />
+                          ))}
+                        </>
+                      );
+                    })()}
+
+                  {/* 正在落点绘制中的地形草稿实时预览 */}
+                  {terrainDraftPoints.length > 0 && (() => {
+                    const previewPts = terrainHoverWorld
+                      ? [...terrainDraftPoints, terrainHoverWorld]
+                      : terrainDraftPoints;
+                    const isPoly = terrainTool === 'waterArea' || terrainTool === 'zone';
+                    const flat =
+                      terrainTool === 'river'
+                        ? sampleSmoothOpenSpline(previewPts, 8)
+                        : isPoly && previewPts.length >= 3
+                          ? sampleSmoothClosedPolygon(previewPts, 2)
+                          : sampleRoundedRoadPolyline(previewPts, false, 30);
+                    return (
+                      <>
+                        <Line
+                          points={flat}
+                          closed={isPoly && previewPts.length >= 3}
+                          fill={
+                            terrainTool === 'waterArea'
+                              ? terrainWaterSubKind === 'island'
+                                ? 'rgba(246, 247, 249, 0.86)'
+                                : 'rgba(200, 225, 244, 0.72)'
+                              : terrainTool === 'zone'
+                                ? terrainZoneSubKind === 'park'
+                                  ? 'rgba(222, 237, 227, 0.78)'
+                                  : 'rgba(235, 239, 244, 0.8)'
+                                : undefined
+                          }
+                          stroke={terrainTool === 'river' ? lightCityPalette.waterFill : '#2563eb'}
+                          strokeWidth={
+                            terrainTool === 'river'
+                              ? terrainRiverWidth
+                              : terrainTool === 'road'
+                                ? terrainRoadSubKind === 'express'
+                                  ? 9
+                                  : 6
+                                : 2 / Math.max(0.35, viewportScaleForHit)
+                          }
+                          lineCap="round"
+                          lineJoin="round"
+                          dash={
+                            terrainTool === 'river'
+                              ? undefined
+                              : [6 / Math.max(0.35, viewportScaleForHit), 4 / Math.max(0.35, viewportScaleForHit)]
+                          }
+                          opacity={0.86}
+                          listening={false}
+                          perfectDrawEnabled={false}
+                        />
+                        {terrainDraftPoints.map((pt, idx) => (
+                          <Circle
+                            key={`draft_pt_${idx}`}
+                            x={pt.x}
+                            y={pt.y}
+                            radius={(idx === 0 ? 6.5 : 4.8) / Math.max(0.35, viewportScaleForHit)}
+                            fill={idx === 0 ? '#dbeafe' : '#ffffff'}
+                            stroke="#2563eb"
+                            strokeWidth={2 / Math.max(0.35, viewportScaleForHit)}
+                            listening={false}
+                            perfectDrawEnabled={false}
+                          />
+                        ))}
+                      </>
+                    );
+                  })()}
+                </Group>
+              )}
+
+              <Group
+                opacity={terrainEditMode ? 0.32 : 1}
+                listening={!terrainEditMode && activeTool !== 'pan' && !isSpaceHeld}
+              >
               {renderLines(suppressShadows)}
 
               {lineNamePlacements.map((label) => (
@@ -3810,12 +4653,20 @@ const Canvas: React.FC<CanvasProps> = ({
                 </Group>
               ))}
 
-              {/* 途经点控制柄：左键点击仅选中/拖动，右键先弹一级菜单，菜单里点「调整圆弧」再弹圆弧框 */}
+              {/* 途经点控制柄：支持全局「默认隐藏途经点」开关（选中或调节圆弧时仍显示当前控制柄） */}
               {sections.map((section) => {
                 const points = section.waypoints || [];
+                const hideByDefault = Boolean(mapSettings.hideWaypoints);
                 const visiblePoints = points
                   .map((pt, idx) => ({ pt, idx }))
-                  .filter(({ pt }) => !pt.hidden);
+                  .filter(({ pt, idx }) => {
+                    const isActivelySelected =
+                      (selectedWaypoint?.sectionId === section.id && selectedWaypoint?.waypointIndex === idx) ||
+                      (arcEditorWaypoint?.sectionId === section.id && arcEditorWaypoint?.waypointIndex === idx);
+                    if (isActivelySelected) return true;
+                    if (hideByDefault) return false;
+                    return !pt.hidden;
+                  });
                 if (!visiblePoints.length) return null;
                 return visiblePoints.map(({ pt, idx }) => {
                   const waypointPoint = getWaypointDisplayPoint(pt);
@@ -4235,6 +5086,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   </Group>
                 );
               })}
+              </Group>
             </>
           )}
         </Layer>
@@ -4325,6 +5177,48 @@ const Canvas: React.FC<CanvasProps> = ({
           )}
         </Layer>
       </Stage>
+
+      {/* 底图造景态：行内片区/水系地名输入框 */}
+      {!readOnly && terrainLabelDraft && (() => {
+        const screen = worldToScreenPoint({ x: terrainLabelDraft.x, y: terrainLabelDraft.y });
+        const left = Math.max(96, Math.min(screen.x, stageSize.width - 96));
+        const top = Math.max(58, Math.min(screen.y - 18, stageSize.height - 24));
+        return (
+          <div
+            className="metro-inline-rename"
+            style={{ left, top }}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <input
+              ref={terrainLabelInputRef}
+              className="metro-inline-rename__input"
+              value={terrainLabelDraft.value}
+              maxLength={24}
+              placeholder="输入片区或河流名称…"
+              onChange={(e) =>
+                setTerrainLabelDraft((prev) => (prev ? { ...prev, value: e.target.value } : null))
+              }
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  commitTerrainLabelDraft();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setTerrainLabelDraft(null);
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="metro-inline-rename__btn metro-inline-rename__btn--ok"
+              onClick={commitTerrainLabelDraft}
+              aria-label="确认片区地名"
+            >
+              <CheckOutlined />
+            </button>
+          </div>
+        );
+      })()}
 
       {/* 非阻塞行内站点命名浮层 */}
       {!readOnly && inlineRename && (() => {

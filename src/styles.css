@@ -8028,6 +8028,20 @@ input.metro-secret-token-masked,
   -webkit-text-security: disc;
 }
 
+.metro-lightcity-sculpt-bar {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100vw - 380px);
+}
+
+@media (max-width: 960px) {
+  .metro-lightcity-sculpt-bar {
+    max-width: calc(100vw - 32px);
+  }
+}
+
 @media (max-width: 768px) {
   .metro-gesture-status {
     display: none;

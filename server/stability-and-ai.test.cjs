@@ -134,3 +134,29 @@ test('tileProxy caches valid tiles and sets CORS headers for untainted Canvas ex
   await handler({ params: { style: 'normal', z: '2', x: '99', y: '0' } }, badRes);
   assert.equal(badRes.code, 400);
 });
+
+test('server normalizeMapSettings preserves light-city features and hideWaypoints', () => {
+  const { normalizeMapSettings } = require('./lib/mapSettings');
+  const norm = normalizeMapSettings({
+    hideWaypoints: true,
+    baseMap: {
+      mode: 'light-city',
+      lightCity: {
+        archetype: 'confluence',
+        seed: 777,
+        opacity: 0.85,
+        layerVisibility: { zones: true, water: true, roads: true, labels: false },
+        features: [
+          { id: 'r1', type: 'river', width: 80, points: [{ x: 10.14, y: 20.88 }, { x: 300, y: 400 }] },
+          { id: 'l1', type: 'label', kind: 'district', x: 120, y: 150, text: '江北主城' }
+        ]
+      }
+    }
+  });
+  assert.equal(norm.hideWaypoints, true);
+  assert.equal(norm.baseMap.mode, 'light-city');
+  assert.equal(norm.baseMap.lightCity.archetype, 'confluence');
+  assert.equal(norm.baseMap.lightCity.layerVisibility.labels, false);
+  assert.equal(norm.baseMap.lightCity.features.length, 2);
+  assert.equal(norm.baseMap.lightCity.features[0].points[0].x, 10.1);
+});
