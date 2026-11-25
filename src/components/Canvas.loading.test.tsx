@@ -229,3 +229,68 @@ test('地理底图缩远态切换至纯画布时自动径向舒展站间距，�
   expect(outA.lng).toBeUndefined();
   expect(outB.lng).toBeUndefined();
 });
+
+test('从地理底图存档切换打开轻城市或纯画布存档（documentKey 变更）时绝不误触拉伸，站点与途经点纹丝不动', () => {
+  mockReadyDocument = 'doc_amap';
+  mockZoom = 9.5; // 缩得很远，若误触拉伸会放大约 4.9 倍
+  const onApplyGraphTransaction = jest.fn();
+
+  render('doc_amap', {
+    stations: [{ id: 'g1', name: '地理站', x: 400, y: 300, lng: 117.4, lat: 39.2 }],
+    sections: [],
+    lines: [{ ...line, stationIds: ['g1'], sectionIds: [] }],
+    onApplyGraphTransaction
+  });
+  onApplyGraphTransaction.mockClear();
+
+  const lightCityStations = [
+    { id: 'lc_s1', name: '江北站', x: 300, y: 260 },
+    { id: 'lc_s2', name: '江南站', x: 520, y: 420 }
+  ];
+  const lightCitySections = [
+    {
+      id: 'lc_sec1',
+      lineId: 'l',
+      startStationId: 'lc_s1',
+      endStationId: 'lc_s2',
+      waypoints: [{ x: 410, y: 340, radius: 18 }]
+    }
+  ];
+
+  act(() => {
+    root.render(
+      <Canvas
+        currentLineId="l"
+        lines={[{ ...line, stationIds: ['lc_s1', 'lc_s2'], sectionIds: ['lc_sec1'] }]}
+        stations={lightCityStations as any}
+        sections={lightCitySections as any}
+        mapSettings={{
+          ...DEFAULT_MAP_SETTINGS,
+          baseMap: {
+            mode: 'light-city',
+            lightCity: {
+              theme: 'paper-grey',
+              archetype: 'river',
+              seed: 2026,
+              opacity: 1,
+              layerVisibility: { zones: true, water: true, roads: true, labels: true },
+              features: []
+            }
+          }
+        }}
+        documentKey="doc_light_city"
+        onApplyGraphTransaction={onApplyGraphTransaction}
+        onAddStation={() => {}}
+        onUpdateStation={() => {}}
+        onAddStationToLine={() => {}}
+        onRenameStation={() => {}}
+        onDeleteSection={() => {}}
+        onReorderStations={() => {}}
+        onDeleteStation={() => {}}
+      />
+    );
+  });
+
+  // 打开另一份轻城市存档时，绝不能触发地理->画布坐标变换写回！
+  expect(onApplyGraphTransaction).not.toHaveBeenCalled();
+});

@@ -479,6 +479,7 @@ const Canvas: React.FC<CanvasProps> = ({
   const lastPointerPositionRef = useRef({ x: 0, y: 0 });
   const latestMapSettingsRef = useRef(mapSettings);
   const previousBaseMapModeRef = useRef(mapSettings.baseMap.mode);
+  const previousDocumentKeyRef = useRef(documentKey);
   const [isMapInteracting, setIsMapInteracting] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isDraggingNode, setIsDraggingNode] = useState(false);
@@ -1294,10 +1295,37 @@ const Canvas: React.FC<CanvasProps> = ({
 
   useLayoutEffect(() => {
     const previousMode = previousBaseMapModeRef.current;
-    if (previousMode === 'amap' && !isAmapMode && amapRef.current) {
-      // 从地理底图切回纯画布/轻城市：
-      // 1) 将经纬度投影至屏幕像素后，围绕线网质心按标准参考缩放级（AMAP_REFERENCE_ZOOM = 11.8）与最小站间距（>= 78px）径向舒展世界坐标，避免缩远总览态直切导致 100% 画布与导出图站点挤作一团；
-      // 2) 同步将初始画布视口设为 1 / stretch 并锚定质心，使切换瞬间屏幕视觉零跳变，放大后又能获得舒展通透的标准线网间距。
+    const previousDocKey = previousDocumentKeyRef.current;
+    const isSameDocument = previousDocKey === documentKey;
+    previousBaseMapModeRef.current = mapSettings.baseMap.mode;
+    previousDocumentKeyRef.current = documentKey;
+
+    // 切换不同存档/工程（例如从地理底图存档打开轻城市或纯画布存档）绝不能触发底图模式转换拉伸！
+    // 轻城市与纯画布共享 100% 纯世界像素坐标，切换存档时直接重置或沿用目标存档视口即可。
+    if (!isSameDocument || isDocumentLoading) {
+      if (!isSameDocument && !isAmapMode) {
+        const nextScale = initialViewport?.scale || 1;
+        const nextPos = { x: initialViewport?.x || 0, y: initialViewport?.y || 0 };
+        setScale(nextScale);
+        setPosition(nextPos);
+        preAmapViewportRef.current = { scale: nextScale, ...nextPos };
+      }
+      return;
+    }
+
+    const hasGeoStations = stations.some(
+      (st) =>
+        typeof st.lng === 'number' &&
+        Number.isFinite(st.lng) &&
+        typeof st.lat === 'number' &&
+        Number.isFinite(st.lat)
+    );
+
+    if (previousMode === 'amap' && !isAmapMode && amapRef.current && hasGeoStations) {
+      // 同一份方案内手动从地理底图切换至纯画布/轻城市：
+      // 1) 将经纬度投影至屏幕像素后，围绕线网质心按标准参考缩放级（AMAP_REFERENCE_ZOOM = 11.8）与最小站间距（>= 78px）径向舒展世界坐标；
+      // 2) 站点与途经点统一按同一质心与同一倍率同步变换（即使个别途经点缺失 lng/lat 也同步回退变换，杜绝站点与途经点比例撕裂）；
+      // 3) 同步将初始画布视口设为 1 / stretch 并锚定质心，使切换瞬间屏幕视觉零跳变。
       const currentZoom =
         amapRef.current.getZoom?.() || mapSettings.baseMap.amap?.zoom || AMAP_REFERENCE_ZOOM;
       const projectedByStationId = new Map<string, { x: number; y: number }>();
@@ -1341,18 +1369,20 @@ const Canvas: React.FC<CanvasProps> = ({
 
       const stripAndProjectStation = (station: Station): Station => {
         const point =
-          projectedByStationId.get(station.id) || projectLngLatToContainerPoint(station.lng, station.lat);
+          projectedByStationId.get(station.id) ||
+          projectLngLatToContainerPoint(station.lng, station.lat) || { x: station.x, y: station.y };
         const { lng: _lng, lat: _lat, ...rest } = station;
-        if (!point) return rest;
         const stretched = stretchCoord(point);
         return { ...rest, x: stretched.x, y: stretched.y };
       };
       const stripAndProjectSection = (section: Section): Section => {
         if (!section.waypoints?.length) return section;
         const nextWaypoints = section.waypoints.map((point) => {
-          const projected = projectLngLatToContainerPoint(point.lng, point.lat);
+          const projected = projectLngLatToContainerPoint(point.lng, point.lat) || {
+            x: point.x,
+            y: point.y
+          };
           const { lng: _lng, lat: _lat, ...rest } = point;
-          if (!projected) return rest;
           const stretched = stretchCoord(projected);
           return {
             ...rest,
@@ -1366,6 +1396,8 @@ const Canvas: React.FC<CanvasProps> = ({
         return { ...section, waypoints: nextWaypoints };
       };
 
+      const nextStationsPreview = stations.map(stripAndProjectStation);
+
       if (onApplyGraphTransaction) {
         onApplyGraphTransaction(
           (graph) => ({
@@ -1376,13 +1408,43 @@ const Canvas: React.FC<CanvasProps> = ({
           { recordHistory: false }
         );
       } else {
-        onUpdateStations?.(stations.map(stripAndProjectStation));
+        onUpdateStations?.(nextStationsPreview);
         if (onUpdateSection) {
           sections.forEach((sec) => {
             if (!sec.waypoints?.length) return;
             onUpdateSection(sec.id, { waypoints: stripAndProjectSection(sec).waypoints });
           });
         }
+      }
+
+      // 若是直接从地理底图一键切入预设轻城市模板，同步用舒展后的真实画布坐标对齐轻城市地貌包围盒
+      if (
+        mapSettings.baseMap.mode === 'light-city' &&
+        mapSettings.baseMap.lightCity &&
+        mapSettings.baseMap.lightCity.archetype !== 'custom' &&
+        onMapSettingsChange
+      ) {
+        const curLc = mapSettings.baseMap.lightCity;
+        const alignedLc = generateLightCity({
+          archetype: curLc.archetype,
+          seed: curLc.seed,
+          stations: nextStationsPreview,
+          language
+        });
+        onMapSettingsChange(
+          normalizeMapSettings({
+            ...mapSettings,
+            baseMap: {
+              ...mapSettings.baseMap,
+              mode: 'light-city',
+              lightCity: {
+                ...alignedLc,
+                opacity: curLc.opacity,
+                layerVisibility: curLc.layerVisibility
+              }
+            }
+          })
+        );
       }
 
       const nextScale =
@@ -1402,8 +1464,7 @@ const Canvas: React.FC<CanvasProps> = ({
       clearImperativeGuides();
       closeAllFloatingMenus();
     }
-    previousBaseMapModeRef.current = mapSettings.baseMap.mode;
-  }, [isAmapMode, mapSettings.baseMap.mode]);
+  }, [documentKey, isDocumentLoading, isAmapMode, mapSettings.baseMap.mode]);
 
   // 从纯画布 / 轻城市切入地理底图（或地理底图下存在尚未绑定经纬度的站点/拐点）时：
   // 自动将画布点位映射为当前真实地图视野内的 WGS-84 经纬度，保证线网立即跟随地图平移与缩放！

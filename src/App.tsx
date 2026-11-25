@@ -1577,10 +1577,21 @@ const App: React.FC = () => {
       sections: normalizeSections(project.sections),
       mapSettings: normalizeMapSettings(project.mapSettings)
     });
+    const isPlainLike = migrated.mapSettings.baseMap.mode !== 'amap';
+    const cleanStations = isPlainLike
+      ? migrated.stations.map(({ lng: _lng, lat: _lat, ...rest }) => rest)
+      : migrated.stations;
+    const cleanSections = isPlainLike
+      ? migrated.sections.map((sec) =>
+          sec.waypoints?.length
+            ? { ...sec, waypoints: sec.waypoints.map(({ lng: _lng, lat: _lat, ...wp }) => wp) }
+            : sec
+        )
+      : migrated.sections;
     const healed = reconcileGraph({
       lines: loadedLines,
-      stations: migrated.stations,
-      sections: migrated.sections
+      stations: cleanStations,
+      sections: cleanSections
     });
     commitGraphState(healed);
     setMapSettings(migrated.mapSettings);
@@ -1874,10 +1885,21 @@ const App: React.FC = () => {
       sections: normalizeSections(map.sections),
       mapSettings: baseSettings
     });
+    const isPlainLike = migrated.mapSettings.baseMap.mode !== 'amap';
+    const cleanStations = isPlainLike
+      ? migrated.stations.map(({ lng: _lng, lat: _lat, ...rest }) => rest)
+      : migrated.stations;
+    const cleanSections = isPlainLike
+      ? migrated.sections.map((sec) =>
+          sec.waypoints?.length
+            ? { ...sec, waypoints: sec.waypoints.map(({ lng: _lng, lat: _lat, ...wp }) => wp) }
+            : sec
+        )
+      : migrated.sections;
     const healed = reconcileGraph({
       lines: loadedLines,
-      stations: migrated.stations,
-      sections: migrated.sections
+      stations: cleanStations,
+      sections: cleanSections
     });
     commitGraphState(healed);
     setMapSettings(migrated.mapSettings);
