@@ -7,8 +7,12 @@ let mockGroupProps: any[] = [];
 let mockReadyDocument: string | null = null;
 let mockError = '';
 const mockProject = jest.fn(([lng, lat]: number[]) => ({ x: (lng - 117) * 1000, y: (39.5 - lat) * 1000 }));
+const mockUnproject = jest.fn(({ x, y }: { x: number; y: number }) => ({
+  lng: Number((117 + x / 1000).toFixed(6)),
+  lat: Number((39.5 - y / 1000).toFixed(6))
+}));
 jest.mock('../lib/useAmapViewport', () => ({ useAmapViewport: (options: any) => ({
-  mapRef: { current: { lngLatToContainer: mockProject, getZoom: () => 12 } },
+  mapRef: { current: { lngLatToContainer: mockProject, containerToLngLat: mockUnproject, getZoom: () => 12 } },
   ready: options.documentKey === mockReadyDocument, error: mockError, renderTick: 0
 }) }));
 jest.mock('../lib/useElasticToolbar', () => ({ useElasticToolbar: () => require('react').useRef(null) }));
@@ -20,7 +24,7 @@ jest.mock('antd', () => {
   const React = require('react');
   const pass = ({ children }: any) => React.createElement('div', null, children);
   const Input = Object.assign(pass, { TextArea: pass });
-  return { Input, Button: pass, message: {}, ColorPicker: pass, Select: pass, Dropdown: pass, Tooltip: pass, Spin: pass };
+  return { Input, Button: pass, message: {}, ColorPicker: pass, Select: pass, Dropdown: pass, Tooltip: pass, Spin: pass, Slider: pass };
 });
 jest.mock('react-konva', () => {
   const React = require('react');
@@ -43,7 +47,12 @@ const render = (documentKey: string, extra: any = {}) => act(() => root.render(<
   stations={stations} sections={[]} mapSettings={settings} documentKey={documentKey} {...extra} {...({} as any)} />));
 beforeEach(() => {
   (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true;
-  mockGroupProps=[];mockReadyDocument = null; mockError = ''; mockProject.mockClear();
+  mockGroupProps=[];mockReadyDocument = null; mockError = '';
+  mockProject.mockImplementation(([lng, lat]: number[]) => ({ x: (lng - 117) * 1000, y: (39.5 - lat) * 1000 }));
+  mockUnproject.mockImplementation(({ x, y }: { x: number; y: number }) => ({
+    lng: Number((117 + x / 1000).toFixed(6)),
+    lat: Number((39.5 - y / 1000).toFixed(6))
+  }));
   window.matchMedia = jest.fn().mockImplementation(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   global.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} } as any;
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
@@ -87,4 +96,78 @@ test('公开预览保留导航与站点信息，同时关闭拖动编辑和保�
   expect(host.querySelector('[data-modal="站点信息"]')?.textContent).toContain('站点0');
   expect(host.querySelector('[data-modal="站点信息"]')?.textContent).toContain('暂无公开标注');
   expect(host.textContent).not.toContain('保存标注');expect(onUpdateStation).not.toHaveBeenCalled();
+});
+
+
+test('纯画布或轻城市线网切入地理底图后自动绑定经纬度，且轻城市编辑底图按钮可点击切换造景栏', () => {
+  mockReadyDocument = 'convert';
+  const plainStations = [
+    { id: 's1', name: '起点', x: 320, y: 260 },
+    { id: 's2', name: '终点', x: 560, y: 340 }
+  ];
+  const plainSections = [
+    { id: 'sec1', lineId: 'l', startStationId: 's1', endStationId: 's2', waypoints: [{ x: 440, y: 280 }] }
+  ];
+  let capturedGraph: any = null;
+  const onApplyGraphTransaction = jest.fn((updater: any) => {
+    capturedGraph = updater({
+      lines: [{ ...line, stationIds: ['s1', 's2'], sectionIds: ['sec1'] }],
+      stations: plainStations,
+      sections: plainSections
+    });
+  });
+
+  render('convert', {
+    stations: plainStations,
+    sections: plainSections,
+    lines: [{ ...line, stationIds: ['s1', 's2'], sectionIds: ['sec1'] }],
+    onApplyGraphTransaction
+  });
+
+  expect(onApplyGraphTransaction).toHaveBeenCalled();
+  expect(typeof capturedGraph.stations[0].lng).toBe('number');
+  expect(typeof capturedGraph.stations[0].lat).toBe('number');
+  expect(typeof capturedGraph.sections[0].waypoints[0].lng).toBe('number');
+  expect(typeof capturedGraph.sections[0].waypoints[0].lat).toBe('number');
+
+  act(() => {
+    root.render(
+      <Canvas
+        currentLineId="l"
+        lines={[{ ...line, stationIds: ['s1', 's2'], sectionIds: ['sec1'] }]}
+        stations={plainStations as any}
+        sections={plainSections as any}
+        mapSettings={{
+          ...DEFAULT_MAP_SETTINGS,
+          baseMap: {
+            mode: 'light-city',
+            lightCity: {
+              theme: 'paper-grey',
+              archetype: 'river',
+              seed: 100,
+              opacity: 1,
+              layerVisibility: { zones: true, water: true, roads: true, labels: true },
+              features: []
+            }
+          }
+        }}
+        documentKey="lc"
+        onAddStation={() => {}}
+        onUpdateStation={() => {}}
+        onAddStationToLine={() => {}}
+        onRenameStation={() => {}}
+        onDeleteSection={() => {}}
+        onReorderStations={() => {}}
+        onDeleteStation={() => {}}
+      />
+    );
+  });
+
+  const editBtn = Array.from(host.querySelectorAll('button')).find((b) => b.textContent?.includes('编辑底图'));
+  expect(editBtn).toBeDefined();
+  act(() => {
+    editBtn!.click();
+  });
+  expect(host.textContent).toContain('正在造景');
+  expect(host.textContent).toContain('完成造景');
 });

@@ -27,7 +27,7 @@ const BaseMapPicker: React.FC<BaseMapPickerProps> = ({ initialStyle, language, h
       footer={<><Button onClick={onCancel}>{en ? 'Cancel' : '取消'}</Button>
         <Button type="primary" onClick={() => onConfirm(selected)}>{en ? 'Start drawing' : '开始绘制'}</Button></>}>
       <p className="metro-basemap-intro">{en ? 'Choose a look. You can change it in Settings → Map.' : '选一种喜欢的风格，之后可在“设置 → 地图”中切换。'}</p>
-      {hasContent && <p className="metro-basemap-intro">{en ? 'Stations with coordinates follow the map. Drag other stations to place them geographically.' : '已有经纬度的站点会贴合底图，其他站点可拖动重新定位。'}</p>}
+      {hasContent && <p className="metro-basemap-intro">{en ? 'Existing lines and stations will automatically map onto the city view and scale with the map.' : '当前画布线网将自动映射到所选地图视野并跟随底图平移缩放，也可框选整片拖动对齐。'}</p>}
       <div className="metro-basemap-options" role="radiogroup" aria-label={en ? 'Basemap style' : '底图风格'}>
         {styles.map(style => <label key={style.value} className={`metro-basemap-option${selected === style.value ? ' is-selected' : ''}`}>
           <img src={`${process.env.PUBLIC_URL}/map-previews/${style.value}.png`} alt="" width={400} height={256} />

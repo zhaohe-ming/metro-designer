@@ -797,6 +797,11 @@ const Canvas: React.FC<CanvasProps> = ({
   const setCanvasTool = useCallback(
     (tool: CanvasTool) => {
       commitInlineRenameIfNeeded();
+      if (tool !== 'pan') {
+        setTerrainEditMode(false);
+        setTerrainDraftPoints([]);
+        setTerrainLabelDraft(null);
+      }
       setActiveTool(tool);
       if (tool !== 'draw') {
         liftDrawingPen();
@@ -811,7 +816,7 @@ const Canvas: React.FC<CanvasProps> = ({
   );
 
   const toolGroupRef = useElasticToolbar(
-    CANVAS_TOOL_ORDER.indexOf(activeTool),
+    terrainEditMode && activeTool !== 'pan' ? -1 : CANVAS_TOOL_ORDER.indexOf(activeTool),
     CANVAS_TOOL_ORDER.length,
     !readOnly,
     (index) => setCanvasTool(CANVAS_TOOL_ORDER[index])
@@ -819,9 +824,13 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const [scale, setScale] = useState(initialViewport?.scale || 1);
   const [position, setPosition] = useState({ x: initialViewport?.x || 0, y: initialViewport?.y || 0 });
+  const preAmapViewportRef = useRef({ scale: initialViewport?.scale || 1, x: initialViewport?.x || 0, y: initialViewport?.y || 0 });
   useEffect(() => {
+    if (!isAmapMode) {
+      preAmapViewportRef.current = { scale, x: position.x, y: position.y };
+    }
     onViewportChange?.({ scale, ...position });
-  }, [scale, position, onViewportChange]);
+  }, [scale, position, isAmapMode, onViewportChange]);
 
   useLayoutEffect(() => {
     latestMapSettingsRef.current = mapSettings;
@@ -1057,6 +1066,19 @@ const Canvas: React.FC<CanvasProps> = ({
           deleteSelectedTerrainFeature();
           return;
         }
+        const tKey = e.key.toLowerCase();
+        if (tKey === 'v') {
+          setCanvasTool('select');
+          return;
+        }
+        if (tKey === 'd' || tKey === 'l' || tKey === 's') {
+          setCanvasTool('draw');
+          return;
+        }
+        if (tKey === 'h') {
+          setCanvasTool('pan');
+          return;
+        }
         return;
       }
 
@@ -1267,29 +1289,194 @@ const Canvas: React.FC<CanvasProps> = ({
   useLayoutEffect(() => {
     const previousMode = previousBaseMapModeRef.current;
     if (previousMode === 'amap' && !isAmapMode && amapRef.current) {
-      const frozenStations = stations.map((station) => {
+      // 从地理底图切回纯画布/轻城市：将经纬度投影固化为画布坐标，并清除旧经纬度避免后续画布编辑后再次切入底图时撕裂
+      const stripAndProjectStation = (station: Station): Station => {
         const point = projectLngLatToContainerPoint(station.lng, station.lat);
-        return point ? { ...station, ...point } : station;
-      });
-      onUpdateStations?.(frozenStations);
-      if (onUpdateSection) {
-        sections.forEach((section) => {
-          if (!section.waypoints?.length) return;
-          const nextWaypoints = section.waypoints.map((point) => {
-            const projected = projectLngLatToContainerPoint(point.lng, point.lat);
-            return projected ? { ...point, ...projected } : point;
-          });
-          onUpdateSection(section.id, { waypoints: nextWaypoints });
+        const { lng: _lng, lat: _lat, ...rest } = station;
+        return point
+          ? { ...rest, x: Math.round(point.x * 10) / 10, y: Math.round(point.y * 10) / 10 }
+          : rest;
+      };
+      const stripAndProjectSection = (section: Section): Section => {
+        if (!section.waypoints?.length) return section;
+        const nextWaypoints = section.waypoints.map((point) => {
+          const projected = projectLngLatToContainerPoint(point.lng, point.lat);
+          const { lng: _lng, lat: _lat, ...rest } = point;
+          return projected
+            ? { ...rest, x: Math.round(projected.x * 10) / 10, y: Math.round(projected.y * 10) / 10 }
+            : rest;
         });
+        return { ...section, waypoints: nextWaypoints };
+      };
+
+      if (onApplyGraphTransaction) {
+        onApplyGraphTransaction(
+          (graph) => ({
+            ...graph,
+            stations: graph.stations.map(stripAndProjectStation),
+            sections: graph.sections.map(stripAndProjectSection)
+          }),
+          { recordHistory: false }
+        );
+      } else {
+        onUpdateStations?.(stations.map(stripAndProjectStation));
+        if (onUpdateSection) {
+          sections.forEach((sec) => {
+            if (!sec.waypoints?.length) return;
+            onUpdateSection(sec.id, { waypoints: stripAndProjectSection(sec).waypoints });
+          });
+        }
       }
+
       setScale(1);
       setPosition({ x: 0, y: 0 });
+      preAmapViewportRef.current = { scale: 1, x: 0, y: 0 };
       setIsMapInteracting(false);
       clearImperativeGuides();
       closeAllFloatingMenus();
     }
     previousBaseMapModeRef.current = mapSettings.baseMap.mode;
   }, [isAmapMode, mapSettings.baseMap.mode]);
+
+  // 从纯画布 / 轻城市切入地理底图（或地理底图下存在尚未绑定经纬度的站点/拐点）时：
+  // 自动将画布点位映射为当前真实地图视野内的 WGS-84 经纬度，保证线网立即跟随地图平移与缩放！
+  useLayoutEffect(() => {
+    if (readOnly || !isAmapMode || !amapReady || !amapRef.current || isDocumentLoading) return;
+    const map = amapRef.current;
+    if (typeof map.containerToLngLat !== 'function') return;
+
+    const missingStation = stations.some(
+      (s) => typeof s.lng !== 'number' || !Number.isFinite(s.lng) || typeof s.lat !== 'number' || !Number.isFinite(s.lat)
+    );
+    const missingWaypoint = sections.some((sec) =>
+      (sec.waypoints || []).some(
+        (wp) =>
+          typeof wp.lng !== 'number' || !Number.isFinite(wp.lng) || typeof wp.lat !== 'number' || !Number.isFinite(wp.lat)
+      )
+    );
+    if (!missingStation && !missingWaypoint) return;
+
+    const hasAnyGeoStation = stations.some(
+      (s) => typeof s.lng === 'number' && Number.isFinite(s.lng) && typeof s.lat === 'number' && Number.isFinite(s.lat)
+    );
+
+    const viewW = Math.max(320, stageSize.width);
+    const viewH = Math.max(320, stageSize.height);
+    let toContainerPoint = (pt: { x: number; y: number }) => ({ x: pt.x, y: pt.y });
+
+    if (!hasAnyGeoStation) {
+      const vp = preAmapViewportRef.current;
+      const allRawPts: Array<{ x: number; y: number }> = [
+        ...stations.map((s) => ({ x: s.x, y: s.y })),
+        ...sections.flatMap((sec) => (sec.waypoints || []).map((wp) => ({ x: wp.x, y: wp.y })))
+      ];
+      if (allRawPts.length > 0) {
+        let minSx = Infinity;
+        let minSy = Infinity;
+        let maxSx = -Infinity;
+        let maxSy = -Infinity;
+        let minRx = Infinity;
+        let minRy = Infinity;
+        let maxRx = -Infinity;
+        let maxRy = -Infinity;
+        allRawPts.forEach((p) => {
+          const sx = p.x * vp.scale + vp.x;
+          const sy = p.y * vp.scale + vp.y;
+          minSx = Math.min(minSx, sx);
+          minSy = Math.min(minSy, sy);
+          maxSx = Math.max(maxSx, sx);
+          maxSy = Math.max(maxSy, sy);
+          minRx = Math.min(minRx, p.x);
+          minRy = Math.min(minRy, p.y);
+          maxRx = Math.max(maxRx, p.x);
+          maxRy = Math.max(maxRy, p.y);
+        });
+        const cx = (minSx + maxSx) / 2;
+        const cy = (minSy + maxSy) / 2;
+        const spanS = Math.max(maxSx - minSx, maxSy - minSy);
+        const fitsCurrentScreen =
+          cx >= viewW * 0.12 &&
+          cx <= viewW * 0.88 &&
+          cy >= viewH * 0.12 &&
+          cy <= viewH * 0.88 &&
+          spanS <= Math.max(viewW, viewH) * 1.35 &&
+          (allRawPts.length <= 1 || spanS >= 60);
+
+        if (fitsCurrentScreen) {
+          toContainerPoint = (p) => ({ x: p.x * vp.scale + vp.x, y: p.y * vp.scale + vp.y });
+        } else {
+          const rawW = Math.max(1, maxRx - minRx);
+          const rawH = Math.max(1, maxRy - minRy);
+          const fitScale =
+            allRawPts.length <= 1
+              ? 1
+              : Math.min((viewW * 0.66) / rawW, (viewH * 0.66) / rawH, 2.5);
+          const rcx = (minRx + maxRx) / 2;
+          const rcy = (minRy + maxRy) / 2;
+          toContainerPoint = (p) => ({
+            x: (p.x - rcx) * fitScale + viewW / 2,
+            y: (p.y - rcy) * fitScale + viewH / 2
+          });
+        }
+      }
+    }
+
+    const bindPointToGeo = <T extends { x: number; y: number; lng?: number; lat?: number }>(pt: T): T => {
+      if (typeof pt.lng === 'number' && Number.isFinite(pt.lng) && typeof pt.lat === 'number' && Number.isFinite(pt.lat)) {
+        return pt;
+      }
+      const cPt = toContainerPoint(pt);
+      const AMap = (window as any).AMap;
+      const pixelArg = AMap?.Pixel ? new AMap.Pixel(cPt.x, cPt.y) : cPt;
+      const ll = map.containerToLngLat(pixelArg);
+      if (!ll || !Number.isFinite(ll.lng) || !Number.isFinite(ll.lat)) return pt;
+      return {
+        ...pt,
+        x: Math.round(cPt.x * 10) / 10,
+        y: Math.round(cPt.y * 10) / 10,
+        lng: ll.lng,
+        lat: ll.lat
+      };
+    };
+
+    if (onApplyGraphTransaction) {
+      onApplyGraphTransaction(
+        (graph) => ({
+          ...graph,
+          stations: graph.stations.map(bindPointToGeo),
+          sections: graph.sections.map((sec) =>
+            sec.waypoints?.length
+              ? { ...sec, waypoints: sec.waypoints.map(bindPointToGeo) }
+              : sec
+          )
+        }),
+        { recordHistory: false }
+      );
+    } else {
+      if (missingStation) {
+        onUpdateStations?.(stations.map(bindPointToGeo));
+      }
+      if (missingWaypoint && onUpdateSection) {
+        sections.forEach((sec) => {
+          if (!sec.waypoints?.length) return;
+          onUpdateSection(sec.id, { waypoints: sec.waypoints.map(bindPointToGeo) });
+        });
+      }
+    }
+  }, [
+    readOnly,
+    isAmapMode,
+    amapReady,
+    isDocumentLoading,
+    stations,
+    sections,
+    stageSize.width,
+    stageSize.height,
+    amapRef,
+    onApplyGraphTransaction,
+    onUpdateStations,
+    onUpdateSection
+  ]);
 
   const startCanvasInteraction = () => {
     if (canvasInteractionEndTimerRef.current !== null) {
@@ -3781,7 +3968,7 @@ const Canvas: React.FC<CanvasProps> = ({
         <div
           ref={toolGroupRef}
           className="metro-tool-group"
-          data-active-tool={activeTool}
+          data-active-tool={terrainEditMode && activeTool !== 'pan' ? 'none' : activeTool}
           role="toolbar"
           aria-label="Canvas tools"
         >
@@ -3841,7 +4028,8 @@ const Canvas: React.FC<CanvasProps> = ({
               display: 'inline-flex',
               alignItems: 'center',
               gap: 5,
-              cursor: 'pointer'
+              cursor: 'pointer',
+              pointerEvents: 'auto'
             }}
             onClick={() => {
               setTerrainEditMode((prev) => {

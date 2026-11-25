@@ -475,6 +475,16 @@ export class GeoTileMap {
     this.emit('zoomend');
   }
 
+  setCenter(nextCenter: [number, number], _immediately?: boolean, _duration?: number) {
+    const nextLng = normalizeLng(nextCenter[0]);
+    const nextLat = clampLat(nextCenter[1]);
+    this.emit('movestart');
+    this.center = [nextLng, nextLat];
+    this.drawNow();
+    this.emit('mapmove');
+    this.emit('moveend');
+  }
+
   setZoomAndCenter(nextZoom: number, nextCenter: [number, number], _immediately?: boolean, _duration?: number) {
     const clampedZ = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Number(nextZoom) || this.zoom));
     const nextLng = normalizeLng(nextCenter[0]);
