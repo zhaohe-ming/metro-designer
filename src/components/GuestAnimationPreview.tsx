@@ -14,9 +14,10 @@ export default function GuestAnimationPreview({ open, onClose }: { open: boolean
     const draw = () => {
       const ctx = canvasRef.current?.getContext('2d');
       if (!ctx) { frame = requestAnimationFrame(draw); return; }
+      const isDark = typeof document !== 'undefined' && document.body?.dataset?.interfaceTheme === 'dark';
       const time = reducedMotion ? 7 : ((performance.now() - start) / 1000) % 9;
       ctx.clearRect(0, 0, 640, 560);
-      ctx.fillStyle = '#f8fbff'; ctx.fillRect(0, 0, 640, 560);
+      ctx.fillStyle = isDark ? '#0b1220' : '#f8fbff'; ctx.fillRect(0, 0, 640, 560);
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       sample.lines.forEach((line, index) => {
         const points = line.stationIds.map(id => sample.stations.find(station => station.id === id)!);
@@ -32,8 +33,8 @@ export default function GuestAnimationPreview({ open, onClose }: { open: boolean
         points.forEach((point, i) => {
           if (i > count || progress === 0) return;
           ctx.beginPath(); ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
-          ctx.fillStyle = '#0f172a'; ctx.font = '15px sans-serif'; ctx.fillText(point.name, point.x + 10, point.y - 12);
+          ctx.fillStyle = isDark ? '#0f172a' : '#fff'; ctx.fill(); ctx.lineWidth = 2; ctx.stroke();
+          ctx.fillStyle = isDark ? '#f8fafc' : '#0f172a'; ctx.font = '15px sans-serif'; ctx.fillText(point.name, point.x + 10, point.y - 12);
         });
       });
       if (!reducedMotion) frame = requestAnimationFrame(draw);

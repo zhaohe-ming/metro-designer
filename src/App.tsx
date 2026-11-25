@@ -767,6 +767,7 @@ const App: React.FC = () => {
   }, [interfaceTheme]);
 
   useEffect(() => {
+    document.documentElement.dataset.interfaceTheme = resolvedInterfaceTheme;
     document.body.dataset.interfaceTheme = resolvedInterfaceTheme;
   }, [resolvedInterfaceTheme]);
 
@@ -2914,7 +2915,7 @@ const App: React.FC = () => {
     }
     setGuestInitialViewport(undefined);navigatePublic('/');message.success('副本已打开，可以继续设计');
   };
-  if (publicRoute) return <ConfigProvider theme={{token:{colorPrimary:'#2563eb',borderRadius:8,fontFamily:'Inter, PingFang SC, Microsoft YaHei, sans-serif'}}}><AntdApp>
+  if (publicRoute) return <ConfigProvider theme={antdThemeConfig}><AntdApp className="metro-antd-root" data-interface-theme={resolvedInterfaceTheme}>
     <GalleryPage path={publicPath} user={userProfile} onNavigate={navigatePublic} onEditor={returnToEditor} onAuthenticated={handleAuthenticated} onCopy={copyPublicWork}/>
   </AntdApp></ConfigProvider>;
 
@@ -3471,7 +3472,7 @@ const App: React.FC = () => {
           open={lightCityPickerOpen}
           initialArchetype={mapSettings.baseMap.lightCity?.archetype || 'river'}
           initialSeed={mapSettings.baseMap.lightCity?.seed}
-          isDark={mapSettings.canvasTheme === 'dark'}
+          isDark={resolvedInterfaceTheme === 'dark' || mapSettings.canvasTheme === 'dark'}
           language={language}
           onCancel={() => setLightCityPickerOpen(false)}
           onConfirm={(archetype: LightCityArchetype, seed: number, openSculptImmediately: boolean) => {
@@ -3814,9 +3815,9 @@ const App: React.FC = () => {
                                   fontSize: 12.5,
                                   fontWeight: 600,
                                   cursor: 'pointer',
-                                  border: active ? '1px solid #2563eb' : '1px solid var(--color-border, #cbd5e1)',
-                                  background: active ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
-                                  color: active ? '#2563eb' : 'var(--color-text-muted, #64748b)'
+                                  border: active ? '1px solid var(--color-primary-500, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                                  background: active ? 'rgba(59, 130, 246, 0.14)' : 'transparent',
+                                  color: active ? 'var(--color-primary-500, #2563eb)' : 'var(--color-text-muted, #64748b)'
                                 }}
                               >
                                 {active ? '✓ ' : ''}

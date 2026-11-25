@@ -177,9 +177,9 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
                         fontSize: 12.5,
                         fontWeight: active ? 600 : 500,
                         cursor: 'pointer',
-                        border: active ? '1px solid #2563eb' : '1px solid var(--color-border, #cbd5e1)',
-                        background: active ? 'rgba(37, 99, 235, 0.10)' : 'transparent',
-                        color: active ? '#2563eb' : 'inherit'
+                        border: active ? '1px solid var(--color-primary-500, #2563eb)' : '1px solid var(--color-border, #cbd5e1)',
+                        background: active ? 'rgba(59, 130, 246, 0.14)' : 'transparent',
+                        color: active ? 'var(--color-primary-500, #2563eb)' : 'var(--color-text, inherit)'
                       }}
                     >
                       {preset.label}

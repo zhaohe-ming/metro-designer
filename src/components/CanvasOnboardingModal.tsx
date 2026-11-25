@@ -40,16 +40,16 @@ const TourIllustration: React.FC<{ step: number }> = ({ step }) => {
       <svg className="metro-onboard-svg" viewBox="0 0 380 160" aria-hidden="true">
         <defs>
           <pattern id="onbGrid0" width="20" height="20" patternUnits="userSpaceOnUse">
-            <circle cx="2" cy="2" r="1" fill="#cbd5e1" opacity="0.6" />
+            <circle cx="2" cy="2" r="1" fill="#94a3b8" opacity="0.45" />
           </pattern>
         </defs>
-        <rect width="380" height="160" rx="12" fill="#f8fafc" />
+        <rect className="metro-onboard-svg__bg" width="380" height="160" rx="12" fill="#f8fafc" />
         <rect width="380" height="160" rx="12" fill="url(#onbGrid0)" />
         <path d="M 56 98 L 166 98 L 280 98" stroke="#2563eb" strokeWidth="5" strokeLinecap="round" fill="none" />
         <path
           className="metro-onboard-anim-dash"
           d="M 166 98 L 240 42"
-          stroke="#2563eb"
+          stroke="#3b82f6"
           strokeWidth="3.5"
           strokeDasharray="6 6"
           strokeLinecap="round"
@@ -69,11 +69,11 @@ const TourIllustration: React.FC<{ step: number }> = ({ step }) => {
         <circle cx="166" cy="98" r="7.5" fill="#ffffff" stroke="#0f172a" strokeWidth="2.5" />
         <circle cx="280" cy="98" r="7" fill="#2563eb" stroke="#ffffff" strokeWidth="2.5" />
         <circle cx="240" cy="42" r="6.5" fill="#93c5fd" stroke="#2563eb" strokeWidth="2" strokeDasharray="3 2" />
-        <text x="56" y="124" textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">起点站</text>
-        <text x="166" y="124" textAnchor="middle" fontSize="11" fontWeight="700" fill="#1d4ed8">点此起笔拉支线</text>
-        <text x="280" y="124" textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">右键抬笔</text>
-        <rect x="248" y="26" width="88" height="22" rx="11" fill="#eff6ff" stroke="#bfdbfe" />
-        <text x="292" y="41" textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#1d4ed8">左键继续连站</text>
+        <text className="metro-onboard-svg__ink" x="56" y="124" textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">起点站</text>
+        <text className="metro-onboard-svg__accent" x="166" y="124" textAnchor="middle" fontSize="11" fontWeight="700" fill="#1d4ed8">点此起笔拉支线</text>
+        <text className="metro-onboard-svg__ink" x="280" y="124" textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">右键抬笔</text>
+        <rect className="metro-onboard-svg__pill" x="248" y="26" width="88" height="22" rx="11" fill="#eff6ff" stroke="#bfdbfe" />
+        <text className="metro-onboard-svg__accent" x="292" y="41" textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#1d4ed8">左键继续连站</text>
       </svg>
     );
   }
@@ -81,7 +81,7 @@ const TourIllustration: React.FC<{ step: number }> = ({ step }) => {
   if (step === 1) {
     return (
       <svg className="metro-onboard-svg" viewBox="0 0 380 160" aria-hidden="true">
-        <rect width="380" height="160" rx="12" fill="#f8fafc" />
+        <rect className="metro-onboard-svg__bg" width="380" height="160" rx="12" fill="#f8fafc" />
         <path d="M 60 118 L 188 34 L 318 118" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="4 4" fill="none" />
         <path
           d="M 60 118 L 130 72 Q 188 34 246 72 L 318 118"
@@ -95,8 +95,8 @@ const TourIllustration: React.FC<{ step: number }> = ({ step }) => {
         <circle cx="318" cy="118" r="7" fill="#e11d48" stroke="#ffffff" strokeWidth="2.5" />
         <circle cx="188" cy="34" r="6" fill="#ffffff" stroke="#2563eb" strokeWidth="2.2" />
         <circle cx="188" cy="64" r="6.5" fill="#f59e0b" stroke="#ffffff" strokeWidth="2" className="metro-onboard-anim-bob" />
-        <rect x="204" y="51" width="136" height="24" rx="12" fill="#fffbeb" stroke="#fde68a" />
-        <text x="272" y="67" textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#b45309">右键选调整圆弧 · 拖拉杆</text>
+        <rect className="metro-onboard-svg__amber-pill" x="204" y="51" width="136" height="24" rx="12" fill="#fffbeb" stroke="#fde68a" />
+        <text className="metro-onboard-svg__amber-ink" x="272" y="67" textAnchor="middle" fontSize="10.5" fontWeight="600" fill="#b45309">右键选调整圆弧 · 拖拉杆</text>
       </svg>
     );
   }
@@ -104,30 +104,30 @@ const TourIllustration: React.FC<{ step: number }> = ({ step }) => {
   if (step === 2) {
     return (
       <svg className="metro-onboard-svg" viewBox="0 0 380 160" aria-hidden="true">
-        <rect width="380" height="160" rx="12" fill="#f8fafc" />
+        <rect className="metro-onboard-svg__bg" width="380" height="160" rx="12" fill="#f8fafc" />
         <path d="M 52 98 L 190 98 L 328 98" stroke="#0d9488" strokeWidth="5" strokeLinecap="round" fill="none" />
         <circle cx="52" cy="98" r="7" fill="#0d9488" stroke="#ffffff" strokeWidth="2.5" />
         <circle cx="190" cy="98" r="8" fill="#ffffff" stroke="#0d9488" strokeWidth="3" />
         <circle cx="328" cy="98" r="7" fill="#0d9488" stroke="#ffffff" strokeWidth="2.5" />
-        <rect x="126" y="42" width="128" height="32" rx="10" fill="#ffffff" stroke="#3b82f6" strokeWidth="1.6" />
-        <text x="178" y="62" textAnchor="middle" fontSize="12" fontWeight="600" fill="#0f172a">人民广场</text>
-        <rect x="218" y="48" width="28" height="20" rx="6" fill="#eff6ff" />
-        <text x="232" y="62" textAnchor="middle" fontSize="10" fontWeight="700" fill="#2563eb">EN</text>
-        <text x="190" y="126" textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">双击线段补站 · 双击站点原地改名</text>
+        <rect className="metro-onboard-svg__card" x="126" y="42" width="128" height="32" rx="10" fill="#ffffff" stroke="#3b82f6" strokeWidth="1.6" />
+        <text className="metro-onboard-svg__ink-strong" x="178" y="62" textAnchor="middle" fontSize="12" fontWeight="600" fill="#0f172a">人民广场</text>
+        <rect className="metro-onboard-svg__pill" x="218" y="48" width="28" height="20" rx="6" fill="#eff6ff" />
+        <text className="metro-onboard-svg__accent" x="232" y="62" textAnchor="middle" fontSize="10" fontWeight="700" fill="#2563eb">EN</text>
+        <text className="metro-onboard-svg__ink" x="190" y="126" textAnchor="middle" fontSize="11" fontWeight="600" fill="#334155">双击线段补站 · 双击站点原地改名</text>
       </svg>
     );
   }
 
   return (
     <svg className="metro-onboard-svg" viewBox="0 0 380 160" aria-hidden="true">
-      <rect width="380" height="160" rx="12" fill="#f8fafc" />
+      <rect className="metro-onboard-svg__bg" width="380" height="160" rx="12" fill="#f8fafc" />
       <rect
         x="76"
         y="30"
         width="180"
         height="96"
         rx="8"
-        fill="rgba(37, 99, 235, 0.08)"
+        fill="rgba(59, 130, 246, 0.12)"
         stroke="#3b82f6"
         strokeWidth="1.5"
         strokeDasharray="5 4"
@@ -139,10 +139,10 @@ const TourIllustration: React.FC<{ step: number }> = ({ step }) => {
       <circle cx="166" cy="56" r="11" fill="none" stroke="#3b82f6" strokeWidth="1.8" />
       <circle cx="230" cy="88" r="7" fill="#7c3aed" stroke="#ffffff" strokeWidth="2" />
       <circle cx="230" cy="88" r="11" fill="none" stroke="#3b82f6" strokeWidth="1.8" />
-      <rect x="270" y="48" width="88" height="26" rx="8" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="314" y="65" textAnchor="middle" fontSize="11" fontWeight="700" fill="#334155">Space 抓手</text>
-      <rect x="270" y="84" width="88" height="26" rx="8" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="314" y="101" textAnchor="middle" fontSize="11" fontWeight="700" fill="#334155">Ctrl+F 搜站</text>
+      <rect className="metro-onboard-svg__card" x="270" y="48" width="88" height="26" rx="8" fill="#ffffff" stroke="#cbd5e1" />
+      <text className="metro-onboard-svg__ink" x="314" y="65" textAnchor="middle" fontSize="11" fontWeight="700" fill="#334155">Space 抓手</text>
+      <rect className="metro-onboard-svg__card" x="270" y="84" width="88" height="26" rx="8" fill="#ffffff" stroke="#cbd5e1" />
+      <text className="metro-onboard-svg__ink" x="314" y="101" textAnchor="middle" fontSize="11" fontWeight="700" fill="#334155">Ctrl+F 搜站</text>
     </svg>
   );
 };

@@ -8,6 +8,7 @@ import { buildCurvedArrowPath, planInterchange } from './interchange';
 import { buildSectionRenderGeometry, computeNetworkParallelLayout } from './offsetPath';
 import { deriveLineTopology } from './graphOps';
 import { buildLightCitySvgLayer, getLightCityPalette } from './lightCity';
+import { resolveLineBadgeColors, resolveReadableStationLabelColor } from './canvasTheme';
 
 function escapeXml(raw: string): string {
   return String(raw)
@@ -82,7 +83,8 @@ export function buildMetroSvg(params: {
   const stylePreset = getCityStylePreset(mapSettings);
   const stationStrokeBg = isDark ? '#0f172a' : '#ffffff';
   const labelHalo = isDark ? '#0b1220' : '#ffffff';
-  const labelColor = isDark ? '#f1f5f9' : mapSettings.dotLabelStyle.color || '#0f172a';
+  const labelColor = resolveReadableStationLabelColor(mapSettings.dotLabelStyle.color, isDark, '#0f172a', '#f1f5f9');
+  const lineBadgeColors = resolveLineBadgeColors(stylePreset.lineLabelFill, stylePreset.lineLabelText, isDark);
   const darkOutline = isDark ? '#f8fafc' : '#0f172a';
 
   const stationById = new Map<string, Station>();
@@ -353,8 +355,8 @@ export function buildMetroSvg(params: {
 
       pillSvgElements.push(
         `  <g>`,
-        `    <rect x="${fmt(rx)}" y="${fmt(ry)}" width="${fmt(pw)}" height="${fmt(ph)}" rx="${fmt(ph / 2)}" fill="${escapeXml(stylePreset.lineLabelFill)}" stroke="${escapeXml(line.color)}" stroke-width="${fmt(stylePreset.lineLabelStrokeWidth)}" />`,
-        `    <text x="${fmt(cx)}" y="${fmt(cy + pFont * 0.35)}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="${fmt(pFont)}" font-weight="${stylePreset.lineLabelFontWeight}" fill="${escapeXml(stylePreset.lineLabelText)}">${escapeXml(labelText)}</text>`,
+        `    <rect x="${fmt(rx)}" y="${fmt(ry)}" width="${fmt(pw)}" height="${fmt(ph)}" rx="${fmt(ph / 2)}" fill="${escapeXml(lineBadgeColors.fill)}" stroke="${escapeXml(line.color)}" stroke-width="${fmt(stylePreset.lineLabelStrokeWidth)}" />`,
+        `    <text x="${fmt(cx)}" y="${fmt(cy + pFont * 0.35)}" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="${fmt(pFont)}" font-weight="${stylePreset.lineLabelFontWeight}" fill="${escapeXml(lineBadgeColors.text)}">${escapeXml(labelText)}</text>`,
         `  </g>`
       );
     });

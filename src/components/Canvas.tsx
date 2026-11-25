@@ -65,6 +65,7 @@ import {
 } from '../lib/lightCity';
 import { LightCitySculptBar, TerrainTool } from './LightCityPanel';
 import { getCityStylePreset } from '../stylePresets';
+import { resolveLineBadgeColors, resolveReadableStationLabelColor } from '../lib/canvasTheme';
 import { planInterchange, buildCurvedArrowPath } from '../lib/interchange';
 import {
   computeCornerHandleInfo,
@@ -3517,12 +3518,25 @@ const Canvas: React.FC<CanvasProps> = ({
   const skipHeavyLayout = isMapInteracting || isDraggingNode;
   const isMutedAmapStyle = isAmapMode && (amapStyle === 'dark' || amapStyle === 'grey');
   const isFreshAmapStyle = isAmapMode && amapStyle === 'fresh';
+  const usesDarkLabelSurface = isMutedAmapStyle || (!isFreshAmapStyle && isDarkCanvas);
   const readableLabelText = isMutedAmapStyle
     ? '#ffffff'
     : isFreshAmapStyle
       ? '#0f172a'
-      : dotLabelStyle.color || canvasPalette.labelText;
-  const readableLabelShadow = isMutedAmapStyle ? 'rgba(0, 0, 0, 0.92)' : 'rgba(255, 255, 255, 0.98)';
+      : resolveReadableStationLabelColor(
+          dotLabelStyle.color,
+          isDarkCanvas,
+          '#0f172a',
+          canvasPalette.labelText
+        );
+  const readableLabelShadow = usesDarkLabelSurface
+    ? 'rgba(2, 6, 23, 0.94)'
+    : 'rgba(255, 255, 255, 0.98)';
+  const lineBadgeColors = resolveLineBadgeColors(
+    stylePreset.lineLabelFill,
+    stylePreset.lineLabelText,
+    isMutedAmapStyle || (!isAmapMode && isDarkCanvas)
+  );
 
   const currentLine = currentLineId ? lineById.get(currentLineId) || null : null;
   const suppressShadows = isLightRender || isLargeGraph;
@@ -4182,7 +4196,12 @@ const Canvas: React.FC<CanvasProps> = ({
         />
       )}
 
-      {!canvasSceneReady && (
+      {!canvasSceneReady && (() => {
+        const darkLoadingSurface =
+          isDarkCanvas ||
+          (isAmapMode && amapStyle === 'dark') ||
+          (typeof document !== 'undefined' && document.body?.dataset?.interfaceTheme === 'dark');
+        return (
         <div
           role="status"
           aria-live="polite"
@@ -4193,8 +4212,8 @@ const Canvas: React.FC<CanvasProps> = ({
             zIndex: 1001,
             display: 'grid',
             placeItems: 'center',
-            background: isAmapMode && amapStyle === 'dark' ? '#151c25' : '#f1f5f9',
-            color: isAmapMode && amapStyle === 'dark' ? '#e2e8f0' : '#475569'
+            background: darkLoadingSurface ? '#0b1220' : '#f1f5f9',
+            color: darkLoadingSurface ? '#e2e8f0' : '#475569'
           }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, maxWidth: 440, padding: 28, fontSize: 15 }}>
@@ -4202,7 +4221,8 @@ const Canvas: React.FC<CanvasProps> = ({
             <span>{amapError || (isEn ? 'Loading map and network…' : '正在加载地图与线网…')}</span>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* 左上角三态主工具栏 + 绘制子控制栏 + 多选批量栏（彻底移除冗长常驻灰字提示） */}
       <div className="metro-canvas-tools">
@@ -4252,23 +4272,7 @@ const Canvas: React.FC<CanvasProps> = ({
         {!readOnly && isLightCityMode && !terrainEditMode && (
           <button
             type="button"
-            className="metro-draw-subbar__pill"
-            style={{
-              height: 36,
-              padding: '0 13px',
-              borderRadius: 999,
-              border: '1px solid rgba(148, 163, 184, 0.35)',
-              background: isDarkCanvas ? 'rgba(15, 23, 42, 0.92)' : 'rgba(255, 255, 255, 0.94)',
-              color: isDarkCanvas ? '#e2e8f0' : '#0f172a',
-              boxShadow: '0 4px 16px rgba(15, 23, 42, 0.08)',
-              fontWeight: 600,
-              fontSize: 12.5,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              cursor: 'pointer',
-              pointerEvents: 'auto'
-            }}
+            className="metro-draw-subbar__pill metro-lightcity-entry-btn"
             onClick={() => {
               liftDrawingPen();
               setSelectedStationIds(new Set());
@@ -5163,7 +5167,7 @@ const Canvas: React.FC<CanvasProps> = ({
                     width={label.width}
                     height={label.height}
                     cornerRadius={label.height / 2}
-                    fill={isMutedAmapStyle ? 'rgba(255,255,255,0.94)' : stylePreset.lineLabelFill}
+                    fill={lineBadgeColors.fill}
                     stroke={label.line.color}
                     strokeWidth={isAmapMode ? Math.max(1.5, scaledLineLabelStrokeWidth) : scaledLineLabelStrokeWidth}
                     shadowColor={label.line.color}
@@ -5180,7 +5184,7 @@ const Canvas: React.FC<CanvasProps> = ({
                     wrap="none"
                     fontSize={scaledLineLabelFontSize}
                     fontStyle={`${stylePreset.lineLabelFontWeight}`}
-                    fill={isMutedAmapStyle ? '#0f172a' : stylePreset.lineLabelText}
+                    fill={lineBadgeColors.text}
                     perfectDrawEnabled={false}
                   />
                 </Group>
@@ -5212,7 +5216,7 @@ const Canvas: React.FC<CanvasProps> = ({
                       x={waypointPoint.x}
                       y={waypointPoint.y}
                       radius={isSelectedWp ? scaledWaypointRadius * 1.22 : scaledWaypointRadius}
-                      fill={isSelectedWp ? '#eff6ff' : canvasPalette.waypointFill}
+                      fill={isSelectedWp ? (isDarkCanvas ? '#1e3a8a' : '#eff6ff') : canvasPalette.waypointFill}
                       stroke={pt.mode === 'arc' ? '#f59e0b' : canvasPalette.waypointStroke}
                       strokeWidth={isSelectedWp ? scaledWaypointStrokeWidth * 1.35 : scaledWaypointStrokeWidth}
                       hitStrokeWidth={14 / Math.max(0.35, viewportScaleForHit)}
@@ -5665,7 +5669,7 @@ const Canvas: React.FC<CanvasProps> = ({
                 y={0}
                 visible={false}
                 radius={scaledWaypointRadius * 1.15}
-                fill="#eff6ff"
+                fill={isDarkCanvas ? '#1e3a8a' : '#eff6ff'}
                 stroke={canvasPalette.waypointStroke}
                 strokeWidth={scaledWaypointStrokeWidth}
                 listening={false}
@@ -5695,7 +5699,7 @@ const Canvas: React.FC<CanvasProps> = ({
                         x={p.x}
                         y={p.y}
                         radius={scaledWaypointRadius * 0.9}
-                        fill="#ffffff"
+                        fill={canvasPalette.waypointFill}
                         stroke={currentLine?.color || '#2563eb'}
                         strokeWidth={2}
                         listening={false}

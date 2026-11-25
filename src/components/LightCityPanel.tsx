@@ -128,8 +128,9 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
                   padding: 10,
                   borderRadius: 14,
                   cursor: 'pointer',
-                  border: active ? '2px solid #2563eb' : '1px solid var(--color-border, #e2e8f0)',
-                  background: active ? 'rgba(37, 99, 235, 0.05)' : 'var(--color-surface-subtle, #f8fafc)',
+                  color: 'var(--color-text, #0f172a)',
+                  border: active ? '2px solid var(--color-primary-500, #2563eb)' : '1px solid var(--color-border, #e2e8f0)',
+                  background: active ? 'rgba(59, 130, 246, 0.12)' : 'var(--color-surface-subtle, #f8fafc)',
                   transition: 'border-color 140ms ease, transform 140ms ease'
                 }}
               >
@@ -147,7 +148,7 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
                   }}
                 >
                   {meta.id === 'custom' ? (
-                    <span style={{ fontSize: 12, fontWeight: 600, color: '#64748b' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: isDark ? '#94a3b8' : '#64748b' }}>
                       {isEn ? '+ Freehand Terrain Canvas' : '+ 纯手绘自由造景画布'}
                     </span>
                   ) : (

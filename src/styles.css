@@ -14,14 +14,16 @@
   --color-primary-700: #1d4ed8;
 
   /* 文本三档（偏暖的墨灰） */
-  --color-text:       #0f172a;
-  --color-text-soft:  #475569;
-  --color-text-muted: #64748b;
+  --color-text:           #0f172a;
+  --color-text-soft:      #475569;
+  --color-text-secondary: #475569;
+  --color-text-muted:     #64748b;
 
   /* 表面 + 底盘（雾灰蓝一体底盘 + 纯白悬浮画布，中性冷灰弱边框） */
   --color-bg:             #e9eef5;
   --color-surface:        #ffffff;
   --color-surface-muted:  #f2f5fa;
+  --color-surface-subtle: #f8fafc;
   --color-border:         rgba(15, 23, 42, 0.08);
   --color-border-strong:  rgba(15, 23, 42, 0.16);
   --color-border-subtle:  rgba(15, 23, 42, 0.045);
@@ -229,12 +231,38 @@ body {
 
 .metro-app-shell[data-interface-theme="dark"] .metro-command-bar__row,
 .metro-app-shell[data-interface-theme="dark"] .metro-command-bar__feedback,
-.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__chip {
-  background: rgba(17, 24, 39, 0.94);
-  border-color: #29364d;
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__chip,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__row,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__feedback,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__chip {
+  background: rgba(15, 23, 42, 0.94);
+  border-color: rgba(148, 163, 184, 0.24);
   color: #dbeafe;
 }
-.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__input { color: #f8fafc; }
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__feedback.is-ok,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__feedback.is-ok {
+  color: #e2e8f0;
+}
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__feedback.is-error,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__feedback.is-error {
+  background: rgba(127, 29, 29, 0.88);
+  border-color: rgba(248, 113, 113, 0.42);
+  color: #fecaca;
+}
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__ai-btn,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__ai-btn {
+  background: rgba(37, 99, 235, 0.24);
+  border-color: rgba(96, 165, 250, 0.42);
+  color: #93c5fd;
+}
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__ai-btn:hover,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__ai-btn:hover {
+  background: rgba(37, 99, 235, 0.36);
+}
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__input,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__input { color: #f8fafc; }
+.metro-app-shell[data-interface-theme="dark"] .metro-command-bar__input::placeholder,
+.metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__input::placeholder { color: #94a3b8; }
 
 .metro-app-shell {
   /* 桌面端锁死视口高度：整页不上下滚动，由各内部区域（侧栏 list、画布）自己处理超长内容。
@@ -1732,20 +1760,36 @@ body {
   margin: 4px 4px 2px;
 }
 
+:root[data-interface-theme="dark"],
+body[data-interface-theme="dark"],
 .metro-app-shell[data-interface-theme="dark"] {
-  /* 重写 canonical tokens；--metro-* 别名通过 :root 里的 var() 引用自动跟着切 */
+  /* 统一重定义根级与 Portal 继承链的 canonical tokens 与 --metro-* 别名，确保 Modal / Dropdown 等全部 Portal 继承深色变量 */
   --color-bg:             #0f172a;
   --color-surface:        #111827;
   --color-surface-muted:  #172033;
+  --color-surface-subtle: #172033;
   --color-border:         #29364d;
   --color-border-strong:  #3b82f6;
+  --color-border-subtle:  rgba(148, 163, 184, 0.14);
   --color-text:           #f8fafc;
-  --color-text-soft:      #dbeafe;
+  --color-text-soft:      #cbd5e1;
+  --color-text-secondary: #cbd5e1;
   --color-text-muted:     #94a3b8;
   --color-primary-50:     rgba(59, 130, 246, 0.18);
+  --color-primary-100:    rgba(59, 130, 246, 0.28);
   --color-primary-500:    #60a5fa;
   --color-primary-600:    #3b82f6;
-  --color-primary-700:    #2563eb;
+  --color-primary-700:    #93c5fd;
+  --metro-bg:             #0f172a;
+  --metro-surface:        #111827;
+  --metro-surface-muted:  #172033;
+  --metro-border:         #29364d;
+  --metro-border-strong:  #3b82f6;
+  --metro-text:           #cbd5e1;
+  --metro-text-soft:      #94a3b8;
+  --metro-heading:        #f8fafc;
+  --metro-blue:           #3b82f6;
+  --metro-blue-soft:      rgba(59, 130, 246, 0.18);
   background: var(--color-bg);
 }
 
@@ -1879,13 +1923,13 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-color-picker-tri
 }
 
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper) {
-  background: #f8fafc !important;
-  border-color: #cbd5e1 !important;
-  color: #334155 !important;
+  background: #172033 !important;
+  border-color: #29364d !important;
+  color: #cbd5e1 !important;
 }
 
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper:not(.ant-radio-button-wrapper-checked):hover) {
-  color: #1d4ed8 !important;
+  color: #f8fafc !important;
 }
 
 body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wrapper-checked) {
@@ -3155,17 +3199,20 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   margin-top: var(--space-2);
 }
 
-/* 深色模式：分隔线 + 只读字段稍微反相 */
+/* 深色模式：分隔线 + 只读字段稍微反相（同时覆盖 Portal 挂载在 body 下的 DraggableModal） */
+body[data-interface-theme="dark"] .metro-profile-identity,
 .metro-app-shell[data-interface-theme="dark"] .metro-profile-identity {
   border-bottom-color: rgba(148, 163, 184, 0.24);
 }
 
+body[data-interface-theme="dark"] .metro-profile-field__value,
 .metro-app-shell[data-interface-theme="dark"] .metro-profile-field__value {
   border-color: rgba(148, 163, 184, 0.24);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.04);
   color: #cbd5e1;
 }
 
+body[data-interface-theme="dark"] .metro-profile-actions,
 .metro-app-shell[data-interface-theme="dark"] .metro-profile-actions {
   border-top-color: rgba(148, 163, 184, 0.24);
 }
@@ -3887,10 +3934,20 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
   .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"],
   .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="3"] .metro-tool-button[data-tool-index="3"],
   .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="4"] .metro-tool-button[data-tool-index="4"] { color: #fff !important; }
-  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group {
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group,
+  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group {
     --phone-tools-solid: #172033; --phone-tools-surface: rgba(17, 24, 39, 0.9);
     --phone-tools-edge: rgba(153, 182, 222, 0.28);
     box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.13), 0 10px 26px rgba(0, 0, 0, 0.22) !important;
+  }
+  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-button:not(.is-active) {
+    color: #cbd5e1;
+  }
+  .metro-canvas-surface.is-canvas-dark .metro-touch-hint span,
+  .metro-canvas-surface.is-canvas-dark .metro-touch-hint button {
+    background: rgba(15, 23, 42, 0.92);
+    border-color: rgba(148, 163, 184, 0.28);
+    color: #e2e8f0;
   }
   .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(248, 251, 255, 0.93); }
   .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(17, 24, 39, 0.95); }
@@ -6123,6 +6180,7 @@ body[data-interface-theme="dark"] .metro-ai-send-btn:disabled {
   .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group,
   .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group,
   .metro-app-shell[data-interface-theme="dark"] .metro-command-bar__row,
+  .metro-canvas-surface.is-canvas-dark ~ .metro-command-bar .metro-command-bar__row,
   .metro-app-shell[data-interface-theme="dark"] .metro-canvas-hud,
   .metro-canvas-surface.is-canvas-dark .metro-canvas-hud {
     background: rgba(15, 23, 42, 0.88) !important;
@@ -8011,6 +8069,110 @@ body[data-interface-theme="dark"] .metro-elastic-tabs__badge,
   color: #93c5fd;
 }
 
+.metro-lightcity-entry-btn {
+  height: 36px;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+  font-weight: 600;
+  font-size: 12.5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-lightcity-entry-btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-lightcity-entry-btn {
+  background: rgba(15, 23, 42, 0.92) !important;
+  border-color: rgba(148, 163, 184, 0.28) !important;
+  color: #e2e8f0 !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.32);
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-lightcity-entry-btn:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-lightcity-entry-btn:hover {
+  background: rgba(30, 41, 59, 0.96) !important;
+  color: #ffffff !important;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-multiselect-bar__btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-multiselect-bar__btn {
+  background: rgba(255, 255, 255, 0.1);
+  color: #e2e8f0;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-multiselect-bar__btn--danger,
+.metro-app-shell[data-interface-theme="dark"] .metro-multiselect-bar__btn--danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-multiselect-bar__btn--danger:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-multiselect-bar__btn--danger:hover {
+  background: rgba(239, 68, 68, 0.3);
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-inline-rename__btn:not(.metro-inline-rename__btn--ok),
+.metro-app-shell[data-interface-theme="dark"] .metro-inline-rename__btn:not(.metro-inline-rename__btn--ok) {
+  background: rgba(59, 130, 246, 0.22);
+  color: #93c5fd;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-inline-rename__btn:not(.metro-inline-rename__btn--ok):hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-inline-rename__btn:not(.metro-inline-rename__btn--ok):hover {
+  background: rgba(59, 130, 246, 0.34);
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__slider-row,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__slider-row {
+  color: #cbd5e1;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__hint,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__hint {
+  color: #94a3b8;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__icon-btn,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__icon-btn {
+  color: #94a3b8;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__icon-btn:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-wp-arc-bar__icon-btn.is-danger:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-wp-arc-bar__icon-btn.is-danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__mini-btn:hover,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__mini-btn:hover {
+  background: rgba(59, 130, 246, 0.24);
+  color: #93c5fd;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-floating-menu__mini-btn.is-danger,
+.metro-app-shell[data-interface-theme="dark"] .metro-floating-menu__mini-btn.is-danger {
+  color: #f87171;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-label-pos-chip.is-active,
+.metro-app-shell[data-interface-theme="dark"] .metro-label-pos-chip.is-active {
+  border-color: #60a5fa;
+  background: rgba(59, 130, 246, 0.24);
+  color: #93c5fd;
+}
+
 body[data-interface-theme="dark"] .metro-onboard-dialog {
   background: #0f172a;
   border-color: rgba(148, 163, 184, 0.25);
@@ -8019,6 +8181,78 @@ body[data-interface-theme="dark"] .metro-onboard-dialog {
 body[data-interface-theme="dark"] .metro-onboard,
 body[data-interface-theme="dark"] .metro-onboard__title,
 body[data-interface-theme="dark"] .metro-onboard__group-title {
+  color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__close {
+  color: #94a3b8;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg {
+  border-color: rgba(148, 163, 184, 0.22);
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__bg {
+  fill: #172033;
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__card {
+  fill: #0f172a;
+  stroke: rgba(148, 163, 184, 0.34);
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__pill {
+  fill: rgba(37, 99, 235, 0.24);
+  stroke: rgba(96, 165, 250, 0.45);
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__amber-pill {
+  fill: rgba(245, 158, 11, 0.18);
+  stroke: rgba(251, 191, 36, 0.42);
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__amber-ink {
+  fill: #fcd34d;
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__ink {
+  fill: #cbd5e1;
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__ink-strong {
+  fill: #f8fafc;
+}
+
+body[data-interface-theme="dark"] .metro-onboard-svg__accent {
+  fill: #93c5fd;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__badge {
+  background: rgba(37, 99, 235, 0.22);
+  color: #93c5fd;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__footer {
+  border-top-color: rgba(148, 163, 184, 0.18);
+}
+
+body[data-interface-theme="dark"] .metro-onboard__dot:not(.is-active) {
+  background: #475569;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__btn--ghost {
+  background: #1e293b;
+  border-color: rgba(148, 163, 184, 0.26);
+  color: #cbd5e1;
+}
+
+body[data-interface-theme="dark"] .metro-onboard__btn--ghost:hover {
+  background: #334155;
   color: #f8fafc;
 }
 
