@@ -84,9 +84,9 @@ export type AmapBaseMapSettings = {
   coordSystem?: GeoCoordSystem;
 };
 
-export type LightCityArchetype = 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'custom';
+export type LightCityArchetype = 'london' | 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'custom';
 export type LightCityZoneKind = 'urban' | 'park' | 'island';
-export type LightCityRoadKind = 'express' | 'arterial';
+export type LightCityRoadKind = 'express' | 'arterial' | 'street';
 export type LightCityLabelKind = 'district' | 'subdistrict' | 'water';
 
 export interface LightCityPoint {
@@ -247,7 +247,7 @@ const normalizeLightCityPoint = (raw: any): LightCityPoint | null => {
 export const normalizeLightCitySettings = (raw: unknown): LightCitySettings | undefined => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const src = raw as Partial<LightCitySettings>;
-  const archetypes: LightCityArchetype[] = ['river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
+  const archetypes: LightCityArchetype[] = ['london', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
   const archetype: LightCityArchetype = archetypes.includes(src.archetype as LightCityArchetype)
     ? (src.archetype as LightCityArchetype)
     : 'river';
@@ -262,7 +262,7 @@ export const normalizeLightCitySettings = (raw: unknown): LightCitySettings | un
   };
 
   const usedIds = new Set<string>();
-  const rawFeatures = Array.isArray(src.features) ? src.features.slice(0, 600) : [];
+  const rawFeatures = Array.isArray(src.features) ? src.features.slice(0, 2500) : [];
   const features: LightCityFeature[] = [];
 
   rawFeatures.forEach((item: any, idx: number) => {
@@ -296,11 +296,12 @@ export const normalizeLightCitySettings = (raw: unknown): LightCitySettings | un
       features.push({ id, type: 'waterArea', points: pts });
     } else if (item.type === 'river') {
       if (pts.length < 2) return;
-      const width = Math.round(normalizeNumber(item.width, 56, 10, 220));
+      const width = Math.round(normalizeNumber(item.width, 56, 3, 220) * 10) / 10;
       features.push({ id, type: 'river', width, points: pts });
     } else if (item.type === 'road') {
       if (pts.length < 2) return;
-      const kind: LightCityRoadKind = item.kind === 'express' ? 'express' : 'arterial';
+      const kind: LightCityRoadKind =
+        item.kind === 'express' ? 'express' : item.kind === 'street' ? 'street' : 'arterial';
       features.push({
         id,
         type: 'road',

@@ -146,7 +146,7 @@ export type AIOperation =
       cityStyle?: 'standard' | 'beijing' | 'shanghai' | 'mtr';
       cornerRadius?: number;
       hideWaypoints?: boolean;
-      lightCityArchetype?: 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'shuffle';
+      lightCityArchetype?: 'london' | 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'shuffle';
     }
   | { type: 'create_line'; name: string; color: string; stationIds: string[] }
   | {

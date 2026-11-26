@@ -6,9 +6,11 @@ import {
   LightCityArchetype,
   LightCityFeature,
   LightCityPoint,
+  LightCityRoadKind,
   LightCitySettings,
   Station
 } from '../types';
+import { LONDON_LIGHT_CITY_DATA } from './londonLightCityData';
 
 export interface LightCityPalette {
   canvasBg: string;
@@ -25,6 +27,8 @@ export interface LightCityPalette {
   roadExpressInner: string;
   roadArterialOuter: string;
   roadArterialInner: string;
+  roadStreetOuter: string;
+  roadStreetInner: string;
   labelDistrict: string;
   labelSubdistrict: string;
   labelWater: string;
@@ -44,9 +48,11 @@ export function getLightCityPalette(isDark = false): LightCityPalette {
       islandFill: '#0b1220',
       islandStroke: '#174066',
       roadExpressOuter: '#1c2b44',
-      roadExpressInner: '#253857',
-      roadArterialOuter: '#162238',
-      roadArterialInner: '#1e2f4a',
+      roadExpressInner: '#263a5c',
+      roadArterialOuter: '#162339',
+      roadArterialInner: '#1f314e',
+      roadStreetOuter: '#132034',
+      roadStreetInner: '#192841',
       labelDistrict: 'rgba(148, 163, 184, 0.44)',
       labelSubdistrict: 'rgba(148, 163, 184, 0.34)',
       labelWater: 'rgba(125, 211, 252, 0.48)'
@@ -63,13 +69,61 @@ export function getLightCityPalette(isDark = false): LightCityPalette {
     waterBank: '#b4d2ea',
     islandFill: '#f6f7f9',
     islandStroke: '#b4d2ea',
-    roadExpressOuter: '#d5dde8',
+    roadExpressOuter: '#cfd8e5',
     roadExpressInner: '#ffffff',
-    roadArterialOuter: '#dfe5ee',
-    roadArterialInner: '#fbfcfe',
+    roadArterialOuter: '#d8e0ec',
+    roadArterialInner: '#fcfdff',
+    roadStreetOuter: '#dfe6f0',
+    roadStreetInner: '#f8fafd',
     labelDistrict: 'rgba(100, 116, 139, 0.56)',
     labelSubdistrict: 'rgba(100, 116, 139, 0.45)',
     labelWater: 'rgba(56, 128, 182, 0.62)'
+  };
+}
+
+export function resolveLightCityPolygonIterations(points: LightCityPoint[]): number {
+  return points.length >= 8 ? 1 : 3;
+}
+
+export function resolveLightCitySplineSegments(points: LightCityPoint[]): number {
+  return points.length >= 16 ? 4 : 10;
+}
+
+export function resolveLightCityRoadMetrics(
+  kind: LightCityRoadKind,
+  pointCount: number,
+  pal: LightCityPalette
+): {
+  outerW: number;
+  innerW: number;
+  cornerRadius: number;
+  outerColor: string;
+  innerColor: string;
+} {
+  if (kind === 'express') {
+    return {
+      outerW: pointCount > 8 ? 9.2 : 11,
+      innerW: pointCount > 8 ? 5.6 : 7,
+      cornerRadius: pointCount > 8 ? 18 : 36,
+      outerColor: pal.roadExpressOuter,
+      innerColor: pal.roadExpressInner
+    };
+  }
+  if (kind === 'street') {
+    return {
+      outerW: 3.2,
+      innerW: 1.85,
+      cornerRadius: 7,
+      outerColor: pal.roadStreetOuter,
+      innerColor: pal.roadStreetInner
+    };
+  }
+  return {
+    outerW: pointCount > 8 ? 5.8 : 7,
+    innerW: pointCount > 8 ? 3.5 : 4.2,
+    cornerRadius: pointCount > 8 ? 12 : 34,
+    outerColor: pal.roadArterialOuter,
+    innerColor: pal.roadArterialInner
   };
 }
 
@@ -82,6 +136,13 @@ export interface LightCityArchetypeMeta {
 }
 
 export const LIGHT_CITY_ARCHETYPES: LightCityArchetypeMeta[] = [
+  {
+    id: 'london',
+    zh: '伦敦实景（精细街网）',
+    en: 'London (Detailed Grid)',
+    hintZh: '真实泰晤士河曲流 + 金丝雀船坞 + 皇家公园群 + 三级实景街网',
+    hintEn: 'Real River Thames, Canary Wharf docks, Royal Parks & 3-tier street grid'
+  },
   {
     id: 'river',
     zh: '穿城大江',
@@ -377,6 +438,89 @@ export function generateLightCity(params: {
       opacity: 1,
       layerVisibility: { zones: true, water: true, roads: true, labels: true },
       features: []
+    };
+  }
+
+  if (params.archetype === 'london') {
+    const unpackPts = (flat: number[]): LightCityPoint[] => {
+      const pts: LightCityPoint[] = [];
+      for (let i = 0; i < flat.length - 1; i += 2) {
+        pts.push({ x: r1(cx + flat[i] * s), y: r1(cy + flat[i + 1] * s) });
+      }
+      return pts;
+    };
+
+    LONDON_LIGHT_CITY_DATA.urbanZones.forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 3) {
+        features.push({ id: nextId('zone'), type: 'zone', kind: 'urban', points });
+      }
+    });
+    LONDON_LIGHT_CITY_DATA.parks.forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 3) {
+        features.push({ id: nextId('park'), type: 'zone', kind: 'park', points });
+      }
+    });
+    LONDON_LIGHT_CITY_DATA.waters.forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 3) {
+        features.push({ id: nextId('water'), type: 'waterArea', points });
+      }
+    });
+    LONDON_LIGHT_CITY_DATA.rivers.forEach((rv) => {
+      const points = unpackPts(rv.p);
+      if (points.length >= 2) {
+        features.push({
+          id: nextId('river'),
+          type: 'river',
+          width: r1(Math.max(3.5, rv.w * s)),
+          points
+        });
+      }
+    });
+    // 按 街巷 -> 主干道 -> 快速路 顺序叠置，使高等级干道在双遍交叉融合中自然处于顶层
+    LONDON_LIGHT_CITY_DATA.streets.forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 2) {
+        features.push({ id: nextId('st'), type: 'road', kind: 'street', points });
+      }
+    });
+    LONDON_LIGHT_CITY_DATA.arterial.forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 2) {
+        features.push({ id: nextId('art'), type: 'road', kind: 'arterial', points });
+      }
+    });
+    LONDON_LIGHT_CITY_DATA.express.forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 2) {
+        features.push({ id: nextId('exp'), type: 'road', kind: 'express', points });
+      }
+    });
+    LONDON_LIGHT_CITY_DATA.labels.forEach((lbl) => {
+      features.push({
+        id: nextId('lbl'),
+        type: 'label',
+        kind: lbl.kind,
+        x: r1(cx + lbl.x * s),
+        y: r1(cy + lbl.y * s),
+        text: isEn ? lbl.en : lbl.zh
+      });
+    });
+
+    return {
+      theme: 'paper-grey',
+      archetype: 'london',
+      seed,
+      opacity: 1,
+      layerVisibility: {
+        zones: true,
+        water: true,
+        roads: true,
+        labels: true
+      },
+      features
     };
   }
 
@@ -878,6 +1022,34 @@ function escapeXml(raw: string): string {
     .replace(/'/g, '&apos;');
 }
 
+const sampledFeaturePointsCache = new WeakMap<LightCityFeature[], Map<string, number[]>>();
+
+function getCachedSampledFeaturePoints(
+  features: LightCityFeature[],
+  f: Exclude<LightCityFeature, { type: 'label' }>,
+  pal: LightCityPalette
+): number[] {
+  let map = sampledFeaturePointsCache.get(features);
+  if (!map) {
+    map = new Map<string, number[]>();
+    sampledFeaturePointsCache.set(features, map);
+  }
+  const hit = map.get(f.id);
+  if (hit) return hit;
+
+  let sampled: number[];
+  if (f.type === 'zone' || f.type === 'waterArea') {
+    sampled = sampleSmoothClosedPolygon(f.points, resolveLightCityPolygonIterations(f.points));
+  } else if (f.type === 'river') {
+    sampled = sampleSmoothOpenSpline(f.points, resolveLightCitySplineSegments(f.points));
+  } else {
+    const m = resolveLightCityRoadMetrics(f.kind, f.points.length, pal);
+    sampled = sampleRoundedRoadPolyline(f.points, Boolean(f.closed), m.cornerRadius);
+  }
+  map.set(f.id, sampled);
+  return sampled;
+}
+
 /**
  * 为无损 SVG 导出构建轻城市矢量图层节点字符串
  */
@@ -897,31 +1069,32 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
     if (f.type === 'zone') {
       if (f.kind === 'island') {
         if (!vis.water && !vis.zones) return;
-        const d = flatToSvgPath(sampleSmoothClosedPolygon(f.points, 3), true);
+        const d = flatToSvgPath(getCachedSampledFeaturePoints(lightCity.features, f, pal), true);
         if (d) {
           islandsOut.push(`<path d="${d}" fill="${pal.islandFill}" stroke="${pal.islandStroke}" stroke-width="1.5" stroke-linejoin="round" />`);
         }
         return;
       }
       if (!vis.zones) return;
-      const d = flatToSvgPath(sampleSmoothClosedPolygon(f.points, 3), true);
+      const d = flatToSvgPath(getCachedSampledFeaturePoints(lightCity.features, f, pal), true);
       if (!d) return;
       const fill = f.kind === 'park' ? pal.parkFill : pal.urbanFill;
       const stroke = f.kind === 'park' ? pal.parkStroke : pal.urbanStroke;
       zonesOut.push(`<path d="${d}" fill="${fill}" stroke="${stroke}" stroke-width="1.2" stroke-linejoin="round" />`);
     } else if (f.type === 'waterArea') {
       if (!vis.water) return;
-      const d = flatToSvgPath(sampleSmoothClosedPolygon(f.points, 3), true);
+      const d = flatToSvgPath(getCachedSampledFeaturePoints(lightCity.features, f, pal), true);
       if (d) {
-        waterBanksOut.push(`<path d="${d}" fill="${pal.waterBank}" stroke="${pal.waterBank}" stroke-width="3" stroke-linejoin="round" />`);
+        waterBanksOut.push(`<path d="${d}" fill="${pal.waterBank}" stroke="${pal.waterBank}" stroke-width="2.6" stroke-linejoin="round" />`);
         waterFillsOut.push(`<path d="${d}" fill="${pal.waterFill}" stroke="none" />`);
       }
     } else if (f.type === 'river') {
       if (!vis.water) return;
-      const d = flatToSvgPath(sampleSmoothOpenSpline(f.points, 10), false);
+      const d = flatToSvgPath(getCachedSampledFeaturePoints(lightCity.features, f, pal), false);
       if (d) {
+        const bankAdd = f.width < 12 ? 2 : 3;
         waterBanksOut.push(
-          `<path d="${d}" fill="none" stroke="${pal.waterBank}" stroke-width="${r1(f.width + 3)}" stroke-linecap="round" stroke-linejoin="round" />`
+          `<path d="${d}" fill="none" stroke="${pal.waterBank}" stroke-width="${r1(f.width + bankAdd)}" stroke-linecap="round" stroke-linejoin="round" />`
         );
         waterFillsOut.push(
           `<path d="${d}" fill="none" stroke="${pal.waterFill}" stroke-width="${r1(f.width)}" stroke-linecap="round" stroke-linejoin="round" />`
@@ -929,22 +1102,19 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
       }
     } else if (f.type === 'road') {
       if (!vis.roads) return;
-      const d = flatToSvgPath(sampleRoundedRoadPolyline(f.points, Boolean(f.closed), 36), Boolean(f.closed));
+      const d = flatToSvgPath(getCachedSampledFeaturePoints(lightCity.features, f, pal), Boolean(f.closed));
       if (d) {
-        const outerW = f.kind === 'express' ? 11 : 7;
-        const innerW = f.kind === 'express' ? 7 : 4.2;
-        const outerC = f.kind === 'express' ? pal.roadExpressOuter : pal.roadArterialOuter;
-        const innerC = f.kind === 'express' ? pal.roadExpressInner : pal.roadArterialInner;
+        const m = resolveLightCityRoadMetrics(f.kind, f.points.length, pal);
         roadOutersOut.push(
-          `<path d="${d}" fill="none" stroke="${outerC}" stroke-width="${outerW}" stroke-linecap="round" stroke-linejoin="round" />`
+          `<path d="${d}" fill="none" stroke="${m.outerColor}" stroke-width="${m.outerW}" stroke-linecap="round" stroke-linejoin="round" />`
         );
         roadInnersOut.push(
-          `<path d="${d}" fill="none" stroke="${innerC}" stroke-width="${innerW}" stroke-linecap="round" stroke-linejoin="round" />`
+          `<path d="${d}" fill="none" stroke="${m.innerColor}" stroke-width="${m.innerW}" stroke-linecap="round" stroke-linejoin="round" />`
         );
       }
     } else if (f.type === 'label') {
       if (!vis.labels) return;
-      const fontSize = f.kind === 'district' ? 20 : f.kind === 'water' ? 15 : 16;
+      const fontSize = f.kind === 'district' ? 19 : f.kind === 'water' ? 14 : 14.5;
       const fill =
         f.kind === 'district'
           ? pal.labelDistrict
@@ -953,7 +1123,7 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
             : pal.labelSubdistrict;
       const fontStyle = f.kind === 'water' ? ' font-style="italic"' : '';
       labelsOut.push(
-        `<text x="${r1(f.x)}" y="${r1(f.y)}" text-anchor="middle" dominant-baseline="central" font-size="${fontSize}" font-weight="700" letter-spacing="3"${fontStyle} fill="${fill}">${escapeXml(f.text)}</text>`
+        `<text x="${r1(f.x)}" y="${r1(f.y)}" text-anchor="middle" dominant-baseline="central" font-size="${fontSize}" font-weight="700" letter-spacing="2.5"${fontStyle} fill="${fill}">${escapeXml(f.text)}</text>`
       );
     }
   });
@@ -970,7 +1140,7 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
 }
 
 /**
- * 为 MP4 动态视频帧或离屏位图将轻城市矢量底图绘制到 Canvas2D 上下文
+ * 为 Konva 高帧率实时画布、MP4 动态视频帧或离屏位图将轻城市矢量底图绘制到 Canvas2D 上下文
  */
 export function drawLightCityToCanvas2D(params: {
   ctx: CanvasRenderingContext2D;
@@ -979,21 +1149,30 @@ export function drawLightCityToCanvas2D(params: {
   worldToCanvas: (pt: LightCityPoint) => { x: number; y: number };
   worldScale: number;
   fontStack?: string;
+  identityWorldTransform?: boolean;
 }) {
-  const { ctx, lightCity, isDark, worldToCanvas, worldScale } = params;
+  const { ctx, lightCity, isDark, worldToCanvas, worldScale, identityWorldTransform } = params;
   if (!lightCity || !lightCity.features.length) return;
   const pal = getLightCityPalette(isDark);
   const vis = lightCity.layerVisibility;
   const fontStack = params.fontStack || '"PingFang SC", "Microsoft YaHei", sans-serif';
+  const feats = lightCity.features;
 
   const traceFlat = (flat: number[], closed: boolean) => {
     if (flat.length < 4) return false;
     ctx.beginPath();
-    const p0 = worldToCanvas({ x: flat[0], y: flat[1] });
-    ctx.moveTo(p0.x, p0.y);
-    for (let i = 2; i < flat.length; i += 2) {
-      const p = worldToCanvas({ x: flat[i], y: flat[i + 1] });
-      ctx.lineTo(p.x, p.y);
+    if (identityWorldTransform) {
+      ctx.moveTo(flat[0], flat[1]);
+      for (let i = 2; i < flat.length; i += 2) {
+        ctx.lineTo(flat[i], flat[i + 1]);
+      }
+    } else {
+      const p0 = worldToCanvas({ x: flat[0], y: flat[1] });
+      ctx.moveTo(p0.x, p0.y);
+      for (let i = 2; i < flat.length; i += 2) {
+        const p = worldToCanvas({ x: flat[i], y: flat[i + 1] });
+        ctx.lineTo(p.x, p.y);
+      }
     }
     if (closed) ctx.closePath();
     return true;
@@ -1006,91 +1185,102 @@ export function drawLightCityToCanvas2D(params: {
 
   // 1. 建成区与绿地
   if (vis.zones) {
-    lightCity.features.forEach((f) => {
-      if (f.type !== 'zone' || f.kind === 'island') return;
-      if (!traceFlat(sampleSmoothClosedPolygon(f.points, 3), true)) return;
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
+      if (f.type !== 'zone' || f.kind === 'island') continue;
+      if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), true)) continue;
       ctx.fillStyle = f.kind === 'park' ? pal.parkFill : pal.urbanFill;
       ctx.strokeStyle = f.kind === 'park' ? pal.parkStroke : pal.urbanStroke;
-      ctx.lineWidth = Math.max(1, 1.2 * worldScale);
+      ctx.lineWidth = Math.max(0.8, 1.2 * worldScale);
       ctx.fill();
       ctx.stroke();
-    });
+    }
   }
 
   // 2. 水系面与河流（双遍同层融合：先画全部外岸线，再统一铺水体填充，彻底消除交汇与分汊接缝）
   if (vis.water) {
-    lightCity.features.forEach((f) => {
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
       if (f.type === 'waterArea') {
-        if (!traceFlat(sampleSmoothClosedPolygon(f.points, 3), true)) return;
+        if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), true)) continue;
         ctx.fillStyle = pal.waterBank;
         ctx.strokeStyle = pal.waterBank;
-        ctx.lineWidth = Math.max(1.5, 3 * worldScale);
+        ctx.lineWidth = Math.max(1.2, 2.6 * worldScale);
         ctx.fill();
         ctx.stroke();
       } else if (f.type === 'river') {
-        if (!traceFlat(sampleSmoothOpenSpline(f.points, 10), false)) return;
-        const w = Math.max(2, f.width * worldScale);
+        if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), false)) continue;
+        const w = Math.max(1.8, f.width * worldScale);
+        const bankAdd = f.width < 12 ? 2 : 3;
         ctx.strokeStyle = pal.waterBank;
-        ctx.lineWidth = w + Math.max(1.5, 3 * worldScale);
+        ctx.lineWidth = w + Math.max(1.2, bankAdd * worldScale);
         ctx.stroke();
       }
-    });
-    lightCity.features.forEach((f) => {
+    }
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
       if (f.type === 'waterArea') {
-        if (!traceFlat(sampleSmoothClosedPolygon(f.points, 3), true)) return;
+        if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), true)) continue;
         ctx.fillStyle = pal.waterFill;
         ctx.fill();
       } else if (f.type === 'river') {
-        if (!traceFlat(sampleSmoothOpenSpline(f.points, 10), false)) return;
+        if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), false)) continue;
         ctx.strokeStyle = pal.waterFill;
-        ctx.lineWidth = Math.max(2, f.width * worldScale);
+        ctx.lineWidth = Math.max(1.8, f.width * worldScale);
         ctx.stroke();
       }
-    });
+    }
   }
 
   // 3. 江心洲与离岛
   if (vis.water || vis.zones) {
-    lightCity.features.forEach((f) => {
-      if (f.type !== 'zone' || f.kind !== 'island') return;
-      if (!traceFlat(sampleSmoothClosedPolygon(f.points, 3), true)) return;
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
+      if (f.type !== 'zone' || f.kind !== 'island') continue;
+      if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), true)) continue;
       ctx.fillStyle = pal.islandFill;
       ctx.strokeStyle = pal.islandStroke;
       ctx.lineWidth = Math.max(1, 1.5 * worldScale);
       ctx.fill();
       ctx.stroke();
-    });
+    }
   }
 
-  // 4. 主干道骨架（同样采用双遍融合，让路口交叉处无缝贯通）
+  // 4. 三级道路骨架（双遍融合，让快速路、主干道与街巷交叉口无缝贯通）
   if (vis.roads) {
-    lightCity.features.forEach((f) => {
-      if (f.type !== 'road') return;
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
+      if (f.type !== 'road') continue;
       const closed = Boolean(f.closed);
-      if (!traceFlat(sampleRoundedRoadPolyline(f.points, closed, 36), closed)) return;
-      ctx.strokeStyle = f.kind === 'express' ? pal.roadExpressOuter : pal.roadArterialOuter;
-      ctx.lineWidth = Math.max(1.5, (f.kind === 'express' ? 11 : 7) * worldScale);
+      if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), closed)) continue;
+      const m = resolveLightCityRoadMetrics(f.kind, f.points.length, pal);
+      ctx.strokeStyle = m.outerColor;
+      ctx.lineWidth = Math.max(1, m.outerW * worldScale);
       ctx.stroke();
-    });
-    lightCity.features.forEach((f) => {
-      if (f.type !== 'road') return;
+    }
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
+      if (f.type !== 'road') continue;
       const closed = Boolean(f.closed);
-      if (!traceFlat(sampleRoundedRoadPolyline(f.points, closed, 36), closed)) return;
-      ctx.strokeStyle = f.kind === 'express' ? pal.roadExpressInner : pal.roadArterialInner;
-      ctx.lineWidth = Math.max(1, (f.kind === 'express' ? 7 : 4.2) * worldScale);
+      if (!traceFlat(getCachedSampledFeaturePoints(feats, f, pal), closed)) continue;
+      const m = resolveLightCityRoadMetrics(f.kind, f.points.length, pal);
+      ctx.strokeStyle = m.innerColor;
+      ctx.lineWidth = Math.max(0.6, m.innerW * worldScale);
       ctx.stroke();
-    });
+    }
   }
 
   // 5. 片区水印名
   if (vis.labels) {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    lightCity.features.forEach((f) => {
-      if (f.type !== 'label') return;
-      const pos = worldToCanvas({ x: f.x, y: f.y });
-      const basePx = f.kind === 'district' ? 20 : f.kind === 'water' ? 15 : 16;
-      const px = Math.max(10, Math.round(basePx * Math.pow(worldScale, 0.85)));
+    for (let i = 0; i < feats.length; i += 1) {
+      const f = feats[i];
+      if (f.type !== 'label') continue;
+      const posX = identityWorldTransform ? f.x : worldToCanvas({ x: f.x, y: f.y }).x;
+      const posY = identityWorldTransform ? f.y : worldToCanvas({ x: f.x, y: f.y }).y;
+      const basePx = f.kind === 'district' ? 19 : f.kind === 'water' ? 14 : 14.5;
+      const px = identityWorldTransform ? basePx : Math.max(9, Math.round(basePx * Math.pow(worldScale, 0.85)));
       ctx.font = `${f.kind === 'water' ? 'italic ' : ''}700 ${px}px ${fontStack}`;
       ctx.fillStyle =
         f.kind === 'district'
@@ -1098,8 +1288,8 @@ export function drawLightCityToCanvas2D(params: {
           : f.kind === 'water'
             ? pal.labelWater
             : pal.labelSubdistrict;
-      ctx.fillText(f.text, pos.x, pos.y);
-    });
+      ctx.fillText(f.text, posX, posY);
+    }
   }
 
   ctx.restore();

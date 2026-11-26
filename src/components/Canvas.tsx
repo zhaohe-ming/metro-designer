@@ -9,7 +9,7 @@ import {
 import React, { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Konva from 'konva';
-import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path } from 'react-konva';
+import { Stage, Layer, Circle, Text, Group, Line, Rect, Arc, Path, Shape } from 'react-konva';
 import { Input, Button, message, ColorPicker, Dropdown, Tooltip, Spin } from 'antd';
 import {
   ArrowDownOutlined,
@@ -56,8 +56,12 @@ import {
   normalizeMapSettings
 } from '../types';
 import {
+  drawLightCityToCanvas2D,
   generateLightCity,
   getLightCityPalette,
+  resolveLightCityPolygonIterations,
+  resolveLightCityRoadMetrics,
+  resolveLightCitySplineSegments,
   sampleRoundedRoadPolyline,
   sampleSmoothClosedPolygon,
   sampleSmoothOpenSpline,
@@ -4959,8 +4963,28 @@ const Canvas: React.FC<CanvasProps> = ({
                 listening={false}
               />
 
-              {/* 轻城市（Light City）克制底图矢量层：日常画线时 listening=false 100% 穿透防误触；造景态下可点选拖拽节点塑形 */}
-              {isLightCityMode && lightCity && (
+              {/* 轻城市（Light City）克制底图矢量层：
+                  - 常态画线/浏览/运营态：采用单节点 Canvas2D 缓存批渲染（<Shape>），796+ 要素如伦敦精细街网仍保持丝滑满帧且 100% 穿透防误触；
+                  - 底图造景态（terrainEditMode）：挂载逐要素可交互 Konva 节点，支持直接点选拖拽塑形 */}
+              {isLightCityMode && lightCity && !terrainEditMode && (
+                <Shape
+                  listening={false}
+                  perfectDrawEnabled={false}
+                  sceneFunc={(konvaCtx) => {
+                    const rawCtx = (konvaCtx as any)._context as CanvasRenderingContext2D | undefined;
+                    if (!rawCtx) return;
+                    drawLightCityToCanvas2D({
+                      ctx: rawCtx,
+                      lightCity,
+                      isDark: isDarkCanvas,
+                      worldToCanvas: (pt) => pt,
+                      worldScale: 1,
+                      identityWorldTransform: true
+                    });
+                  }}
+                />
+              )}
+              {isLightCityMode && lightCity && terrainEditMode && (
                 <Group
                   opacity={Math.max(0.25, Math.min(1, lightCity.opacity ?? 1))}
                   listening={!readOnly && terrainEditMode && terrainTool === 'select' && activeTool !== 'pan' && !isSpaceHeld}
@@ -4970,7 +4994,7 @@ const Canvas: React.FC<CanvasProps> = ({
                     lightCity.features.map((f) => {
                       if (f.type !== 'zone' || f.kind === 'island') return null;
                       const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
-                      const flat = sampleSmoothClosedPolygon(f.points, 3);
+                      const flat = sampleSmoothClosedPolygon(f.points, resolveLightCityPolygonIterations(f.points));
                       return (
                         <Line
                           key={f.id}
@@ -5006,7 +5030,7 @@ const Canvas: React.FC<CanvasProps> = ({
                       {lightCity.features.map((f) => {
                         const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
                         if (f.type === 'waterArea') {
-                          const flat = sampleSmoothClosedPolygon(f.points, 3);
+                          const flat = sampleSmoothClosedPolygon(f.points, resolveLightCityPolygonIterations(f.points));
                           return (
                             <Line
                               key={`wb_${f.id}`}
@@ -5014,7 +5038,7 @@ const Canvas: React.FC<CanvasProps> = ({
                               closed
                               fill={lightCityPalette.waterBank}
                               stroke={isSel ? '#2563eb' : lightCityPalette.waterBank}
-                              strokeWidth={isSel ? 3.2 / Math.max(0.35, viewportScaleForHit) : 3}
+                              strokeWidth={isSel ? 3.2 / Math.max(0.35, viewportScaleForHit) : 2.6}
                               lineJoin="round"
                               perfectDrawEnabled={false}
                               listening={false}
@@ -5022,13 +5046,14 @@ const Canvas: React.FC<CanvasProps> = ({
                           );
                         }
                         if (f.type === 'river') {
-                          const flat = sampleSmoothOpenSpline(f.points, 10);
+                          const flat = sampleSmoothOpenSpline(f.points, resolveLightCitySplineSegments(f.points));
+                          const bankAdd = f.width < 12 ? 2 : 3;
                           return (
                             <Line
                               key={`wb_${f.id}`}
                               points={flat}
                               stroke={isSel ? '#2563eb' : lightCityPalette.waterBank}
-                              strokeWidth={f.width + 3}
+                              strokeWidth={f.width + bankAdd}
                               lineCap="round"
                               lineJoin="round"
                               perfectDrawEnabled={false}
@@ -5040,7 +5065,7 @@ const Canvas: React.FC<CanvasProps> = ({
                       })}
                       {lightCity.features.map((f) => {
                         if (f.type === 'waterArea') {
-                          const flat = sampleSmoothClosedPolygon(f.points, 3);
+                          const flat = sampleSmoothClosedPolygon(f.points, resolveLightCityPolygonIterations(f.points));
                           return (
                             <Line
                               key={`wf_${f.id}`}
@@ -5063,7 +5088,7 @@ const Canvas: React.FC<CanvasProps> = ({
                           );
                         }
                         if (f.type === 'river') {
-                          const flat = sampleSmoothOpenSpline(f.points, 10);
+                          const flat = sampleSmoothOpenSpline(f.points, resolveLightCitySplineSegments(f.points));
                           return (
                             <Line
                               key={`wf_${f.id}`}
@@ -5097,7 +5122,7 @@ const Canvas: React.FC<CanvasProps> = ({
                     lightCity.features.map((f) => {
                       if (f.type !== 'zone' || f.kind !== 'island') return null;
                       const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
-                      const flat = sampleSmoothClosedPolygon(f.points, 3);
+                      const flat = sampleSmoothClosedPolygon(f.points, resolveLightCityPolygonIterations(f.points));
                       return (
                         <Line
                           key={f.id}
@@ -5121,28 +5146,22 @@ const Canvas: React.FC<CanvasProps> = ({
                       );
                     })}
 
-                  {/* 4. 骨干街道与环路（双遍融合：路口交汇无缝贯通） */}
+                  {/* 4. 三级道路与环路（双遍融合：路口交汇无缝贯通） */}
                   {lightCity.layerVisibility.roads && (
                     <>
                       {lightCity.features.map((f) => {
                         if (f.type !== 'road') return null;
                         const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
                         const closed = Boolean(f.closed);
-                        const flat = sampleRoundedRoadPolyline(f.points, closed, 36);
-                        const outerW = f.kind === 'express' ? 11 : 7;
+                        const m = resolveLightCityRoadMetrics(f.kind, f.points.length, lightCityPalette);
+                        const flat = sampleRoundedRoadPolyline(f.points, closed, m.cornerRadius);
                         return (
                           <Line
                             key={`ro_${f.id}`}
                             points={flat}
                             closed={closed}
-                            stroke={
-                              isSel
-                                ? '#2563eb'
-                                : f.kind === 'express'
-                                  ? lightCityPalette.roadExpressOuter
-                                  : lightCityPalette.roadArterialOuter
-                            }
-                            strokeWidth={outerW}
+                            stroke={isSel ? '#2563eb' : m.outerColor}
+                            strokeWidth={m.outerW}
                             lineCap="round"
                             lineJoin="round"
                             perfectDrawEnabled={false}
@@ -5153,21 +5172,16 @@ const Canvas: React.FC<CanvasProps> = ({
                       {lightCity.features.map((f) => {
                         if (f.type !== 'road') return null;
                         const closed = Boolean(f.closed);
-                        const flat = sampleRoundedRoadPolyline(f.points, closed, 36);
-                        const outerW = f.kind === 'express' ? 11 : 7;
-                        const innerW = f.kind === 'express' ? 7 : 4.2;
+                        const m = resolveLightCityRoadMetrics(f.kind, f.points.length, lightCityPalette);
+                        const flat = sampleRoundedRoadPolyline(f.points, closed, m.cornerRadius);
                         return (
                           <Line
                             key={`ri_${f.id}`}
                             points={flat}
                             closed={closed}
-                            stroke={
-                              f.kind === 'express'
-                                ? lightCityPalette.roadExpressInner
-                                : lightCityPalette.roadArterialInner
-                            }
-                            strokeWidth={innerW}
-                            hitStrokeWidth={Math.max(outerW + 10, 20 / Math.max(0.35, viewportScaleForHit))}
+                            stroke={m.innerColor}
+                            strokeWidth={m.innerW}
+                            hitStrokeWidth={Math.max(m.outerW + 10, 18 / Math.max(0.35, viewportScaleForHit))}
                             lineCap="round"
                             lineJoin="round"
                             perfectDrawEnabled={false}
@@ -5377,9 +5391,11 @@ const Canvas: React.FC<CanvasProps> = ({
                       );
                     })()}
 
-                  {/* 绘制新河流/水体/干道/片区时：显影同类既有要素的历史节点锚点 + 实时磁吸靶环 */}
+                  {/* 绘制新河流/水体/干道/片区时：显影同类既有要素的历史节点锚点（大体量实景城市自动按鼠标邻域裁剪避免数千圆点卡顿） + 实时磁吸靶环 */}
                   {terrainTool !== 'select' && terrainTool !== 'label' && lightCity && (() => {
                     const invS = 1 / Math.max(0.35, viewportScaleForHit);
+                    const denseScene = lightCity.features.length > 100;
+                    const localR = 160 * invS;
                     const refVertices: Array<{ key: string; x: number; y: number }> = [];
                     lightCity.features.forEach((f) => {
                       if (f.type === 'label') return;
@@ -5391,6 +5407,11 @@ const Canvas: React.FC<CanvasProps> = ({
                             : f.type === 'zone';
                       if (!match) return;
                       f.points.forEach((pt, idx) => {
+                        if (denseScene) {
+                          if (!terrainHoverWorld) return;
+                          if (Math.abs(pt.x - terrainHoverWorld.x) > localR || Math.abs(pt.y - terrainHoverWorld.y) > localR) return;
+                          if (refVertices.length >= 260) return;
+                        }
                         refVertices.push({ key: `ref_${f.id}_${idx}`, x: pt.x, y: pt.y });
                       });
                     });
@@ -5487,7 +5508,9 @@ const Canvas: React.FC<CanvasProps> = ({
                               : terrainTool === 'road'
                                 ? terrainRoadSubKind === 'express'
                                   ? 9
-                                  : 6
+                                  : terrainRoadSubKind === 'street'
+                                    ? 3.2
+                                    : 6
                                 : 2 / Math.max(0.35, viewportScaleForHit)
                           }
                           lineCap="round"

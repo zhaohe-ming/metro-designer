@@ -162,6 +162,14 @@ function artwork(work, baseImage, baseAttribution = '© OpenStreetMap') {
     if (f.type === 'river' && lc.layerVisibility?.water !== false) {
       return `<polyline points="${f.points.map(pos).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}" fill="none" stroke="${dark ? '#0f2942' : '#cbe2f4'}" stroke-width="${Math.max(2, f.width * scale).toFixed(1)}" stroke-linecap="round" stroke-linejoin="round"/>`;
     }
+    if (f.type === 'road' && lc.layerVisibility?.roads !== false) {
+      const ptsStr = f.points.map(pos).map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+      const sw = Math.max(0.8, (f.kind === 'express' ? 5.5 : f.kind === 'street' ? 1.8 : 3.4) * scale).toFixed(1);
+      const stroke = dark ? (f.kind === 'express' ? '#253857' : '#1b2b44') : '#ffffff';
+      return f.closed
+        ? `<polygon points="${ptsStr}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linejoin="round"/>`
+        : `<polyline points="${ptsStr}" fill="none" stroke="${stroke}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
     return '';
   }).join('') : '';
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(work.title)}"><rect width="100%" height="100%" fill="${lc?(dark?'#0f172a':'#f6f7f9'):(dark?'#0b2035':'#f8fbfd')}"/>${baseImage?`<image href="${baseImage}" width="768" height="480"/>`:''}${lcSvg?`<g opacity="${lc.opacity??1}">${lcSvg}</g>`:''}<g font-family="Microsoft YaHei,PingFang SC,sans-serif">${routes}${dots}${labels.join('')}</g>${baseImage?`<text x="754" y="470" font-size="10" fill="#18344b" text-anchor="end">${xml(baseAttribution)}</text>`:''}</svg>`;

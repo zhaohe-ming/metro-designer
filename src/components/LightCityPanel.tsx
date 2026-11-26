@@ -35,7 +35,7 @@ interface LightCityPickerModalProps {
 
 export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
   open,
-  initialArchetype = 'river',
+  initialArchetype = 'london',
   initialSeed,
   isDark = false,
   language = 'zh-CN',
@@ -306,7 +306,8 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
             onChange={onChangeRoadSubKind}
             options={[
               { value: 'express', label: isEn ? 'Express' : '快速路' },
-              { value: 'arterial', label: isEn ? 'Road' : '主干道' }
+              { value: 'arterial', label: isEn ? 'Road' : '主干道' },
+              { value: 'street', label: isEn ? 'Street' : '街巷' }
             ]}
           />
         </>
@@ -395,17 +396,30 @@ export const LightCitySculptBar: React.FC<LightCitySculptBarProps> = ({
             />
           )}
           {selectedFeature.type === 'road' && (
-            <button
-              type="button"
-              className="metro-draw-subbar__pill"
-              onClick={() =>
-                onUpdateSelectedFeature({
-                  closed: selectedFeature.points.length >= 3 ? !selectedFeature.closed : false
-                } as any)
-              }
-            >
-              {selectedFeature.closed ? (isEn ? 'Open' : '解环') : isEn ? 'Ring' : '成环'}
-            </button>
+            <>
+              <ElasticCapsuleTabs<LightCityRoadKind>
+                size="sm"
+                ariaLabel="切换干道等级"
+                value={selectedFeature.kind}
+                onChange={(k) => onUpdateSelectedFeature({ kind: k } as any)}
+                options={[
+                  { value: 'express', label: isEn ? 'Express' : '快速路' },
+                  { value: 'arterial', label: isEn ? 'Road' : '主干道' },
+                  { value: 'street', label: isEn ? 'Street' : '街巷' }
+                ]}
+              />
+              <button
+                type="button"
+                className="metro-draw-subbar__pill"
+                onClick={() =>
+                  onUpdateSelectedFeature({
+                    closed: selectedFeature.points.length >= 3 ? !selectedFeature.closed : false
+                  } as any)
+                }
+              >
+                {selectedFeature.closed ? (isEn ? 'Open' : '解环') : isEn ? 'Ring' : '成环'}
+              </button>
+            </>
           )}
           {selectedFeature.type === 'label' && (
             <Input

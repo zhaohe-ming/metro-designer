@@ -61,6 +61,36 @@ describe('Light City generator, normalization & SVG export', () => {
     expect(road.every(Number.isFinite)).toBe(true);
   });
 
+  test('London real-world detailed template generates multi-tier street network and survives normalizeMapSettings without truncation', () => {
+    const londonZh = generateLightCity({ archetype: 'london', seed: 1001, language: 'zh-CN' });
+    const londonEn = generateLightCity({ archetype: 'london', seed: 1001, language: 'en-US' });
+
+    expect(londonZh.archetype).toBe('london');
+    expect(londonZh.features.length).toBeGreaterThan(700);
+
+    const expressCount = londonZh.features.filter((f) => f.type === 'road' && f.kind === 'express').length;
+    const arterialCount = londonZh.features.filter((f) => f.type === 'road' && f.kind === 'arterial').length;
+    const streetCount = londonZh.features.filter((f) => f.type === 'road' && f.kind === 'street').length;
+    expect(expressCount).toBeGreaterThan(50);
+    expect(arterialCount).toBeGreaterThan(150);
+    expect(streetCount).toBeGreaterThan(250);
+
+    const normalized = normalizeMapSettings({
+      ...DEFAULT_MAP_SETTINGS,
+      baseMap: { mode: 'light-city', lightCity: londonZh }
+    });
+    expect(normalized.baseMap.lightCity?.archetype).toBe('london');
+    expect(normalized.baseMap.lightCity?.features.length).toBe(londonZh.features.length);
+    expect(
+      normalized.baseMap.lightCity?.features.filter((f) => f.type === 'road' && f.kind === 'street').length
+    ).toBe(streetCount);
+
+    const zhTexts = londonZh.features.filter((f) => f.type === 'label').map((f: any) => f.text);
+    const enTexts = londonEn.features.filter((f) => f.type === 'label').map((f: any) => f.text);
+    expect(zhTexts.some((t) => t.includes('威斯敏斯特') || t.includes('金丝雀'))).toBe(true);
+    expect(enTexts.some((t) => t.includes('WESTMINSTER') || t.includes('CANARY'))).toBe(true);
+  });
+
   test('normalizeMapSettings preserves light-city mode, layer toggles, and hideWaypoints', () => {
     const generated = generateLightCity({ archetype: 'bay', seed: 4242 });
     const normalized = normalizeMapSettings({

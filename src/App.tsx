@@ -3768,7 +3768,7 @@ const App: React.FC = () => {
 
         <LightCityPickerModal
           open={lightCityPickerOpen}
-          initialArchetype={mapSettings.baseMap.lightCity?.archetype || 'river'}
+          initialArchetype={mapSettings.baseMap.lightCity?.archetype || 'london'}
           initialSeed={mapSettings.baseMap.lightCity?.seed}
           isDark={resolvedInterfaceTheme === 'dark' || mapSettings.canvasTheme === 'dark'}
           language={language}

@@ -35,7 +35,7 @@ function normalizeLightCityPoint(raw) {
 
 function normalizeLightCitySettings(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const archetypes = ['river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
+  const archetypes = ['london', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
   const archetype = archetypes.includes(raw.archetype) ? raw.archetype : 'river';
   const seed = Math.max(1, Math.min(999999999, Math.round(Number(raw.seed) || 1024)));
   const opacity = Math.round(normalizeNumber(raw.opacity, 1, 0.25, 1) * 100) / 100;
@@ -48,7 +48,7 @@ function normalizeLightCitySettings(raw) {
   };
 
   const usedIds = new Set();
-  const rawFeatures = Array.isArray(raw.features) ? raw.features.slice(0, 600) : [];
+  const rawFeatures = Array.isArray(raw.features) ? raw.features.slice(0, 2500) : [];
   const features = [];
 
   rawFeatures.forEach((item, idx) => {
@@ -80,11 +80,11 @@ function normalizeLightCitySettings(raw) {
       features.push({ id, type: 'waterArea', points: pts });
     } else if (item.type === 'river') {
       if (pts.length < 2) return;
-      const width = Math.round(normalizeNumber(item.width, 56, 10, 220));
+      const width = Math.round(normalizeNumber(item.width, 56, 3, 220) * 10) / 10;
       features.push({ id, type: 'river', width, points: pts });
     } else if (item.type === 'road') {
       if (pts.length < 2) return;
-      const kind = item.kind === 'express' ? 'express' : 'arterial';
+      const kind = item.kind === 'express' ? 'express' : item.kind === 'street' ? 'street' : 'arterial';
       features.push({
         id,
         type: 'road',
