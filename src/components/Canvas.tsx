@@ -65,6 +65,7 @@ import {
   sampleRoundedRoadPolyline,
   sampleSmoothClosedPolygon,
   sampleSmoothOpenSpline,
+  shouldFeatherLightCityEdges,
   snapTerrainDrawPoint,
   TerrainSnapResult
 } from '../lib/lightCity';
@@ -3973,7 +3974,11 @@ const Canvas: React.FC<CanvasProps> = ({
         stationGrid.forEachInBox(rect, (other) => {
           if (other.stationId !== station.id && rectsOverlap(rect, other)) score += 60;
         });
-        if (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height) {
+        // 仅高德地理底图模式下 stationDisplayPoints 为当前视口容器像素坐标；纯画布与轻城市模式为无限世界坐标，不应拿视口宽高误罚世界坐标站名
+        if (
+          isAmapMode &&
+          (rect.x < 0 || rect.y < 0 || rect.x + rect.width > stageSize.width || rect.y + rect.height > stageSize.height)
+        ) {
           score += 40;
         }
         const cx = rect.x + rect.width / 2;
@@ -4951,21 +4956,20 @@ const Canvas: React.FC<CanvasProps> = ({
           cursor: activeCanvasCursor
         }}
       >
-        <Layer listening={canvasSceneReady && activeTool !== 'pan' && !isSpaceHeld}>
+        {/* 底层独立静态底图 Layer（listening=false，无命中缓冲）：
+            鼠标移动、悬停站点、绘制预览线、拖拽站点时此 Layer 零重绘；平移/缩放时直接贴预渲染羽化超采样位图或 Path2D 合批 */}
+        <Layer listening={false}>
           {canvasSceneReady && (
             <>
               <Rect
-                x={-10000}
-                y={-10000}
-                width={20000}
-                height={20000}
+                x={-50000}
+                y={-50000}
+                width={100000}
+                height={100000}
                 fill={isAmapMode ? 'rgba(0,0,0,0)' : effectiveCanvasBg}
                 listening={false}
+                perfectDrawEnabled={false}
               />
-
-              {/* 轻城市（Light City）克制底图矢量层：
-                  - 常态画线/浏览/运营态：采用单节点 Canvas2D 缓存批渲染（<Shape>），796+ 要素如伦敦精细街网仍保持丝滑满帧且 100% 穿透防误触；
-                  - 底图造景态（terrainEditMode）：挂载逐要素可交互 Konva 节点，支持直接点选拖拽塑形 */}
               {isLightCityMode && lightCity && !terrainEditMode && (
                 <Shape
                   listening={false}
@@ -4984,6 +4988,14 @@ const Canvas: React.FC<CanvasProps> = ({
                   }}
                 />
               )}
+            </>
+          )}
+        </Layer>
+
+        <Layer listening={canvasSceneReady && activeTool !== 'pan' && !isSpaceHeld}>
+          {canvasSceneReady && (
+            <>
+              {/* 底图造景态（terrainEditMode）：挂载逐要素可交互 Konva 节点，支持直接点选拖拽塑形 */}
               {isLightCityMode && lightCity && terrainEditMode && (
                 <Group
                   opacity={Math.max(0.25, Math.min(1, lightCity.opacity ?? 1))}
@@ -4993,6 +5005,7 @@ const Canvas: React.FC<CanvasProps> = ({
                   {lightCity.layerVisibility.zones &&
                     lightCity.features.map((f) => {
                       if (f.type !== 'zone' || f.kind === 'island') return null;
+                      if (shouldFeatherLightCityEdges(lightCity) && f.kind === 'urban') return null;
                       const isSel = terrainEditMode && selectedTerrainFeatureId === f.id;
                       const flat = sampleSmoothClosedPolygon(f.points, resolveLightCityPolygonIterations(f.points));
                       return (

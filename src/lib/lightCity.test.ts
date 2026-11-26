@@ -71,9 +71,15 @@ describe('Light City generator, normalization & SVG export', () => {
     const expressCount = londonZh.features.filter((f) => f.type === 'road' && f.kind === 'express').length;
     const arterialCount = londonZh.features.filter((f) => f.type === 'road' && f.kind === 'arterial').length;
     const streetCount = londonZh.features.filter((f) => f.type === 'road' && f.kind === 'street').length;
+    const urbanCount = londonZh.features.filter((f) => f.type === 'zone' && f.kind === 'urban').length;
+    expect(urbanCount).toBe(0);
     expect(expressCount).toBeGreaterThan(50);
     expect(arterialCount).toBeGreaterThan(150);
     expect(streetCount).toBeGreaterThan(250);
+
+    const londonSvg = buildLightCitySvgLayer(londonZh, false);
+    expect(londonSvg).toContain('radialGradient');
+    expect(londonSvg).toContain('mask="url(#lc_fade_mask_');
 
     const normalized = normalizeMapSettings({
       ...DEFAULT_MAP_SETTINGS,
