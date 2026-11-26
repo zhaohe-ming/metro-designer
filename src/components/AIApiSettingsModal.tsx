@@ -129,7 +129,7 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
           }}
           options={[
             { value: 'official', label: '平台免费通道' },
-            { value: 'custom', label: '使用自有 API Key（推荐重度创作）' }
+            { value: 'custom', label: '自有 API Key' }
           ]}
         />
 
@@ -238,7 +238,7 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1.35fr 1fr', gap: 10 }}>
+            <div className="metro-ai-api-endpoint-grid">
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>接口地址 (Base URL)</div>
                 <Input

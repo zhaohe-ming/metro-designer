@@ -493,7 +493,6 @@ const App: React.FC = () => {
   }, []);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
-  const [mobileToolDockHost, setMobileToolDockHost] = useState<HTMLDivElement | null>(null);
   const [mobileViewControlsHost, setMobileViewControlsHost] = useState<HTMLDivElement | null>(null);
   const [createLineRequest, setCreateLineRequest] = useState(0);
   // AI 助手对话框、CLI 穿透请求与本地自有密钥设置
@@ -771,6 +770,9 @@ const App: React.FC = () => {
   useEffect(() => {
     document.documentElement.dataset.interfaceTheme = resolvedInterfaceTheme;
     document.body.dataset.interfaceTheme = resolvedInterfaceTheme;
+    if (isAndroidClient) {
+      document.body.dataset.androidClient = 'true';
+    }
   }, [resolvedInterfaceTheme]);
 
   useEffect(() => {
@@ -947,13 +949,10 @@ const App: React.FC = () => {
 
   const handleSidebarSelectLine = useCallback((id: string) => {
     setCurrentLineId(id);
-    setIsMobileSidebarOpen(false);
   }, []);
 
   const handleSidebarAddLine = useCallback((name: string, color: string) => {
-    const ok = handleAddLine(name, color);
-    if (ok) setIsMobileSidebarOpen(false);
-    return ok;
+    return handleAddLine(name, color);
   }, [handleAddLine]);
 
   const handleAddStation = (station: Station) => {
@@ -3050,7 +3049,6 @@ const App: React.FC = () => {
                 onRedo={handleRedo}
                 canUndo={canUndo}
                 canRedo={canRedo}
-                mobileToolDockRef={setMobileToolDockHost}
                 mobileViewControlsRef={setMobileViewControlsHost}
               />
             </section>
@@ -3221,7 +3219,6 @@ const App: React.FC = () => {
                   stageRef.current = stage;
                 }}
                 viewCommand={viewCmd}
-                mobileToolDockHost={mobileToolDockHost}
                 mobileViewControlsHost={mobileViewControlsHost}
               />
               : <div className="metro-guest-loading" role="status">正在打开本机草稿…</div>}

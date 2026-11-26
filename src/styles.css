@@ -1,4 +1,5 @@
 :root {
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
   --metro-line-cyan: #22d3ee;
   --metro-line-orange: #fb923c;
   --metro-line-green: #4ade80;
@@ -3867,25 +3868,38 @@ body[data-interface-theme="dark"] .metro-profile-actions,
   }
 }
 
-/* Phone workbench: unified bottom thumb dock + clean top context strip + non-blocking selection sheet. */
-.metro-toolbar__mobile-tools-slot,
+body[data-android-client="true"] {
+  --safe-bottom: 0px;
+}
+
+/* Phone workbench: labelled elastic tools above the canvas, roomy document & zoom actions within thumb reach. */
 .metro-toolbar__mobile-view-slot,
 .metro-mobile-search-btn { display: none; }
 .metro-touch-hint, .metro-context-backdrop { display: none; }
 @media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
-  .metro-app-shell { height: 100vh; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; }
+  .metro-app-shell { height: 100vh; height: 100dvh; min-height: 0; padding: 0 !important; overflow: hidden; }
   .metro-workbench { height: 100%; min-height: 0; }
+  /* 顶栏紧贴顶部不叠加重复的 safe-area-inset-top（Android WebView 容器已处理系统状态栏内边距） */
   .metro-header {
-    flex: 0 0 auto;
-    height: calc(52px + env(safe-area-inset-top, 0px)) !important;
-    min-height: calc(52px + env(safe-area-inset-top, 0px));
-    padding: env(safe-area-inset-top, 0px) 10px 0 !important;
+    flex: 0 0 48px !important;
+    height: 48px !important;
+    min-height: 48px !important;
+    line-height: 48px !important;
+    padding: 0 10px !important;
+    margin: 0 !important;
   }
   .metro-header, .app-header { transform: none !important; }
-  .app-header { height: 52px; }
-  .metro-body { flex: 1; min-height: 0; flex-wrap: nowrap; gap: 0; padding: 0; }
+  .app-header { height: 48px !important; }
+  .metro-body { flex: 1; min-height: 0; flex-wrap: nowrap; gap: 0; padding: 0 !important; }
   .metro-content, .metro-canvas-stage { height: 100%; min-height: 0; }
   .metro-mobile-toggle, .metro-header-save-btn, .user-chip--trigger { min-width: 40px; min-height: 40px; }
+  .metro-header-save-btn { position: relative; }
+  .metro-header-save-btn .metro-header-save-btn__dot {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    margin: 0;
+  }
   .metro-mobile-search-btn {
     display: inline-flex;
     align-items: center;
@@ -3907,10 +3921,10 @@ body[data-interface-theme="dark"] .metro-profile-actions,
   }
   .metro-brand-panel { gap: 4px; }
   .metro-brand-mark { display: none; }
-  .metro-header-mapchip { max-width: 31vw; }
+  .metro-header-mapchip { max-width: 34vw; }
   .metro-user-panel { gap: 5px !important; }
   .metro-sider.ant-layout-sider {
-    top: calc(52px + env(safe-area-inset-top, 0px));
+    top: 48px;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     width: min(88vw, 340px) !important;
     max-width: 340px !important;
@@ -3920,8 +3934,8 @@ body[data-interface-theme="dark"] .metro-profile-actions,
   }
   .metro-sider:not(.is-mobile-open) { visibility: hidden; }
   .metro-sider.is-mobile-open ~ .metro-content .metro-canvas-hud { display: none; }
-  .metro-mobile-overlay { inset: calc(52px + env(safe-area-inset-top, 0px)) 0 0; }
-  /* 顶部仅保留单行横滑上下文子栏（连笔态 / 轻城市造景态 / 多选栏），平时全出血零遮挡 */
+  .metro-mobile-overlay { inset: 48px 0 0; }
+  /* 顶部居中放「选择 / 绘制 / 移动」弹性滑动工具组；子栏（绘制连笔/轻城市）单行紧贴其下不遮挡 */
   .metro-canvas-tools {
     position: absolute !important;
     top: 8px !important;
@@ -3930,134 +3944,148 @@ body[data-interface-theme="dark"] .metro-profile-actions,
     bottom: auto !important;
     transform: none !important;
     max-width: none !important;
-    flex-wrap: nowrap !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 6px !important;
+    pointer-events: none;
+  }
+  .metro-canvas-tools > .metro-draw-subbar,
+  .metro-canvas-tools > .metro-multiselect-bar {
+    max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
-    justify-content: flex-start;
+    flex-wrap: nowrap;
   }
-  .metro-canvas-tools::-webkit-scrollbar { display: none; }
-  .metro-canvas-tools:empty { display: none; }
-  .metro-canvas-start { inset: 48px 16px 116px; }
+  .metro-canvas-tools > .metro-draw-subbar::-webkit-scrollbar,
+  .metro-canvas-tools > .metro-multiselect-bar::-webkit-scrollbar { display: none; }
+  .metro-canvas-start { inset: 96px 16px 126px; }
   .metro-canvas-start__content { max-width: 100%; }
   .metro-canvas-start__art { width: 168px; height: 88px; margin-bottom: 18px; }
   .metro-canvas-start h1 { font-size: 24px; }
   .metro-canvas-start p { max-width: 320px; margin: 10px auto 0; font-size: 15px; }
   .metro-canvas-start__actions { gap: 12px; margin-top: 22px; }
   .metro-canvas-start__actions .ant-btn { padding: 0 14px; font-size: 14px; }
-  .metro-app-shell .metro-tool-group {
-    --phone-tool-size: 50px;
+  .metro-app-shell .metro-canvas-tools .metro-tool-group {
+    --phone-tool-size: 56px;
     position: relative; isolation: isolate; overflow: hidden;
-    gap: 2px; padding: 3px !important; border-radius: 22px;
-    background: var(--phone-tools-solid, #eef3fa) !important;
-    border: 1px solid var(--phone-tools-edge, rgba(203, 220, 241, 0.65)) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
+    gap: 2px; padding: 4px !important; border-radius: 26px;
+    background: var(--phone-tools-solid, #f8fbff) !important;
+    border-color: var(--phone-tools-edge, rgba(203, 220, 241, 0.7)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 26px rgba(31, 57, 98, 0.12) !important;
   }
   .metro-tool-group[data-active-tool="select"] { --phone-tool-index: 0; }
   .metro-tool-group[data-active-tool="draw"] { --phone-tool-index: 1; }
   .metro-tool-group[data-active-tool="pan"] { --phone-tool-index: 2; }
-  .metro-tool-group[data-active-tool="none"]:not([data-dragging])::before { opacity: 0; }
-  .metro-tool-group::before {
-    content: ''; position: absolute; top: 3px; left: 3px; z-index: 0;
-    width: var(--phone-tool-size); height: 40px; border-radius: 18px;
+  .metro-canvas-tools .metro-tool-group[data-active-tool="none"]:not([data-dragging])::before { opacity: 0; }
+  .metro-canvas-tools .metro-tool-group::before {
+    content: ''; position: absolute; top: 4px; left: 4px; z-index: 0;
+    width: var(--phone-tool-size); height: 50px; border-radius: 20px;
     background: linear-gradient(145deg, #3688ff, #0862f0);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 7px rgba(18, 93, 223, 0.22);
     transform: translateX(var(--phone-tool-position, calc(var(--phone-tool-index, 1) * (var(--phone-tool-size) + 2px))))
       scale(var(--phone-lens-sx, 1), var(--phone-lens-sy, 1));
     pointer-events: none;
   }
-  .metro-app-shell .metro-tool-button {
-    position: relative; z-index: 1; border-radius: 18px;
-    width: var(--phone-tool-size); min-width: 0; height: 40px;
-    flex-direction: column; gap: 2px; padding: 3px 2px !important;
+  .metro-app-shell .metro-canvas-tools .metro-tool-button {
+    position: relative; z-index: 1; border-radius: 20px;
+    width: var(--phone-tool-size); min-width: 0; height: 50px;
+    flex-direction: column; gap: 4px; padding: 5px 4px !important;
     background: transparent !important; box-shadow: none; color: var(--color-text-soft);
   }
-  .metro-app-shell .metro-tool-button.is-active { background: transparent !important; color: #fff !important; }
-  .metro-tool-button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
-  .metro-tool-button.is-active:focus-visible { outline-color: #fff; }
-  .metro-tool-group[data-elastic-ready] {
+  .metro-app-shell .metro-canvas-tools .metro-tool-button.is-active { background: transparent !important; color: #fff !important; }
+  .metro-canvas-tools .metro-tool-button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
+  .metro-canvas-tools .metro-tool-button.is-active:focus-visible { outline-color: #fff; }
+  .metro-canvas-tools .metro-tool-group[data-elastic-ready] {
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
     transform: translateX(var(--phone-shell-x, 0px)) scale(var(--phone-shell-sx, 1), var(--phone-shell-sy, 1));
   }
-  .metro-app-shell .metro-tool-group[data-preview-index] .metro-tool-button { color: var(--color-text-soft) !important; }
-  .metro-app-shell .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
-  .metro-app-shell .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
-  .metro-app-shell .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"] { color: #fff !important; }
-  .metro-app-shell[data-interface-theme="dark"] .metro-tool-group,
-  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-tool-group {
-    --phone-tools-solid: #1e293b; --phone-tools-surface: rgba(30, 41, 59, 0.92);
-    --phone-tools-edge: rgba(148, 163, 184, 0.24);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index] .metro-tool-button { color: var(--color-text-soft) !important; }
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
+  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"] { color: #fff !important; }
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group,
+  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group {
+    --phone-tools-solid: #172033; --phone-tools-surface: rgba(17, 24, 39, 0.9);
+    --phone-tools-edge: rgba(153, 182, 222, 0.28);
+    box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.13), 0 10px 26px rgba(0, 0, 0, 0.22) !important;
   }
-  .metro-app-shell[data-interface-theme="dark"] .metro-tool-button:not(.is-active),
-  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-tool-button:not(.is-active) {
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-button:not(.is-active),
+  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-button:not(.is-active) {
     color: #cbd5e1;
   }
-  @media (prefers-reduced-motion: no-preference) {
-    .metro-tool-group::before { transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1); }
-    .metro-tool-group[data-elastic-ready]::before { transition: none; }
-    .metro-tool-button { transition: color 140ms ease, transform 90ms ease; }
-    .metro-tool-button:active { transform: scale(0.96); }
+  .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(248, 251, 255, 0.93); }
+  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(17, 24, 39, 0.95); }
+  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .metro-app-shell .metro-canvas-tools .metro-tool-group {
+      background: var(--phone-tools-surface, rgba(248, 251, 255, 0.85)) !important;
+      -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%);
+    }
   }
-  .metro-tool-button__label { display: block !important; font-size: 10.5px; line-height: 12px; font-weight: 600; }
-  .metro-tool-button__icon { font-size: 14px !important; }
-  /* 底部一体化拇指主控坞：[选择/绘制/移动] + 撤销/重做 + 视图缩放 + 导出/指南 */
+  @media (prefers-reduced-motion: no-preference) {
+    .metro-canvas-tools .metro-tool-group::before { transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .metro-canvas-tools .metro-tool-group[data-elastic-ready]::before { transition: none; }
+    .metro-canvas-tools .metro-tool-button { transition: color 140ms ease, transform 90ms ease; }
+    .metro-canvas-tools .metro-tool-button:active { transform: scale(0.96); }
+  }
+  .metro-tool-button__label { display: block !important; font-size: 12.5px; line-height: 15px; font-weight: 600; }
+  .metro-tool-button__icon { font-size: 17px !important; }
+  /* 底部宽松视图与动作条：撤销 / 重做 + [ - 100% + ] + 适应视图 + 导出/指南 */
   .metro-toolbar-panel {
     display: block !important;
     position: fixed;
-    left: 10px;
-    right: 10px;
+    left: 12px;
+    right: 12px;
     top: auto;
-    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    bottom: calc(10px + var(--safe-bottom));
     z-index: 85;
-    padding: 4px 6px;
+    padding: 5px 8px;
     border: 1px solid var(--color-border);
-    border-radius: 28px;
+    border-radius: 30px;
     background: var(--color-surface);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 28px rgba(15, 23, 42, 0.14);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 24px rgba(31, 57, 98, 0.1);
   }
   .metro-toolbar-panel.is-mobile-obscured { display: none !important; }
-  .metro-toolbar, .metro-toolbar__right { width: 100%; height: 46px; line-height: 1; }
-  .metro-toolbar__right { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 2px; }
-  .metro-toolbar__mobile-tools-slot { display: inline-flex; align-items: center; flex-shrink: 0; margin-right: auto; }
-  .metro-toolbar__secondary.ant-btn { flex: 0 0 34px; width: 34px; min-width: 34px; min-height: 42px; height: 42px; padding: 0; border-radius: 16px; font-size: 16px; }
+  .metro-toolbar, .metro-toolbar__right { width: 100%; height: 44px; line-height: 1; }
+  .metro-toolbar__right { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; }
+  .metro-toolbar__secondary.ant-btn { flex: 0 0 40px; width: 40px; min-width: 40px; min-height: 44px; height: 44px; padding: 0; border-radius: 18px; font-size: 18px; }
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn {
     border: 0 !important; background: transparent !important; box-shadow: none;
   }
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn:not(:disabled):hover {
     background: var(--color-primary-50) !important;
   }
-  .metro-toolbar__mobile-view-slot { display: inline-flex; align-items: center; flex: 0 0 auto; min-width: 0; }
-  .metro-mobile-view-controls { display: inline-flex; align-items: center; }
-  .metro-mobile-view-controls__trigger {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    height: 40px;
-    padding: 0 7px;
-    border: 0;
-    border-radius: 14px;
-    background: transparent;
-    color: var(--color-text);
-    font-family: inherit;
-    font-size: 12.5px;
-    font-weight: 600;
-    white-space: nowrap;
-    cursor: pointer;
-    touch-action: manipulation;
+  .metro-toolbar__mobile-view-slot { display: flex; flex: 1; min-width: 0; margin-left: 4px; padding-left: 6px; position: relative; }
+  .metro-mobile-view-controls { display: flex; align-items: center; width: 100%; min-width: 0; }
+  .metro-mobile-view-controls__view { position: relative; display: flex; align-items: center; height: 44px; flex: 0 0 44px; padding-left: 6px; margin-left: 4px; }
+  .metro-toolbar__mobile-view-slot::before,
+  .metro-mobile-view-controls__view::before,
+  .metro-toolbar__export::before {
+    content: ''; position: absolute; top: 11px; bottom: 11px; left: 0;
+    width: 1px; background: var(--color-border); pointer-events: none;
   }
-  .metro-mobile-view-controls__icon { font-size: 14px; opacity: 0.78; }
-  .metro-mobile-view-controls__caret { font-size: 9px; opacity: 0.65; }
+  .metro-mobile-view-controls__zoom { display: flex; flex: 1; align-items: center; min-width: 0; }
+  .metro-mobile-view-controls__button,
+  .metro-mobile-view-controls__value {
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 36px; width: 36px; min-width: 0; height: 44px; padding: 0; gap: 5px; border: 0; border-radius: 16px;
+    background: transparent; color: var(--color-text); font-family: inherit; font-size: 17px; cursor: pointer; touch-action: manipulation;
+  }
+  .metro-mobile-view-controls__value { flex: 1; width: auto; min-width: 52px; font-size: 14px; font-weight: 600; white-space: nowrap; }
+  .metro-mobile-view-controls__caret { font-size: 9px; opacity: 0.7; }
+  .metro-mobile-view-controls__view-button { width: 38px; }
+  .metro-mobile-view-controls button:hover { background: var(--color-primary-50); }
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn {
     position: relative;
     flex: 0 0 auto;
     width: auto;
-    min-width: 58px;
-    padding: 0 6px;
-    gap: 3px;
-    border-radius: 16px;
+    min-width: 74px;
+    margin-left: 4px;
+    padding: 0 6px 0 10px;
+    gap: 5px;
+    border-radius: 0 22px 22px 0;
     color: var(--color-primary-600);
-    font-size: 13px;
+    font-size: 14px;
     font-weight: 600;
   }
   .metro-toolbar__gallery, .metro-toolbar__sep { display: none !important; }
@@ -4067,7 +4095,7 @@ body[data-interface-theme="dark"] .metro-profile-actions,
   }
   .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.34); }
   .metro-command-bar { display: none; }
-  .metro-context-backdrop { display: block; position: fixed; inset: 52px 0 0; z-index: 999; border: 0;
+  .metro-context-backdrop { display: block; position: fixed; inset: 48px 0 0; z-index: 999; border: 0;
     background: rgba(15, 23, 42, 0.22); }
   .station-context-menu, .section-context-menu, .canvas-context-menu { position: fixed !important;
     top: auto !important; left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
@@ -4100,11 +4128,15 @@ body[data-interface-theme="dark"] .metro-profile-actions,
   .metro-about .ant-modal-body { max-height: calc(100dvh - 160px); }
   .metro-basemap-options { gap: 12px; }
 }
-@media (max-width: 375px) {
-  .metro-app-shell .metro-tool-group { --phone-tool-size: 45px; }
-  .metro-toolbar__secondary.ant-btn { flex-basis: 30px; width: 30px; min-width: 30px; }
-  .metro-mobile-view-controls__label { display: none; }
-  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { min-width: 48px; padding: 0 4px; font-size: 12.5px; }
+@media (max-width: 360px) {
+  .metro-toolbar__secondary.ant-btn { flex-basis: 34px; width: 34px; min-width: 34px; }
+  .metro-toolbar__mobile-view-slot { margin-left: 2px; padding-left: 4px; }
+  .metro-mobile-view-controls__button { flex-basis: 30px; width: 30px; }
+  .metro-mobile-view-controls__value { min-width: 44px; gap: 3px; font-size: 13px; }
+  .metro-mobile-view-controls__view { flex-basis: 36px; margin-left: 2px; padding-left: 4px; }
+  .metro-mobile-view-controls__view-button { width: 34px; }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { min-width: 68px; margin-left: 2px; padding-left: 6px; gap: 3px; font-size: 13px; }
+  .metro-app-shell .metro-canvas-tools .metro-tool-group { --phone-tool-size: 51px; }
   .metro-canvas-start__actions { flex-direction: column; align-items: center; }
   .metro-canvas-start__actions .ant-btn { width: 206px; }
   .metro-header-ai-btn, .metro-mobile-search-btn { width: 34px; height: 34px; }
@@ -8512,7 +8544,7 @@ input.metro-secret-token-masked,
   position: fixed;
   left: 10px;
   right: 10px;
-  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(68px + var(--safe-bottom));
   z-index: 84;
   display: flex;
   flex-direction: column;
@@ -8663,7 +8695,7 @@ input.metro-secret-token-masked,
   left: 10px !important;
   right: 10px !important;
   top: auto !important;
-  bottom: calc(12px + var(--metro-kb-inset, 0px) + env(safe-area-inset-bottom, 0px)) !important;
+  bottom: calc(12px + var(--metro-kb-inset, 0px) + var(--safe-bottom)) !important;
   z-index: 1050;
   transform: none !important;
   padding: 6px 8px 6px 14px;
@@ -8688,7 +8720,7 @@ input.metro-secret-token-masked,
   left: 10px !important;
   right: 10px !important;
   top: auto !important;
-  bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important;
+  bottom: calc(68px + var(--safe-bottom)) !important;
   z-index: 86;
   padding: 12px 14px;
   border-radius: 16px;
@@ -8699,10 +8731,30 @@ input.metro-secret-token-masked,
   font-size: 12px;
 }
 
+.metro-elastic-tabs--block .metro-elastic-tabs__btn {
+  min-width: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.metro-ai-api-endpoint-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 520px) {
+  .metro-ai-api-endpoint-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
   .metro-canvas-search {
     position: fixed;
-    top: calc(60px + env(safe-area-inset-top, 0px));
+    top: 56px;
     left: 10px;
     right: 10px;
     width: auto;

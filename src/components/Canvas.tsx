@@ -260,7 +260,6 @@ interface CanvasProps {
   onStartWithAmap?: () => void;
   externalOpenTerrainSculptSeq?: number;
   viewCommand?: { seq: number; action: AppAction } | null;
-  mobileToolDockHost?: HTMLDivElement | null;
   mobileViewControlsHost?: HTMLDivElement | null;
   isGuest?: boolean;
   onRequireAuth?: () => void;
@@ -298,7 +297,6 @@ const Canvas: React.FC<CanvasProps> = ({
   onStartWithAmap,
   externalOpenTerrainSculptSeq,
   viewCommand,
-  mobileToolDockHost,
   mobileViewControlsHost,
   initialViewport,
   fitOnMount,
@@ -4502,248 +4500,235 @@ const Canvas: React.FC<CanvasProps> = ({
         );
       })()}
 
-      {/* 主模式三态胶囊：桌面端位于画布左上角；移动端通过 Portal 沉入底部拇指主控坞左侧 */}
-      {(() => {
-        const toolGroupElement = (
-          <div
-            ref={toolGroupRef}
-            className="metro-tool-group"
-            data-active-tool={terrainEditMode && activeTool !== 'pan' ? 'none' : activeTool}
-            role="toolbar"
-            aria-label="Canvas tools"
-          >
-            {[
-              { key: 'select' as CanvasTool, shortcut: 'V', label: text.tools.select, icon: <SelectOutlined /> },
-              { key: 'draw' as CanvasTool, shortcut: 'D', label: text.tools.draw, icon: <NodeIndexOutlined /> },
-              { key: 'pan' as CanvasTool, shortcut: 'H', label: text.tools.pan, icon: <DragOutlined /> }
-            ].map((tool, index) => {
-              const active = activeTool === tool.key;
-              return (
-                <Tooltip
-                  key={tool.key}
-                  title={isCompact ? null : `${tool.label} (${tool.shortcut})`}
-                  placement="bottom"
-                  mouseEnterDelay={0.25}
-                >
-                  <button
-                    type="button"
-                    className={`metro-tool-button ${active && !terrainEditMode ? 'is-active' : ''}`}
-                    data-tool-index={index}
-                    onClick={() => {
-                      if (terrainEditMode && tool.key !== 'pan') {
-                        setTerrainEditMode(false);
-                        setTerrainDraftPoints([]);
-                        setTerrainSnap(null);
-                      }
-                      setCanvasTool(tool.key);
-                    }}
-                    aria-label={tool.label}
-                    aria-pressed={active && !terrainEditMode}
-                  >
-                    <span className="metro-tool-button__icon">{tool.icon}</span>
-                    <span className="metro-tool-button__label">{tool.label}</span>
-                  </button>
-                </Tooltip>
-              );
-            })}
-          </div>
-        );
-
-        const portalToolsToBottomDock = Boolean(isCompact && mobileToolDockHost && !readOnly);
-
-        return (
-          <>
-            {portalToolsToBottomDock ? createPortal(toolGroupElement, mobileToolDockHost!) : null}
-            <div className="metro-canvas-tools">
-              {!portalToolsToBottomDock ? toolGroupElement : null}
-
-              {!readOnly && isLightCityMode && !terrainEditMode && (
+      {/* 顶部三态主工具栏（桌面端居左上，移动端居顶居中，全程保持稳定 DOM 节点以支持横向滑动弹性反馈） */}
+      <div className="metro-canvas-tools">
+        <div
+          ref={toolGroupRef}
+          className="metro-tool-group"
+          data-active-tool={terrainEditMode && activeTool !== 'pan' ? 'none' : activeTool}
+          role="toolbar"
+          aria-label="Canvas tools"
+        >
+          {[
+            { key: 'select' as CanvasTool, shortcut: 'V', label: text.tools.select, icon: <SelectOutlined /> },
+            { key: 'draw' as CanvasTool, shortcut: 'D', label: text.tools.draw, icon: <NodeIndexOutlined /> },
+            { key: 'pan' as CanvasTool, shortcut: 'H', label: text.tools.pan, icon: <DragOutlined /> }
+          ].map((tool, index) => {
+            const active = activeTool === tool.key;
+            return (
+              <Tooltip
+                key={tool.key}
+                title={isCompact ? null : `${tool.label} (${tool.shortcut})`}
+                placement="bottom"
+                mouseEnterDelay={0.25}
+              >
                 <button
                   type="button"
-                  className="metro-draw-subbar__pill metro-lightcity-entry-btn"
+                  className={`metro-tool-button ${active && !terrainEditMode ? 'is-active' : ''}`}
+                  data-tool-index={index}
                   onClick={() => {
-                    liftDrawingPen();
-                    setSelectedStationIds(new Set());
-                    setSelectedSectionId(null);
-                    setSelectedWaypoint(null);
-                    setArcEditorWaypoint(null);
-                    setTerrainEditMode(true);
+                    if (terrainEditMode && tool.key !== 'pan') {
+                      setTerrainEditMode(false);
+                      setTerrainDraftPoints([]);
+                      setTerrainSnap(null);
+                    }
+                    setCanvasTool(tool.key);
+                  }}
+                  aria-label={tool.label}
+                  aria-pressed={active && !terrainEditMode}
+                >
+                  <span className="metro-tool-button__icon">{tool.icon}</span>
+                  <span className="metro-tool-button__label">{tool.label}</span>
+                </button>
+              </Tooltip>
+            );
+          })}
+        </div>
+
+        {!readOnly && isLightCityMode && !terrainEditMode && (
+          <button
+            type="button"
+            className="metro-draw-subbar__pill metro-lightcity-entry-btn"
+            onClick={() => {
+              liftDrawingPen();
+              setSelectedStationIds(new Set());
+              setSelectedSectionId(null);
+              setSelectedWaypoint(null);
+              setArcEditorWaypoint(null);
+              setTerrainEditMode(true);
+            }}
+          >
+            <CompassOutlined />
+            <span>{isEn ? 'Edit Basemap' : '编辑底图'}</span>
+          </button>
+        )}
+
+        {!readOnly && isLightCityMode && terrainEditMode && (
+          <LightCitySculptBar
+            tool={terrainTool}
+            onChangeTool={(next) => {
+              setTerrainDraftPoints([]);
+              setTerrainSnap(null);
+              setTerrainLabelDraft(null);
+              setTerrainTool(next);
+            }}
+            riverWidth={terrainRiverWidth}
+            onChangeRiverWidth={setTerrainRiverWidth}
+            waterSubKind={terrainWaterSubKind}
+            onChangeWaterSubKind={setTerrainWaterSubKind}
+            zoneSubKind={terrainZoneSubKind}
+            onChangeZoneSubKind={setTerrainZoneSubKind}
+            roadSubKind={terrainRoadSubKind}
+            onChangeRoadSubKind={setTerrainRoadSubKind}
+            labelSubKind={terrainLabelSubKind}
+            onChangeLabelSubKind={setTerrainLabelSubKind}
+            draftPointCount={terrainDraftPoints.length}
+            onFinishDraft={(closeLoop) => {
+              finishTerrainDraft(closeLoop);
+              setTerrainSnap(null);
+            }}
+            onCancelDraft={() => {
+              setTerrainDraftPoints([]);
+              setTerrainSnap(null);
+            }}
+            selectedFeature={selectedTerrainFeature}
+            onUpdateSelectedFeature={(patch) => {
+              if (!selectedTerrainFeatureId) return;
+              commitLightCityUpdate((cur) => ({
+                ...cur,
+                features: cur.features.map((f) =>
+                  f.id === selectedTerrainFeatureId ? ({ ...f, ...patch } as LightCityFeature) : f
+                )
+              }));
+            }}
+            onDeleteSelectedFeature={deleteSelectedTerrainFeature}
+            onRerollCity={handleRerollLightCity}
+            onOpenTemplatePicker={() => onStartWithLightCity?.()}
+            onExitSculpt={() => {
+              setTerrainDraftPoints([]);
+              setTerrainSnap(null);
+              setSelectedTerrainFeatureId(null);
+              setTerrainLabelDraft(null);
+              setTerrainEditMode(false);
+            }}
+            language={language}
+          />
+        )}
+
+        {!readOnly && !terrainEditMode && activeTool === 'draw' && (
+          <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
+            <Dropdown
+              trigger={['click']}
+              placement="bottomLeft"
+              menu={{
+                items: [
+                  ...lines.map((line) => ({
+                    key: line.id,
+                    label: (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: line.id === currentLineId ? 700 : 500 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
+                        <span>{line.name}</span>
+                      </span>
+                    ),
+                    onClick: () => onSelectLine?.(line.id)
+                  })),
+                  ...(onCreateLine
+                    ? [
+                        ...(lines.length > 0 ? [{ type: 'divider' as const }] : []),
+                        {
+                          key: '__create_line__',
+                          icon: <PlusOutlined />,
+                          label: isEn ? 'New line…' : '新建线路…',
+                          onClick: () => onCreateLine()
+                        }
+                      ]
+                    : [])
+                ]
+              }}
+            >
+              {currentLine ? (
+                <button
+                  type="button"
+                  className="metro-draw-subbar__line metro-draw-subbar__line-btn"
+                  title={isEn ? 'Switch line' : '点击切换绘制线路'}
+                >
+                  <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
+                  <span>{currentLine.name}</span>
+                  <DownOutlined style={{ fontSize: 9, opacity: 0.65 }} />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="metro-draw-subbar__pill"
+                  onClick={() => {
+                    if (lines.length === 0 && onCreateLine) onCreateLine();
                   }}
                 >
-                  <CompassOutlined />
-                  <span>{isEn ? 'Edit Basemap' : '编辑底图'}</span>
+                  {lines.length > 0
+                    ? isEn
+                      ? 'Select line ▾'
+                      : '选择绘制线路 ▾'
+                    : isEn
+                      ? '+ Create first line'
+                      : '+ 新建第一条线路'}
                 </button>
               )}
-
-              {!readOnly && isLightCityMode && terrainEditMode && (
-                <LightCitySculptBar
-                  tool={terrainTool}
-                  onChangeTool={(next) => {
-                    setTerrainDraftPoints([]);
-                    setTerrainSnap(null);
-                    setTerrainLabelDraft(null);
-                    setTerrainTool(next);
-                  }}
-                  riverWidth={terrainRiverWidth}
-                  onChangeRiverWidth={setTerrainRiverWidth}
-                  waterSubKind={terrainWaterSubKind}
-                  onChangeWaterSubKind={setTerrainWaterSubKind}
-                  zoneSubKind={terrainZoneSubKind}
-                  onChangeZoneSubKind={setTerrainZoneSubKind}
-                  roadSubKind={terrainRoadSubKind}
-                  onChangeRoadSubKind={setTerrainRoadSubKind}
-                  labelSubKind={terrainLabelSubKind}
-                  onChangeLabelSubKind={setTerrainLabelSubKind}
-                  draftPointCount={terrainDraftPoints.length}
-                  onFinishDraft={(closeLoop) => {
-                    finishTerrainDraft(closeLoop);
-                    setTerrainSnap(null);
-                  }}
-                  onCancelDraft={() => {
-                    setTerrainDraftPoints([]);
-                    setTerrainSnap(null);
-                  }}
-                  selectedFeature={selectedTerrainFeature}
-                  onUpdateSelectedFeature={(patch) => {
-                    if (!selectedTerrainFeatureId) return;
-                    commitLightCityUpdate((cur) => ({
-                      ...cur,
-                      features: cur.features.map((f) =>
-                        f.id === selectedTerrainFeatureId ? ({ ...f, ...patch } as LightCityFeature) : f
-                      )
-                    }));
-                  }}
-                  onDeleteSelectedFeature={deleteSelectedTerrainFeature}
-                  onRerollCity={handleRerollLightCity}
-                  onOpenTemplatePicker={() => onStartWithLightCity?.()}
-                  onExitSculpt={() => {
-                    setTerrainDraftPoints([]);
-                    setTerrainSnap(null);
-                    setSelectedTerrainFeatureId(null);
-                    setTerrainLabelDraft(null);
-                    setTerrainEditMode(false);
-                  }}
-                  language={language}
+            </Dropdown>
+            {anchorStation ? (
+              <>
+                <span className="metro-draw-subbar__sep" />
+                <ElasticCapsuleTabs<'station' | 'bend'>
+                  size="sm"
+                  ariaLabel="落点模式切换"
+                  value={drawWaypointSubmode ? 'bend' : 'station'}
+                  onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
+                  options={[
+                    { value: 'station', label: isEn ? 'Station' : '落站点' },
+                    {
+                      value: 'bend',
+                      label: `${isEn ? 'Bend' : '打拐点'}${
+                        drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
+                      }`
+                    }
+                  ]}
                 />
-              )}
+                <button
+                  type="button"
+                  className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
+                  onClick={liftDrawingPen}
+                  title="收起虚线，随后可点任意站点从另一端延伸或拉支线 (右键 / Esc)"
+                >
+                  {isEn ? 'Lift Pen' : '抬笔'}
+                </button>
+              </>
+            ) : null}
+          </div>
+        )}
 
-              {!readOnly && !terrainEditMode && activeTool === 'draw' && (
-                <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
-                  <Dropdown
-                    trigger={['click']}
-                    placement="bottomLeft"
-                    menu={{
-                      items: [
-                        ...lines.map((line) => ({
-                          key: line.id,
-                          label: (
-                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: line.id === currentLineId ? 700 : 500 }}>
-                              <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
-                              <span>{line.name}</span>
-                            </span>
-                          ),
-                          onClick: () => onSelectLine?.(line.id)
-                        })),
-                        ...(onCreateLine
-                          ? [
-                              ...(lines.length > 0 ? [{ type: 'divider' as const }] : []),
-                              {
-                                key: '__create_line__',
-                                icon: <PlusOutlined />,
-                                label: isEn ? 'New line…' : '新建线路…',
-                                onClick: () => onCreateLine()
-                              }
-                            ]
-                          : [])
-                      ]
-                    }}
-                  >
-                    {currentLine ? (
-                      <button
-                        type="button"
-                        className="metro-draw-subbar__line metro-draw-subbar__line-btn"
-                        title={isEn ? 'Switch line' : '点击切换绘制线路'}
-                      >
-                        <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
-                        <span>{currentLine.name}</span>
-                        <DownOutlined style={{ fontSize: 9, opacity: 0.65 }} />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="metro-draw-subbar__pill"
-                        onClick={() => {
-                          if (lines.length === 0 && onCreateLine) onCreateLine();
-                        }}
-                      >
-                        {lines.length > 0
-                          ? isEn
-                            ? 'Select line ▾'
-                            : '选择绘制线路 ▾'
-                          : isEn
-                            ? '+ Create first line'
-                            : '+ 新建第一条线路'}
-                      </button>
-                    )}
-                  </Dropdown>
-                  {anchorStation ? (
-                    <>
-                      <span className="metro-draw-subbar__sep" />
-                      <ElasticCapsuleTabs<'station' | 'bend'>
-                        size="sm"
-                        ariaLabel="落点模式切换"
-                        value={drawWaypointSubmode ? 'bend' : 'station'}
-                        onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
-                        options={[
-                          { value: 'station', label: isEn ? 'Station' : '落站点' },
-                          {
-                            value: 'bend',
-                            label: `${isEn ? 'Bend' : '打拐点'}${
-                              drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
-                            }`
-                          }
-                        ]}
-                      />
-                      <button
-                        type="button"
-                        className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
-                        onClick={liftDrawingPen}
-                        title="收起虚线，随后可点任意站点从另一端延伸或拉支线 (右键 / Esc)"
-                      >
-                        {isEn ? 'Lift Pen' : '抬笔'}
-                      </button>
-                    </>
-                  ) : null}
-                </div>
-              )}
-
-              {!readOnly && selectedStationIds.size > 1 && (
-                <div className="metro-multiselect-bar" onMouseDown={(e) => e.stopPropagation()}>
-                  <span>
-                    {isEn
-                      ? `${selectedStationIds.size} selected`
-                      : `已选 ${selectedStationIds.size} 站`}
-                  </span>
-                  <button
-                    type="button"
-                    className="metro-multiselect-bar__btn metro-multiselect-bar__btn--danger"
-                    onClick={deleteSelectedItems}
-                  >
-                    {isEn ? 'Delete' : '删除'}
-                  </button>
-                  <button
-                    type="button"
-                    className="metro-multiselect-bar__btn"
-                    onClick={() => setSelectedStationIds(new Set())}
-                  >
-                    {isEn ? 'Clear' : '取消'}
-                  </button>
-                </div>
-              )}
-            </div>
-          </>
-        );
-      })()}
+        {!readOnly && selectedStationIds.size > 1 && (
+          <div className="metro-multiselect-bar" onMouseDown={(e) => e.stopPropagation()}>
+            <span>
+              {isEn
+                ? `${selectedStationIds.size} selected`
+                : `已选 ${selectedStationIds.size} 站`}
+            </span>
+            <button
+              type="button"
+              className="metro-multiselect-bar__btn metro-multiselect-bar__btn--danger"
+              onClick={deleteSelectedItems}
+            >
+              {isEn ? 'Delete' : '删除'}
+            </button>
+            <button
+              type="button"
+              className="metro-multiselect-bar__btn"
+              onClick={() => setSelectedStationIds(new Set())}
+            >
+              {isEn ? 'Clear' : '取消'}
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Ctrl+F 快速搜站浮层 */}
       {searchOpen && (

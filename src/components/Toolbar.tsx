@@ -24,7 +24,6 @@ interface ToolbarProps {
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
-  mobileToolDockRef?: React.Ref<HTMLDivElement>;
   mobileViewControlsRef?: React.Ref<HTMLDivElement>;
 }
 
@@ -39,7 +38,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onRedo,
   canUndo,
   canRedo,
-  mobileToolDockRef,
   mobileViewControlsRef
 }) => {
   const text = language === 'en-US'
@@ -99,7 +97,6 @@ const Toolbar: React.FC<ToolbarProps> = ({
   return (
     <div className="metro-toolbar">
       <div className="metro-toolbar__right">
-        <div className="metro-toolbar__mobile-tools-slot" ref={mobileToolDockRef} />
         {onUndo ? (
           <Tooltip title={undoText}>
             <Button
