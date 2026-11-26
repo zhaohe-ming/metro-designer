@@ -21,6 +21,7 @@ import {
   VideoResolution,
   VideoSpeedMultiplier,
   VideoCameraMode,
+  VideoTimelineMode,
   VideoUnopenedStyle
 } from '../types';
 import {
@@ -44,6 +45,7 @@ interface VideoExportModalProps {
   stations: Station[];
   sections: Section[];
   settings?: MapSettings;
+  metersPerUnit?: number;
   defaultTitle?: string;
   config?: VideoExportConfig;
   onChange: (config: VideoExportConfig) => void;
@@ -101,6 +103,7 @@ function buildInitialDraft(
     cameraMode: config?.cameraMode ?? 'gentle',
     unopenedStyle: config?.unopenedStyle ?? 'ghost',
     dateMode: config?.dateMode ?? 'date',
+    timelineMode: config?.timelineMode ?? 'chronicle',
     showYearBadge: config?.showYearBadge ?? true,
     showLineLegend: config?.showLineLegend ?? true
   };
@@ -112,6 +115,7 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
   stations,
   sections,
   settings,
+  metersPerUnit,
   defaultTitle,
   config,
   onChange,
@@ -155,6 +159,7 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
 
   const segments = draft.segments;
   const dateMode: VideoDateMode = draft.dateMode || 'date';
+  const timelineMode: VideoTimelineMode = draft.timelineMode || 'chronicle';
   const aspectRatio: VideoAspectRatio = draft.aspectRatio || '16:9';
   const resolution: VideoResolution = draft.resolution || '1080p';
   const fps: VideoFps = draft.fps || 30;
@@ -244,8 +249,10 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
         cameraMode,
         unopenedStyle,
         dateMode,
+        timelineMode,
         showYearBadge,
         showLineLegend,
+        metersPerUnit,
         isPreviewPlaceholderMap: settings.baseMap.mode === 'amap'
       });
     } catch {
@@ -266,8 +273,10 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
     cameraMode,
     unopenedStyle,
     dateMode,
+    timelineMode,
     showYearBadge,
-    showLineLegend
+    showLineLegend,
+    metersPerUnit
   ]);
 
   useEffect(() => {
@@ -808,6 +817,21 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
                   />
                 </div>
 
+                {dateMode === 'date' ? (
+                  <div className="metro-video-option-line">
+                    <span className="metro-video-option-label">叙事节奏</span>
+                    <ElasticCapsuleTabs<VideoTimelineMode>
+                      ariaLabel="叙事节奏"
+                      value={timelineMode}
+                      onChange={(next) => updateDraft({ timelineMode: next })}
+                      options={[
+                        { value: 'chronicle', label: '编年史流（同年齐开）' },
+                        { value: 'sequential', label: '逐段解说' }
+                      ]}
+                    />
+                  </div>
+                ) : null}
+
                 <div className="metro-video-option-line">
                   <span className="metro-video-option-label">运镜</span>
                   <ElasticCapsuleTabs<VideoCameraMode>
@@ -815,9 +839,9 @@ const VideoExportModal: React.FC<VideoExportModalProps> = ({
                     value={cameraMode}
                     onChange={(next) => updateDraft({ cameraMode: next })}
                     options={[
-                      { value: 'overview', label: '固定' },
-                      { value: 'gentle', label: '平缓跟随' },
-                      { value: 'follow', label: '近景跟随' }
+                      { value: 'overview', label: '全景呼吸' },
+                      { value: 'gentle', label: '走廊推镜' },
+                      { value: 'follow', label: '近景特写' }
                     ]}
                   />
                 </div>

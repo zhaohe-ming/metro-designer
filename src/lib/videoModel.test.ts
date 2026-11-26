@@ -1,7 +1,7 @@
 import { Line, Section, Station } from '../types';
-import { activeVideoStationLines, buildVideoRouteGeometry, computeVideoDimensions, easeVideoProgress,
-  formatVideoDateLabel, generateAutoVideoSegments, mercatorProject, resolveVideoRoute, staticMapViewport,
-  videoArrivalProgress, videoFrameAtTime, VideoSegmentInput } from './videoModel';
+import { activeVideoStationLines, buildVideoRouteGeometry, buildVideoTimelineSchedule, computeVideoDimensions,
+  computeVideoRouteKilometers, easeVideoProgress, formatVideoDateLabel, generateAutoVideoSegments, mercatorProject,
+  parseVideoDecimalYear, resolveVideoRoute, staticMapViewport, videoArrivalProgress, videoFrameAtTime, VideoSegmentInput } from './videoModel';
 
 const stations: Station[] = [
   { id: 'a', name: '甲', x: 0, y: 0 },
@@ -108,4 +108,44 @@ test('支持仅填年份、年月、无日期阶段模式以及一键从画布�
 
   expect(computeVideoDimensions('9:16', '1080p')).toEqual({ width: 1080, height: 1920 });
   expect(computeVideoDimensions('16:9', '720p')).toEqual({ width: 1280, height: 720 });
+});
+
+test('编年史连续年份流支持同期多线并开、空窗年份滚表插值与物理里程换算', () => {
+  expect(parseVideoDecimalYear('2018')).toBeCloseTo(2018.0, 3);
+  expect(parseVideoDecimalYear('2018-07')).toBeCloseTo(2018.5, 2);
+
+  const sched = buildVideoTimelineSchedule({
+    mode: 'chronicle',
+    dateMode: 'date',
+    fps: 30,
+    speedMultiplier: 1,
+    titleFrames: 60,
+    outroFrames: 90,
+    items: [
+      { openDate: '2010-06', durationFrames: 90, holdFrames: 15 },
+      { openDate: '2018-12', durationFrames: 90, holdFrames: 15 },
+      { openDate: '2018-12', durationFrames: 90, holdFrames: 15 }
+    ]
+  });
+
+  expect(sched.mode).toBe('chronicle');
+  // 2018-12 的两条线应被聚入同一批次微错峰同步生长，而非串行排队
+  expect(sched.waves).toHaveLength(2);
+  expect(sched.waves[1].segmentIndices).toEqual([1, 2]);
+  expect(sched.segments[2].startFrame).toBeLessThan(sched.segments[1].endFrame);
+
+  // 2010 -> 2018 空窗桥期间年份平滑递增
+  const midGapFrame = Math.floor((sched.waves[0].holdEndFrame + sched.waves[1].startFrame) / 2);
+  const midYear = sched.yearAtFrame(midGapFrame)!;
+  expect(midYear).toBeGreaterThan(2011);
+  expect(midYear).toBeLessThan(2018);
+
+  const km = computeVideoRouteKilometers({
+    edges: [],
+    stationById,
+    worldLength: 400,
+    isGeoMode: false,
+    metersPerUnit: 25
+  });
+  expect(km).toBeCloseTo(10, 3);
 });

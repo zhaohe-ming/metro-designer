@@ -2208,8 +2208,10 @@ const App: React.FC = () => {
         cameraMode: config.cameraMode,
         unopenedStyle: config.unopenedStyle,
         dateMode: config.dateMode,
+        timelineMode: config.timelineMode,
         showYearBadge: config.showYearBadge,
         showLineLegend: config.showLineLegend,
+        metersPerUnit: proOps?.scaleConfig?.metersPerUnit,
         signal: controller.signal,
         onProgress: setVideoProgress,
         fetchAmapStaticMap: api.getAmapStaticMap,
@@ -3517,6 +3519,7 @@ const App: React.FC = () => {
           stations={stations}
           sections={sections}
           settings={mapSettings}
+          metersPerUnit={proOps?.scaleConfig?.metersPerUnit}
           defaultTitle={currentMap?.name || localProject?.name || '城市轨道线网历程'}
           config={mapSettings.videoExport}
           onChange={(config) => {

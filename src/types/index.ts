@@ -163,6 +163,7 @@ export type VideoSpeedMultiplier = 0.75 | 1 | 1.5 | 2;
 export type VideoCameraMode = 'overview' | 'gentle' | 'follow';
 export type VideoUnopenedStyle = 'ghost' | 'hidden';
 export type VideoDateMode = 'date' | 'sequence';
+export type VideoTimelineMode = 'chronicle' | 'sequential';
 
 export interface VideoSegmentInput {
   id: string;
@@ -185,6 +186,7 @@ export interface VideoExportConfig {
   cameraMode?: VideoCameraMode;
   unopenedStyle?: VideoUnopenedStyle;
   dateMode?: VideoDateMode;
+  timelineMode?: VideoTimelineMode;
   showYearBadge?: boolean;
   showLineLegend?: boolean;
 }
@@ -367,6 +369,8 @@ export const normalizeVideoExportConfig = (raw: unknown): VideoExportConfig | un
     config.unopenedStyle === 'ghost' || config.unopenedStyle === 'hidden' ? config.unopenedStyle : undefined;
   const dateMode: VideoDateMode | undefined =
     config.dateMode === 'date' || config.dateMode === 'sequence' ? config.dateMode : undefined;
+  const timelineMode: VideoTimelineMode | undefined =
+    config.timelineMode === 'chronicle' || config.timelineMode === 'sequential' ? config.timelineMode : undefined;
 
   return {
     segments,
@@ -380,6 +384,7 @@ export const normalizeVideoExportConfig = (raw: unknown): VideoExportConfig | un
     ...(cameraMode ? { cameraMode } : {}),
     ...(unopenedStyle ? { unopenedStyle } : {}),
     ...(dateMode ? { dateMode } : {}),
+    ...(timelineMode ? { timelineMode } : {}),
     ...(typeof config.showYearBadge === 'boolean' ? { showYearBadge: config.showYearBadge } : {}),
     ...(typeof config.showLineLegend === 'boolean' ? { showLineLegend: config.showLineLegend } : {})
   };

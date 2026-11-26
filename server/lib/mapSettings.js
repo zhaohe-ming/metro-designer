@@ -138,6 +138,7 @@ function normalizeVideoExportConfig(raw) {
   const cameraMode = ['overview', 'gentle', 'follow'].includes(raw.cameraMode) ? raw.cameraMode : undefined;
   const unopenedStyle = ['ghost', 'hidden'].includes(raw.unopenedStyle) ? raw.unopenedStyle : undefined;
   const dateMode = ['date', 'sequence'].includes(raw.dateMode) ? raw.dateMode : undefined;
+  const timelineMode = ['chronicle', 'sequential'].includes(raw.timelineMode) ? raw.timelineMode : undefined;
 
   return {
     segments,
@@ -151,6 +152,7 @@ function normalizeVideoExportConfig(raw) {
     ...(cameraMode ? { cameraMode } : {}),
     ...(unopenedStyle ? { unopenedStyle } : {}),
     ...(dateMode ? { dateMode } : {}),
+    ...(timelineMode ? { timelineMode } : {}),
     ...(typeof raw.showYearBadge === 'boolean' ? { showYearBadge: raw.showYearBadge } : {}),
     ...(typeof raw.showLineLegend === 'boolean' ? { showLineLegend: raw.showLineLegend } : {})
   };

@@ -40,6 +40,294 @@ export function normalizeSortableDateKey(raw: string): string {
   return value;
 }
 
+/**
+ * 将灵活开通日期解析为连续十进制年份（如 "2018" -> 2018.0, "2018-07" -> 2018.5, "2020-12-28" -> 2020.99）
+ */
+export function parseVideoDecimalYear(raw: string): number | null {
+  const value = (raw || '').trim();
+  if (/^\d{4}$/.test(value)) {
+    return Number(value);
+  }
+  if (/^\d{4}-\d{2}$/.test(value)) {
+    const [y, m] = value.split('-').map(Number);
+    return y + Math.max(0, Math.min(11, m - 1)) / 12;
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [y, m, d] = value.split('-').map(Number);
+    return y + (Math.max(0, m - 1) + Math.max(0, d - 1) / 31) / 12;
+  }
+  return null;
+}
+
+/**
+ * 计算单段开通路径的物理里程（公里）：
+ * - 若地理底图且节点具备有效经纬度，使用 Haversine 球面大圆真实距离；
+ * - 否则使用画布世界坐标长度 × metersPerUnit（默认 25 米/单位）换算等效运营里程。
+ */
+export function computeVideoRouteKilometers(params: {
+  edges: Array<{ section: Section; reversed: boolean }>;
+  stationById: ReadonlyMap<string, Station>;
+  worldLength: number;
+  isGeoMode: boolean;
+  metersPerUnit?: number;
+}): number {
+  const { edges, stationById, worldLength, isGeoMode, metersPerUnit } = params;
+  if (isGeoMode && edges.length > 0) {
+    const haversineKm = (lng1: number, lat1: number, lng2: number, lat2: number) => {
+      const toRad = (deg: number) => (deg * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLng = toRad(lng2 - lng1);
+      const a =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+      return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(Math.max(0, 1 - a)));
+    };
+    let geoKm = 0;
+    let allValid = true;
+    for (const { section } of edges) {
+      const stA = stationById.get(section.startStationId);
+      const stB = stationById.get(section.endStationId);
+      const chain = [stA, ...(section.waypoints || []), stB];
+      for (let i = 1; i < chain.length; i += 1) {
+        const p0 = chain[i - 1];
+        const p1 = chain[i];
+        if (
+          !p0 ||
+          !p1 ||
+          typeof p0.lng !== 'number' ||
+          typeof p0.lat !== 'number' ||
+          typeof p1.lng !== 'number' ||
+          typeof p1.lat !== 'number'
+        ) {
+          allValid = false;
+          break;
+        }
+        geoKm += haversineKm(p0.lng, p0.lat, p1.lng, p1.lat);
+      }
+      if (!allValid) break;
+    }
+    if (allValid && geoKm > 0.01) {
+      return geoKm;
+    }
+  }
+  const mpu = typeof metersPerUnit === 'number' && metersPerUnit > 0 ? metersPerUnit : 25;
+  return Math.max(0.2, (worldLength * mpu) / 1000);
+}
+
+export interface ScheduledSegmentWindow {
+  index: number;
+  waveIndex: number;
+  startFrame: number;
+  endFrame: number;
+  holdEndFrame: number;
+  decimalYear: number | null;
+}
+
+export interface ScheduledWaveWindow {
+  waveIndex: number;
+  segmentIndices: number[];
+  startFrame: number;
+  endFrame: number;
+  holdEndFrame: number;
+  yearStart: number | null;
+  yearEnd: number | null;
+}
+
+export interface VideoTimelineSchedule {
+  mode: 'chronicle' | 'sequential';
+  titleFrames: number;
+  bodyFrames: number;
+  outroFrames: number;
+  totalFrames: number;
+  segments: ScheduledSegmentWindow[];
+  waves: ScheduledWaveWindow[];
+  /** 给定全局帧号，返回当前连续滚动年份（如 2018.4 -> 显示 2018） */
+  yearAtFrame: (frame: number) => number | null;
+}
+
+/**
+ * 构建双模时间轴排程：
+ * - chronicle（编年史连续年份流）：同一年/相近月份（<= 0.2 年）的多段归入同一批次微错峰齐开，多年空窗期自动做对数压缩快进；
+ * - sequential（逐段精细解说流）：严格按列表顺序逐段播放。
+ */
+export function buildVideoTimelineSchedule(params: {
+  mode: 'chronicle' | 'sequential';
+  dateMode: VideoDateMode;
+  fps: number;
+  speedMultiplier: number;
+  titleFrames: number;
+  outroFrames: number;
+  items: Array<{
+    openDate: string;
+    durationFrames: number;
+    holdFrames: number;
+  }>;
+}): VideoTimelineSchedule {
+  const { dateMode, fps, speedMultiplier, titleFrames, outroFrames, items } = params;
+  const safeSpeed = Math.max(0.5, Math.min(3, speedMultiplier || 1));
+  const parsedYears = items.map((it) => (dateMode === 'date' ? parseVideoDecimalYear(it.openDate) : null));
+  const canChronicle =
+    params.mode === 'chronicle' &&
+    dateMode === 'date' &&
+    items.length > 0 &&
+    parsedYears.every((y): y is number => y !== null && Number.isFinite(y));
+
+  if (!canChronicle) {
+    let cursor = titleFrames;
+    const segWindows: ScheduledSegmentWindow[] = [];
+    const waves: ScheduledWaveWindow[] = [];
+    items.forEach((it, idx) => {
+      const startFrame = cursor;
+      const endFrame = cursor + it.durationFrames;
+      const holdEndFrame = endFrame + it.holdFrames;
+      const yr = parsedYears[idx];
+      segWindows.push({
+        index: idx,
+        waveIndex: idx,
+        startFrame,
+        endFrame,
+        holdEndFrame,
+        decimalYear: yr
+      });
+      waves.push({
+        waveIndex: idx,
+        segmentIndices: [idx],
+        startFrame,
+        endFrame,
+        holdEndFrame,
+        yearStart: yr,
+        yearEnd: yr
+      });
+      cursor = holdEndFrame;
+    });
+    const bodyFrames = Math.max(1, cursor - titleFrames);
+    const totalFrames = cursor + outroFrames;
+    return {
+      mode: 'sequential',
+      titleFrames,
+      bodyFrames,
+      outroFrames,
+      totalFrames,
+      segments: segWindows,
+      waves,
+      yearAtFrame: (f: number) => {
+        if (!waves.length) return null;
+        if (f <= waves[0].startFrame) return waves[0].yearStart;
+        for (let i = 0; i < waves.length; i += 1) {
+          if (f <= waves[i].holdEndFrame) return waves[i].yearStart;
+        }
+        return waves[waves.length - 1].yearEnd;
+      }
+    };
+  }
+
+  // Chronicle 模式：按列表顺序（若已按日期增序则自动聚合同期批次；若用户故意打乱顺序则仅相邻同期聚合）
+  const rawGroups: Array<{ indices: number[]; minYear: number; maxYear: number }> = [];
+  items.forEach((_, idx) => {
+    const yr = parsedYears[idx]!;
+    const prev = rawGroups[rawGroups.length - 1];
+    if (prev && Math.abs(yr - prev.maxYear) <= 0.22 && prev.indices.length < 5) {
+      prev.indices.push(idx);
+      prev.minYear = Math.min(prev.minYear, yr);
+      prev.maxYear = Math.max(prev.maxYear, yr);
+    } else {
+      rawGroups.push({ indices: [idx], minYear: yr, maxYear: yr });
+    }
+  });
+
+  const staggerStep = Math.max(4, Math.round((fps * 0.26) / safeSpeed));
+  const segWindows: ScheduledSegmentWindow[] = new Array(items.length);
+  const waves: ScheduledWaveWindow[] = [];
+  const yearAnchors: Array<{ frame: number; year: number }> = [];
+
+  let cursor = titleFrames;
+  rawGroups.forEach((grp, wIdx) => {
+    if (wIdx > 0) {
+      const prevWave = waves[wIdx - 1];
+      const deltaYears = grp.minYear - (prevWave.yearEnd ?? grp.minYear);
+      // 多年建设空窗期：对数压缩时间桥（例如隔 5 年用 ~0.85s 快速滚过年份表，既有历史跨度感又不枯燥干等）
+      if (deltaYears > 0.85) {
+        const bridgeSec = Math.min(1.35, Math.max(0.42, 0.36 + Math.log2(deltaYears + 1) * 0.28)) / safeSpeed;
+        cursor += Math.max(6, Math.round(bridgeSec * fps));
+      }
+    }
+
+    const waveStart = cursor;
+    let waveGrowEnd = waveStart;
+    let maxHold = Math.max(8, Math.round((fps * 0.36) / Math.sqrt(safeSpeed)));
+
+    grp.indices.forEach((segIdx, localOrder) => {
+      const it = items[segIdx];
+      // 同批次多线微错峰齐开，单段时长适度精炼避免拖沓
+      const refinedDur =
+        grp.indices.length > 1 ? Math.max(Math.round(fps * 1.25), Math.round(it.durationFrames * 0.86)) : it.durationFrames;
+      const sFrame = waveStart + localOrder * staggerStep;
+      const eFrame = sFrame + refinedDur;
+      waveGrowEnd = Math.max(waveGrowEnd, eFrame);
+      maxHold = Math.max(maxHold, Math.round(it.holdFrames * 0.85));
+      segWindows[segIdx] = {
+        index: segIdx,
+        waveIndex: wIdx,
+        startFrame: sFrame,
+        endFrame: eFrame,
+        holdEndFrame: waveGrowEnd + maxHold,
+        decimalYear: parsedYears[segIdx]
+      };
+    });
+
+    const waveHoldEnd = waveGrowEnd + maxHold;
+    grp.indices.forEach((segIdx) => {
+      segWindows[segIdx].holdEndFrame = waveHoldEnd;
+    });
+
+    const spanYears = Math.max(0.15, grp.maxYear - grp.minYear);
+    waves.push({
+      waveIndex: wIdx,
+      segmentIndices: grp.indices,
+      startFrame: waveStart,
+      endFrame: waveGrowEnd,
+      holdEndFrame: waveHoldEnd,
+      yearStart: grp.minYear,
+      yearEnd: grp.minYear + spanYears
+    });
+
+    yearAnchors.push({ frame: waveStart, year: grp.minYear });
+    yearAnchors.push({ frame: waveHoldEnd, year: Math.max(grp.maxYear, grp.minYear + 0.08) });
+    cursor = waveHoldEnd;
+  });
+
+  const bodyFrames = Math.max(1, cursor - titleFrames);
+  const totalFrames = cursor + outroFrames;
+
+  const yearAtFrame = (f: number): number | null => {
+    if (!yearAnchors.length) return null;
+    if (f <= yearAnchors[0].frame) return yearAnchors[0].year;
+    const last = yearAnchors[yearAnchors.length - 1];
+    if (f >= last.frame) return last.year;
+    for (let i = 1; i < yearAnchors.length; i += 1) {
+      const a = yearAnchors[i - 1];
+      const b = yearAnchors[i];
+      if (f <= b.frame) {
+        const span = Math.max(1, b.frame - a.frame);
+        const u = (f - a.frame) / span;
+        return a.year + (b.year - a.year) * u;
+      }
+    }
+    return last.year;
+  };
+
+  return {
+    mode: 'chronicle',
+    titleFrames,
+    bodyFrames,
+    outroFrames,
+    totalFrames,
+    segments: segWindows,
+    waves,
+    yearAtFrame
+  };
+}
+
 export function formatVideoDateLabel(
   segment: Pick<VideoSegmentInput, 'openDate' | 'phaseLabel'>,
   index: number,
