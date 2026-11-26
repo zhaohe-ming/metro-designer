@@ -20,6 +20,30 @@ export interface ReconcileProOpsResult {
 }
 
 /**
+ * 线路子走廊分解单元：用于把含主支线、环线、6字线、多个独立不连通分段乃至孤立未连线车站的
+ * 任意复杂单线拓扑 100% 无遗漏地展开为一维走廊序列与可选运行交路变体。
+ */
+export interface LineSubCorridor {
+  id: string;
+  kind: 'trunk' | 'branch' | 'loop' | 'segment' | 'isolated';
+  label: string;
+  stationIds: string[];
+  steps: ProRouteStep[];
+  /** 若为支线，标记其从主干/上一走廊分岔出的枢纽站 ID */
+  branchFromStationId?: string;
+  /** 若为闭合环，标记末尾列为回到起点的环闭合点 */
+  isClosedLoop?: boolean;
+}
+
+export interface LineRouteVariant {
+  key: string;
+  label: string;
+  isLoop: boolean;
+  stationIds: string[];
+  steps: ProRouteStep[];
+}
+
+/**
  * 保守型单线区间裂变检测（Conservative Deterministic Split-Healing）：
  * 仅当原区间 (lineId, fromStationId, toStationId) 在同一条线路上被新插入的中间站拆分为
  * 一条唯一的、中间节点度数全部为 2、且中间节点均未在该交路其他步出现过的简单链时，才自动展开修复；
@@ -66,10 +90,8 @@ function findDeterministicSplitChain(
         continue;
       }
       if (visited.has(neighbor)) continue;
-      // 严苛条件 1：裂变出的新中间站在本线上度数必须严格为 2（无支线岔口）
       const deg = adj.get(neighbor)?.length || 0;
       if (deg !== 2) continue;
-      // 严苛条件 2：中间站绝不能是该交路原本已访问过的车站（彻底杜绝环线反向绕圈误判）
       if (existingVisitedStations.has(neighbor)) continue;
 
       visited.add(neighbor);
@@ -84,12 +106,6 @@ function findDeterministicSplitChain(
   return matchedChains.length === 1 ? matchedChains[0] : null;
 }
 
-/**
- * 同步并校验专业运营文档与最新物理线网拓扑：
- * - 清理孤儿属性配置（lineSpecs / stationProfiles / sectionOverrides）；
- * - 对确定性的单区间插站裂变做无损展开；
- * - 对删站、拆线、缺失联络线等不确定变更保留原交路并标记 status = 'broken'，绝不静默删交路。
- */
 export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): ReconcileProOpsResult {
   const next = cloneProOpsDocument(doc);
   const stationMap = new Map<string, Station>(graph.stations.map((s) => [s.id, s]));
@@ -105,7 +121,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
     sectionByLinePair.set(`${sec.lineId}::${normalizePair(sec.startStationId, sec.endStationId)}`, sec);
   });
 
-  // 1) 清理无副作用的稀疏属性字典孤儿键
   Object.keys(next.lineSpecs).forEach((lineId) => {
     if (!lineMap.has(lineId)) delete next.lineSpecs[lineId];
   });
@@ -116,7 +131,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
     if (!sectionMap.has(sectionId)) delete next.sectionOverrides[sectionId];
   });
 
-  // 2) 校验跨线物理连接（联络线/道岔），保留断链项以便用户在面板修复
   const lineStationSets = new Map<string, Set<string>>();
   graph.lines.forEach((line) => {
     lineStationSets.set(line.id, new Set(line.stationIds));
@@ -139,7 +153,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
   });
   const connMap = new Map<string, ProTrackConnection>(next.trackConnections.map((c) => [c.id, c]));
 
-  // 3) 逐交路进行保守裂变自愈与断链校验
   const validations: Record<string, ProServiceValidation> = {};
 
   next.servicePatterns = next.servicePatterns.map((pattern) => {
@@ -165,7 +178,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
         return;
       }
 
-      // 优先检查原 sectionId 是否仍匹配同一线路与端点对
       const directSec = sectionMap.get(step.sectionId);
       const expectedPair = normalizePair(step.fromStationId, step.toStationId);
       if (
@@ -181,7 +193,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
         return;
       }
 
-      // 次优：同线同端点对但重新生成过 sectionId
       const samePairSec = sectionByLinePair.get(`${step.lineId}::${expectedPair}`);
       if (samePairSec) {
         expandedSteps.push({
@@ -193,7 +204,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
         return;
       }
 
-      // 保守裂变自愈：检查是否仅在原区间内插入了度为 2 的新中间站
       const lineSecs = sectionsByLine.get(step.lineId) || [];
       const splitChain = findDeterministicSplitChain(
         lineSecs,
@@ -227,7 +237,6 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
         return;
       }
 
-      // 无法确定性修复：原样保留该步并等待验证器标黄提示
       expandedSteps.push({
         ...step,
         ...(freshFromName ? { fromStationNameHint: freshFromName } : {}),
@@ -332,8 +341,451 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
   };
 }
 
+function stationChainToSteps(
+  lineId: string,
+  stationChain: string[],
+  sectionByPair: ReadonlyMap<string, Section>,
+  stationMap: ReadonlyMap<string, Station>,
+  stopPredicate?: (stationId: string, isTerminal: boolean) => boolean
+): ProRouteStep[] {
+  const steps: ProRouteStep[] = [];
+  for (let i = 0; i < stationChain.length - 1; i += 1) {
+    const fromId = stationChain[i];
+    const toId = stationChain[i + 1];
+    const sec = sectionByPair.get(normalizePair(fromId, toId));
+    if (!sec) break;
+    const isTerminal = i === stationChain.length - 2;
+    const stopAtEnd = stopPredicate ? stopPredicate(toId, isTerminal) : true;
+    steps.push({
+      kind: 'section',
+      sectionId: sec.id,
+      lineId,
+      fromStationId: fromId,
+      toStationId: toId,
+      fromStationNameHint: stationMap.get(fromId)?.name,
+      toStationNameHint: stationMap.get(toId)?.name,
+      stopAtEnd
+    });
+  }
+  return steps;
+}
+
 /**
- * 提取某条线路在两点之间（或全线/整环）的有序物理区间步序列，用于一键创建/修复交路。
+ * 将单条物理线路完整拆解为覆盖 100% 区间与 100% 车站的有序子走廊列表：
+ * - 单连通直线 -> [trunk]
+ * - 单连通纯环线 -> [loop (首尾闭合)]
+ * - 6字线（单端点引线 + 环） -> 一笔走完引线绕环闭合或 [trunk + loop-branch]，覆盖全部边
+ * - Y型/多支线树 -> [主线 trunk, 支线1 (自枢纽分出), 支线2 ...]
+ * - 同一条线路下画了两段或多段互不相连的独立区间 -> [独立区段 1, 独立区段 2 ...]（每段内部同样支持主支线与环线！）
+ * - 已归属该线但尚未连线的孤立车站 -> [未连线站点]
+ */
+export function decomposeLineIntoSubCorridors(graph: MapGraph, lineId: string): LineSubCorridor[] {
+  const line = graph.lines.find((l) => l.id === lineId);
+  if (!line) return [];
+
+  const stationMap = new Map(graph.stations.map((s) => [s.id, s]));
+  const lineSections = graph.sections.filter(
+    (s) => s.lineId === lineId && stationMap.has(s.startStationId) && stationMap.has(s.endStationId) && s.startStationId !== s.endStationId
+  );
+
+  const rankMap = new Map<string, number>();
+  line.stationIds.forEach((id, idx) => {
+    if (!rankMap.has(id)) rankMap.set(id, idx);
+  });
+  const rankOf = (id: string) => rankMap.get(id) ?? Number.MAX_SAFE_INTEGER;
+
+  const sectionByPair = new Map<string, Section>();
+  const adj = new Map<string, Array<{ to: string; section: Section }>>();
+  const addAdj = (u: string, v: string, section: Section) => {
+    const list = adj.get(u) || [];
+    if (!list.some((e) => e.to === v)) list.push({ to: v, section });
+    adj.set(u, list);
+  };
+
+  lineSections.forEach((sec) => {
+    const pk = normalizePair(sec.startStationId, sec.endStationId);
+    if (!sectionByPair.has(pk)) {
+      sectionByPair.set(pk, sec);
+      addAdj(sec.startStationId, sec.endStationId, sec);
+      addAdj(sec.endStationId, sec.startStationId, sec);
+    }
+  });
+
+  adj.forEach((edges) => {
+    edges.sort((a, b) => rankOf(a.to) - rankOf(b.to));
+  });
+
+  // 收集本线所有关联车站（含连线车站 + 孤立未连线车站）
+  const allStationIds: string[] = [];
+  const seenStation = new Set<string>();
+  line.stationIds.forEach((id) => {
+    if (stationMap.has(id) && !seenStation.has(id)) {
+      seenStation.add(id);
+      allStationIds.push(id);
+    }
+  });
+  adj.forEach((_, id) => {
+    if (stationMap.has(id) && !seenStation.has(id)) {
+      seenStation.add(id);
+      allStationIds.push(id);
+    }
+  });
+
+  if (allStationIds.length === 0) return [];
+
+  // 划分连通分量
+  const visitedComp = new Set<string>();
+  const connectedComponents: string[][] = [];
+  const isolatedStationIds: string[] = [];
+
+  allStationIds.forEach((seed) => {
+    if (visitedComp.has(seed)) return;
+    const neighbors = adj.get(seed);
+    if (!neighbors || neighbors.length === 0) {
+      visitedComp.add(seed);
+      isolatedStationIds.push(seed);
+      return;
+    }
+    const comp: string[] = [];
+    const queue = [seed];
+    visitedComp.add(seed);
+    while (queue.length > 0) {
+      const u = queue.shift()!;
+      comp.push(u);
+      (adj.get(u) || []).forEach(({ to }) => {
+        if (!visitedComp.has(to)) {
+          visitedComp.add(to);
+          queue.push(to);
+        }
+      });
+    }
+    comp.sort((a, b) => rankOf(a) - rankOf(b));
+    connectedComponents.push(comp);
+  });
+
+  const multiComp = connectedComponents.length > 1;
+  const subCorridors: LineSubCorridor[] = [];
+
+  connectedComponents.forEach((compNodes, compIdx) => {
+    const compSet = new Set(compNodes);
+    const compEdges: Section[] = [];
+    sectionByPair.forEach((sec) => {
+      if (compSet.has(sec.startStationId) && compSet.has(sec.endStationId)) {
+        compEdges.push(sec);
+      }
+    });
+
+    const compPrefix = multiComp ? `区段${compIdx + 1}` : '';
+    const degOneNodes = compNodes.filter((id) => (adj.get(id)?.length || 0) === 1);
+    const maxDeg = Math.max(...compNodes.map((id) => adj.get(id)?.length || 0));
+
+    // Case A: 纯闭合环线（所有顶点度数 === 2，无端点，边数 === 顶点数 >= 3）
+    if (degOneNodes.length === 0 && maxDeg === 2 && compNodes.length >= 3 && compEdges.length === compNodes.length) {
+      const startNode = compNodes[0];
+      const chain: string[] = [startNode];
+      const visited = new Set<string>([startNode]);
+      let curr = startNode;
+      while (true) {
+        const nextEdge = (adj.get(curr) || []).find((e) => !visited.has(e.to));
+        if (!nextEdge) break;
+        visited.add(nextEdge.to);
+        chain.push(nextEdge.to);
+        curr = nextEdge.to;
+      }
+      chain.push(startNode);
+      subCorridors.push({
+        id: `${lineId}_comp_${compIdx}_loop`,
+        kind: 'loop',
+        label: compPrefix ? `${compPrefix}·环线` : '环线全程',
+        stationIds: chain,
+        steps: stationChainToSteps(lineId, chain, sectionByPair, stationMap),
+        isClosedLoop: true
+      });
+      return;
+    }
+
+    const uncoveredPairs = new Set<string>(
+      compEdges.map((sec) => normalizePair(sec.startStationId, sec.endStationId))
+    );
+    const coveredNodes = new Set<string>();
+
+    // 提取主干（Trunk）
+    let trunkChain: string[] = [];
+
+    if (degOneNodes.length >= 2) {
+      // 在所有度为 1 的终端站之间找最长简单路径（同长时取原站点顺序最靠前的起终点）
+      const bfsLongestFrom = (source: string): string[] => {
+        let best: string[] = [source];
+        const dfsPath = (u: string, visited: Set<string>, path: string[]) => {
+          if (path.length > best.length) {
+            best = [...path];
+          }
+          const edges = adj.get(u) || [];
+          for (let i = 0; i < edges.length; i += 1) {
+            const nxt = edges[i].to;
+            if (!visited.has(nxt)) {
+              visited.add(nxt);
+              path.push(nxt);
+              dfsPath(nxt, visited, path);
+              path.pop();
+              visited.delete(nxt);
+            }
+          }
+        };
+        dfsPath(source, new Set([source]), [source]);
+        return best;
+      };
+
+      for (let i = 0; i < degOneNodes.length; i += 1) {
+        const cand = bfsLongestFrom(degOneNodes[i]);
+        if (cand.length > trunkChain.length) {
+          trunkChain = cand;
+        }
+      }
+      if (
+        trunkChain.length >= 2 &&
+        rankOf(trunkChain[0]) > rankOf(trunkChain[trunkChain.length - 1])
+      ) {
+        trunkChain.reverse();
+      }
+    } else if (degOneNodes.length === 1) {
+      // 6 字线（单引线接环）：从唯一终端出发一路走到底，并在环交汇点闭合该环！
+      const start = degOneNodes[0];
+      const chain: string[] = [start];
+      const usedPairs = new Set<string>();
+      let curr = start;
+      while (true) {
+        const candidates = (adj.get(curr) || []).filter(
+          (e) => !usedPairs.has(normalizePair(curr, e.to))
+        );
+        if (candidates.length === 0) break;
+        // 优先走尚未访问过的节点；若都访问过则闭合回环节点
+        const unvisitedNext = candidates.find((e) => !chain.includes(e.to)) || candidates[0];
+        usedPairs.add(normalizePair(curr, unvisitedNext.to));
+        chain.push(unvisitedNext.to);
+        curr = unvisitedNext.to;
+        if (chain.slice(0, -1).includes(curr) && (adj.get(curr)?.every((e) => usedPairs.has(normalizePair(curr, e.to))) ?? true)) {
+          break;
+        }
+      }
+      trunkChain = chain;
+    } else {
+      // 无度为 1 终端但存在度 >= 3 的复环（如 8 字环 / 带弦环）：先取经过首站的最长简单环作为主环
+      const start = compNodes[0];
+      let bestCycle: string[] = [];
+      const dfsCycle = (u: string, visited: Set<string>, path: string[]) => {
+        const edges = adj.get(u) || [];
+        for (let i = 0; i < edges.length; i += 1) {
+          const nxt = edges[i].to;
+          if (nxt === start && path.length >= 3) {
+            if (path.length + 1 > bestCycle.length) {
+              bestCycle = [...path, start];
+            }
+            continue;
+          }
+          if (!visited.has(nxt)) {
+            visited.add(nxt);
+            path.push(nxt);
+            dfsCycle(nxt, visited, path);
+            path.pop();
+            visited.delete(nxt);
+          }
+        }
+      };
+      dfsCycle(start, new Set([start]), [start]);
+      trunkChain = bestCycle.length >= 3 ? bestCycle : compNodes.slice(0, 2);
+    }
+
+    for (let i = 0; i < trunkChain.length - 1; i += 1) {
+      uncoveredPairs.delete(normalizePair(trunkChain[i], trunkChain[i + 1]));
+    }
+    trunkChain.forEach((id) => coveredNodes.add(id));
+
+    const hasRemainingBranches = uncoveredPairs.size > 0;
+    const isTrunkLoop = trunkChain.length >= 4 && trunkChain[0] === trunkChain[trunkChain.length - 1];
+
+    subCorridors.push({
+      id: `${lineId}_comp_${compIdx}_trunk`,
+      kind: multiComp && !hasRemainingBranches ? 'segment' : isTrunkLoop ? 'loop' : 'trunk',
+      label: hasRemainingBranches
+        ? `${compPrefix ? `${compPrefix}·` : ''}主线`
+        : multiComp
+          ? `独立区段 ${compIdx + 1}`
+          : isTrunkLoop
+            ? '主环线'
+            : '全程主线',
+      stationIds: trunkChain,
+      steps: stationChainToSteps(lineId, trunkChain, sectionByPair, stationMap),
+      ...(isTrunkLoop ? { isClosedLoop: true } : {})
+    });
+
+    // 迭代提取所有剩余支线或联络弦，确保本连通分量的每一条边、每一个站 100% 被纳入走廊
+    let branchIdx = 1;
+    while (uncoveredPairs.size > 0) {
+      // 寻找挂载在已覆盖节点上的未覆盖边起点（按原站点顺序优先）
+      const anchorCandidates = Array.from(coveredNodes).filter((u) =>
+        (adj.get(u) || []).some((e) => uncoveredPairs.has(normalizePair(u, e.to)))
+      );
+      anchorCandidates.sort((a, b) => rankOf(a) - rankOf(b));
+      const branchRoot = anchorCandidates[0] || compNodes[0];
+
+      // 在剩余未覆盖边中从 branchRoot 走出最长简单分支链
+      let bestBranch: string[] = [];
+      const dfsBranch = (u: string, usedLocalPairs: Set<string>, path: string[]) => {
+        if (path.length > bestBranch.length) {
+          bestBranch = [...path];
+        }
+        const edges = (adj.get(u) || []).filter((e) => {
+          const pk = normalizePair(u, e.to);
+          return uncoveredPairs.has(pk) && !usedLocalPairs.has(pk);
+        });
+        for (let i = 0; i < edges.length; i += 1) {
+          const nxt = edges[i].to;
+          const pk = normalizePair(u, nxt);
+          // 若到达另一个已覆盖主干节点（弦），记录闭合步后停止继续深入主干
+          if (coveredNodes.has(nxt) && path.length >= 1) {
+            const candidate = [...path, nxt];
+            if (candidate.length > bestBranch.length) {
+              bestBranch = candidate;
+            }
+            continue;
+          }
+          if (path.includes(nxt)) {
+            const loopCand = [...path, nxt];
+            if (loopCand.length > bestBranch.length) {
+              bestBranch = loopCand;
+            }
+            continue;
+          }
+          usedLocalPairs.add(pk);
+          path.push(nxt);
+          dfsBranch(nxt, usedLocalPairs, path);
+          path.pop();
+          usedLocalPairs.delete(pk);
+        }
+      };
+
+      dfsBranch(branchRoot, new Set(), [branchRoot]);
+      if (bestBranch.length < 2) break;
+
+      for (let i = 0; i < bestBranch.length - 1; i += 1) {
+        uncoveredPairs.delete(normalizePair(bestBranch[i], bestBranch[i + 1]));
+      }
+      bestBranch.forEach((id) => coveredNodes.add(id));
+
+      const rootName = stationMap.get(branchRoot)?.name || '分岔站';
+      subCorridors.push({
+        id: `${lineId}_comp_${compIdx}_branch_${branchIdx}`,
+        kind: 'branch',
+        label: `${compPrefix ? `${compPrefix}·` : ''}支线${branchIdx > 1 ? branchIdx : ''}（自${rootName}）`,
+        stationIds: bestBranch,
+        steps: stationChainToSteps(lineId, bestBranch, sectionByPair, stationMap),
+        branchFromStationId: branchRoot
+      });
+      branchIdx += 1;
+    }
+  });
+
+  // 纳入归属本线但尚未连线的孤立站点，确保不漏任何一站
+  if (isolatedStationIds.length > 0) {
+    subCorridors.push({
+      id: `${lineId}_isolated`,
+      kind: 'isolated',
+      label: '待连线站点',
+      stationIds: isolatedStationIds,
+      steps: []
+    });
+  }
+
+  return subCorridors;
+}
+
+/**
+ * 枚举某条物理线路上所有可开行的端到端完整运行路径变体（主线、主支贯通线、独立支线、各独立不连通区段、闭合环线）。
+ */
+export function listLineRouteVariants(graph: MapGraph, lineId: string): LineRouteVariant[] {
+  const line = graph.lines.find((l) => l.id === lineId);
+  if (!line) return [];
+  const stationMap = new Map(graph.stations.map((s) => [s.id, s]));
+  const subCorridors = decomposeLineIntoSubCorridors(graph, lineId).filter(
+    (sc) => sc.steps.length > 0
+  );
+  if (subCorridors.length === 0) return [];
+
+  const variants: LineRouteVariant[] = [];
+  const seenKeys = new Set<string>();
+
+  const pushVariant = (key: string, label: string, isLoop: boolean, stationIds: string[], steps: ProRouteStep[]) => {
+    if (steps.length === 0 || seenKeys.has(key)) return;
+    seenKeys.add(key);
+    variants.push({ key, label, isLoop, stationIds, steps });
+  };
+
+  subCorridors.forEach((sc) => {
+    const firstName = stationMap.get(sc.stationIds[0])?.name || sc.stationIds[0];
+    const lastName = stationMap.get(sc.stationIds[sc.stationIds.length - 1])?.name || sc.stationIds[sc.stationIds.length - 1];
+
+    if (sc.kind === 'loop' || sc.isClosedLoop) {
+      pushVariant(
+        sc.id,
+        `${sc.label}（${firstName} ↻ ${lastName}）`,
+        true,
+        sc.stationIds,
+        sc.steps
+      );
+      return;
+    }
+
+    if (sc.kind === 'trunk' || sc.kind === 'segment') {
+      pushVariant(
+        sc.id,
+        `${sc.label}（${firstName} → ${lastName}）`,
+        false,
+        sc.stationIds,
+        sc.steps
+      );
+      return;
+    }
+
+    if (sc.kind === 'branch' && sc.branchFromStationId) {
+      // 1) 主干始发站贯通入支线（现实最常见的 Y 型主支贯通交路，如西园 -> 科技园 -> 航站楼！）
+      const branchTipId = sc.stationIds[sc.stationIds.length - 1];
+      const parentTrunk = subCorridors.find(
+        (p) => (p.kind === 'trunk' || p.kind === 'segment') && p.stationIds.includes(sc.branchFromStationId!)
+      );
+      if (parentTrunk && parentTrunk.stationIds[0] !== sc.branchFromStationId) {
+        const throughSteps = buildOrderedLineSteps(graph, lineId, {
+          startStationId: parentTrunk.stationIds[0],
+          endStationId: branchTipId
+        });
+        if (throughSteps.length > sc.steps.length) {
+          const trunkOriginName = stationMap.get(parentTrunk.stationIds[0])?.name || '';
+          pushVariant(
+            `${sc.id}_through_origin`,
+            `主支贯通（${trunkOriginName} → ${lastName}）`,
+            false,
+            [throughSteps[0].fromStationId, ...throughSteps.map((s) => s.toStationId)],
+            throughSteps
+          );
+        }
+      }
+
+      // 2) 纯支线独立区间交路（如 科技园 -> 航站楼）
+      pushVariant(
+        sc.id,
+        `${sc.label}独立交路（${firstName} → ${lastName}）`,
+        false,
+        sc.stationIds,
+        sc.steps
+      );
+    }
+  });
+
+  return variants;
+}
+
+/**
+ * 提取某条线路在两点之间（或默认首条主走廊）的有序物理区间步序列。
  */
 export function buildOrderedLineSteps(
   graph: MapGraph,
@@ -341,6 +793,7 @@ export function buildOrderedLineSteps(
   options?: {
     startStationId?: string;
     endStationId?: string;
+    variantKey?: string;
     stopPredicate?: (stationId: string, isTerminal: boolean) => boolean;
   }
 ): ProRouteStep[] {
@@ -349,6 +802,19 @@ export function buildOrderedLineSteps(
   const stationMap = new Map(graph.stations.map((s) => [s.id, s]));
   const lineSections = graph.sections.filter((s) => s.lineId === lineId);
   if (lineSections.length === 0) return [];
+
+  if (options?.variantKey) {
+    const matchedVariant = listLineRouteVariants(graph, lineId).find((v) => v.key === options.variantKey);
+    if (matchedVariant) {
+      return matchedVariant.steps.map((step, idx, arr) => {
+        const isTerminal = idx === arr.length - 1;
+        return {
+          ...step,
+          stopAtEnd: options.stopPredicate ? options.stopPredicate(step.toStationId, isTerminal) : true
+        };
+      });
+    }
+  }
 
   const topo = deriveLineTopology(line, lineSections, new Set(stationMap.keys()));
   const sectionByPair = new Map<string, Section>();
@@ -366,16 +832,30 @@ export function buildOrderedLineSteps(
   let stationChain: string[] = [];
 
   if (options?.startStationId && options?.endStationId) {
-    if (options.startStationId === options.endStationId && topo.isLoop) {
-      // 环线首末同站整圈：沿有序顶点走一圈回到起点
-      const idx = topo.stationIds.indexOf(options.startStationId);
-      const rotated =
-        idx >= 0
-          ? [...topo.stationIds.slice(idx), ...topo.stationIds.slice(0, idx), options.startStationId]
-          : [...topo.stationIds, topo.stationIds[0]];
-      stationChain = rotated;
-    } else if (options.startStationId !== options.endStationId) {
-      // BFS 在本线拓扑内寻找从起点到终点的简单路径
+    if (options.startStationId === options.endStationId) {
+      // 同站起终（环线或主环绕一圈）：BFS/DFS 寻找从该站出发回到该站的简单环
+      let foundCycle: string[] = [];
+      const dfsLoop = (u: string, visited: Set<string>, path: string[]) => {
+        if (foundCycle.length > 0) return;
+        const neighbors = adj.get(u) || [];
+        for (let i = 0; i < neighbors.length; i += 1) {
+          const nxt = neighbors[i];
+          if (nxt === options.startStationId && path.length >= 3) {
+            foundCycle = [...path, nxt];
+            return;
+          }
+          if (!visited.has(nxt)) {
+            visited.add(nxt);
+            path.push(nxt);
+            dfsLoop(nxt, visited, path);
+            path.pop();
+            visited.delete(nxt);
+          }
+        }
+      };
+      dfsLoop(options.startStationId, new Set([options.startStationId]), [options.startStationId]);
+      stationChain = foundCycle;
+    } else {
       const queue: string[][] = [[options.startStationId]];
       const visited = new Set<string>([options.startStationId]);
       while (queue.length > 0) {
@@ -398,73 +878,84 @@ export function buildOrderedLineSteps(
   }
 
   if (stationChain.length < 2) {
-    if (topo.isLoop && topo.stationIds.length >= 3) {
+    const subCorridors = decomposeLineIntoSubCorridors(graph, lineId);
+    const primary = subCorridors.find((sc) => sc.steps.length > 0);
+    if (primary) {
+      stationChain = primary.stationIds;
+    } else if (topo.isLoop && topo.stationIds.length >= 3) {
       stationChain = [...topo.stationIds, topo.stationIds[0]];
     } else {
-      // 从首站到末站取主干最长链
-      const startId = topo.terminalStationIds[0] || topo.stationIds[0];
-      const endId =
-        topo.terminalStationIds.length >= 2
-          ? topo.terminalStationIds[topo.terminalStationIds.length - 1]
-          : topo.stationIds[topo.stationIds.length - 1];
-      if (startId && endId && startId !== endId) {
-        return buildOrderedLineSteps(graph, lineId, {
-          startStationId: startId,
-          endStationId: endId,
-          stopPredicate: options?.stopPredicate
-        });
-      }
       stationChain = topo.stationIds;
     }
   }
 
-  const steps: ProRouteStep[] = [];
-  for (let i = 0; i < stationChain.length - 1; i += 1) {
-    const fromId = stationChain[i];
-    const toId = stationChain[i + 1];
-    const sec = sectionByPair.get(normalizePair(fromId, toId));
-    if (!sec) break;
-    const isTerminal = i === stationChain.length - 2;
-    const stopAtEnd = options?.stopPredicate ? options.stopPredicate(toId, isTerminal) : true;
-    steps.push({
-      kind: 'section',
-      sectionId: sec.id,
-      lineId,
-      fromStationId: fromId,
-      toStationId: toId,
-      fromStationNameHint: stationMap.get(fromId)?.name,
-      toStationNameHint: stationMap.get(toId)?.name,
-      stopAtEnd
-    });
-  }
-  return steps;
+  return stationChainToSteps(lineId, stationChain, sectionByPair, stationMap, options?.stopPredicate);
 }
 
 /**
- * 一键为指定物理线路生成「全程普通车」基准交路。
+ * 为指定物理线路（或指定主支线/区段变体）生成「普通车」交路。
  */
-export function createLineAllStopPattern(graph: MapGraph, lineId: string): ProServicePattern | null {
+export function createLineAllStopPattern(
+  graph: MapGraph,
+  lineId: string,
+  variantKey?: string
+): ProServicePattern | null {
   const line = graph.lines.find((l) => l.id === lineId);
   if (!line) return null;
-  const routeSteps = buildOrderedLineSteps(graph, lineId);
+  const variants = listLineRouteVariants(graph, lineId);
+  const chosen = variantKey ? variants.find((v) => v.key === variantKey) : variants[0];
+  const routeSteps = buildOrderedLineSteps(graph, lineId, { variantKey: chosen?.key });
   if (routeSteps.length === 0) return null;
+
+  const suffix =
+    variants.length > 1 && chosen
+      ? ` ${chosen.label.split('（')[0]}`
+      : ' 全程普通车';
+
   return {
     id: createId(),
-    name: `${line.name} 全程普通车`,
+    name: `${line.name}${suffix}`,
     code: '普通',
     color: line.color,
     category: 'local',
     stopAtStart: true,
     routeSteps,
     headwaySec: 240,
-    bidirectional: true
+    bidirectional: !chosen?.isLoop
   };
 }
 
 /**
- * 一键生成「大站快车」交路：默认仅停靠首末站与多线换乘站（若全线无换乘站则每隔 2~3 站停靠）。
+ * 一键为某条线路的所有不连通分段及主支贯通变体生成完整普通车集合（确保多区段/主支线不漏任何站点）。
  */
-export function createLineExpressPattern(graph: MapGraph, lineId: string): ProServicePattern | null {
+export function createAllSubCorridorPatternsForLine(graph: MapGraph, lineId: string): ProServicePattern[] {
+  const line = graph.lines.find((l) => l.id === lineId);
+  if (!line) return [];
+  const variants = listLineRouteVariants(graph, lineId);
+  if (variants.length <= 1) {
+    const single = createLineAllStopPattern(graph, lineId);
+    return single ? [single] : [];
+  }
+  // 选取主线/环线/独立区段 + 主支贯通（过滤掉已被主支贯通完全包含的冗余纯支线短交路）
+  const selectedVariants = variants.filter((v, _, arr) => {
+    if (!v.key.includes('_branch_') || v.key.endsWith('_through_origin')) return true;
+    const hasThrough = arr.some((other) => other.key === `${v.key}_through_origin`);
+    return !hasThrough;
+  });
+
+  return selectedVariants
+    .map((v) => createLineAllStopPattern(graph, lineId, v.key))
+    .filter((p): p is ProServicePattern => p !== null);
+}
+
+/**
+ * 为指定物理线路（或指定主支线/区段变体）生成「大站快车」交路。
+ */
+export function createLineExpressPattern(
+  graph: MapGraph,
+  lineId: string,
+  variantKey?: string
+): ProServicePattern | null {
   const line = graph.lines.find((l) => l.id === lineId);
   if (!line) return null;
 
@@ -475,30 +966,44 @@ export function createLineExpressPattern(graph: MapGraph, lineId: string): ProSe
     });
   });
 
-  const baseSteps = buildOrderedLineSteps(graph, lineId);
+  // 同时识别本线内部支线分岔枢纽（度数 >= 3），快车默认停靠分岔站与换乘站
+  const lineAdjCount = new Map<string, number>();
+  graph.sections
+    .filter((s) => s.lineId === lineId)
+    .forEach((s) => {
+      lineAdjCount.set(s.startStationId, (lineAdjCount.get(s.startStationId) || 0) + 1);
+      lineAdjCount.set(s.endStationId, (lineAdjCount.get(s.endStationId) || 0) + 1);
+    });
+
+  const variants = listLineRouteVariants(graph, lineId);
+  const chosen = variantKey ? variants.find((v) => v.key === variantKey) : variants[0];
+  const baseSteps = buildOrderedLineSteps(graph, lineId, { variantKey: chosen?.key });
   if (baseSteps.length === 0) return null;
 
-  const hasTransferMid = baseSteps
-    .slice(0, -1)
-    .some((s) => (stationLineCounts.get(s.toStationId) || 1) >= 2);
+  const isKeyStop = (sid: string) =>
+    (stationLineCounts.get(sid) || 1) >= 2 || (lineAdjCount.get(sid) || 0) >= 3;
+
+  const hasKeyMid = baseSteps.slice(0, -1).some((s) => isKeyStop(s.toStationId));
 
   const expressSteps: ProRouteStep[] = baseSteps.map((step, idx) => {
     const isLast = idx === baseSteps.length - 1;
     if (isLast) return { ...step, stopAtEnd: true };
-    const isTransfer = (stationLineCounts.get(step.toStationId) || 1) >= 2;
-    const stopAtEnd = hasTransferMid ? isTransfer : (idx + 1) % 3 === 0;
+    const stopAtEnd = hasKeyMid ? isKeyStop(step.toStationId) : (idx + 1) % 3 === 0;
     return { ...step, stopAtEnd };
   });
 
+  const prefix =
+    variants.length > 1 && chosen ? `${line.name} ${chosen.label.split('（')[0]}快车` : `${line.name} 大站快车`;
+
   return {
     id: createId(),
-    name: `${line.name} 大站快车`,
+    name: prefix,
     code: '快车',
     color: '#ea580c',
     category: 'express',
     stopAtStart: true,
     routeSteps: expressSteps,
     headwaySec: 360,
-    bidirectional: true
+    bidirectional: !chosen?.isLoop
   };
 }

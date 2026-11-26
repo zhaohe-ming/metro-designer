@@ -76,7 +76,10 @@ export function measureSectionDistance(
   for (let i = 1; i < pts.length; i += 1) {
     worldLen += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
   }
-  const meters = Math.max(30, Math.round(worldLen * scaleConfig.metersPerUnit));
+  if (scaleConfig.metersPerUnit <= 0) {
+    return { meters: 0, source: 'canvas_scale' };
+  }
+  const meters = Math.max(1, Math.round(worldLen * scaleConfig.metersPerUnit));
   return { meters, source: 'canvas_scale' };
 }
 

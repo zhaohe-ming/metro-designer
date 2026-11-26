@@ -628,6 +628,7 @@ const App: React.FC = () => {
   const proOpsLoadedMapIdRef = useRef<string | null>(null);
   const [proSiderHost, setProSiderHost] = useState<HTMLDivElement | null>(null);
   const [proStageHost, setProStageHost] = useState<HTMLDivElement | null>(null);
+  const [proDockHost, setProDockHost] = useState<HTMLDivElement | null>(null);
   const [proCanvasBridge, setProCanvasBridge] = useState<ProCanvasBridge | null>(null);
   const [proUndoBridge, setProUndoBridge] = useState<ProUndoBridge | null>(null);
   const [isMobileViewport, setIsMobileViewport] = useState(
@@ -3149,29 +3150,30 @@ const App: React.FC = () => {
                   {language === 'en-US' ? 'Offline' : '离线可用'}
                 </span>
               ) : null}
-              <div className="metro-header-mode-switch" role="tablist" aria-label="工作台模式切换">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={workspaceMode === 'studio'}
-                  className={`metro-header-mode-switch__btn${workspaceMode === 'studio' ? ' is-active' : ''}`}
-                  onClick={() => setWorkspaceMode('studio')}
-                >
-                  {language === 'en-US' ? 'Studio' : '线网绘制'}
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={workspaceMode === 'pro'}
-                  className={`metro-header-mode-switch__btn${workspaceMode === 'pro' ? ' is-active' : ''}`}
-                  onClick={() => setWorkspaceMode('pro')}
-                  title="切换至专业运营实验室（快慢车越站 / 大小交路 / 跨线直通 / 测距配车）"
-                >
-                  <span>{language === 'en-US' ? 'Pro Ops' : '专业运营'}</span>
-                  {proOps && proOps.servicePatterns.length > 0 ? (
-                    <span className="metro-header-mode-switch__dot" title="包含运行体系配置" />
-                  ) : null}
-                </button>
+              <div className="metro-header-mode-capsule">
+                <ElasticCapsuleTabs
+                  size="sm"
+                  ariaLabel="工作台模式切换"
+                  value={workspaceMode}
+                  onChange={setWorkspaceMode}
+                  options={[
+                    {
+                      value: 'studio',
+                      label: language === 'en-US' ? 'Studio' : '线网绘制'
+                    },
+                    {
+                      value: 'pro',
+                      label: (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                          <span>{language === 'en-US' ? 'Pro Ops' : '专业运营'}</span>
+                          {proOps && proOps.servicePatterns.length > 0 ? (
+                            <span className="metro-header-mode-switch__dot" title="包含运行体系配置" />
+                          ) : null}
+                        </span>
+                      )
+                    }
+                  ]}
+                />
               </div>
             </section>
 
@@ -3313,7 +3315,7 @@ const App: React.FC = () => {
             )}
           </Sider>
 
-          <Content className="metro-content">
+          <Content className={`metro-content${workspaceMode === 'pro' ? ' is-pro-mode' : ''}`}>
             <div className="metro-canvas-stage">
 
               {(!previewMode || guestReady) ? <Canvas
@@ -3369,45 +3371,7 @@ const App: React.FC = () => {
               />
               : <div className="metro-guest-loading" role="status">正在打开本机草稿…</div>}
               {workspaceMode === 'pro' ? (
-                <>
-                  <div ref={setProStageHost} />
-                  <React.Suspense
-                    fallback={
-                      <div
-                        style={{
-                          position: 'absolute',
-                          top: 14,
-                          left: '50%',
-                          transform: 'translateX(-50%)',
-                          zIndex: 30,
-                          padding: '6px 14px',
-                          borderRadius: 999,
-                          background: 'var(--color-surface)',
-                          border: '1px solid var(--color-border-strong)',
-                          fontSize: 12
-                        }}
-                      >
-                        正在加载专业运营工作台…
-                      </div>
-                    }
-                  >
-                    <ProWorkspace
-                      lines={lines}
-                      stations={stations}
-                      sections={sections}
-                      mapSettings={mapSettings}
-                      mapDisplayName={mapDisplayName}
-                      initialProOps={proOps}
-                      isMobileCompact={isMobileViewport}
-                      siderHost={proSiderHost}
-                      stageHost={proStageHost}
-                      onProOpsChange={handleProOpsChange}
-                      onExitProMode={() => setWorkspaceMode('studio')}
-                      onBindCanvasBridge={setProCanvasBridge}
-                      onBindUndoBridge={setProUndoBridge}
-                    />
-                  </React.Suspense>
-                </>
+                <div ref={setProStageHost} />
               ) : (
                 <CommandBar
                   onSubmit={runCommand}
@@ -3419,6 +3383,43 @@ const App: React.FC = () => {
                 />
               )}
             </div>
+            {workspaceMode === 'pro' ? (
+              <>
+                <div ref={setProDockHost} className="metro-pro-dock-slot" />
+                <React.Suspense
+                  fallback={
+                    <div
+                      style={{
+                        padding: '8px 14px',
+                        borderTop: '1px solid var(--color-border)',
+                        background: 'var(--color-surface)',
+                        fontSize: 12,
+                        color: 'var(--color-text-muted)'
+                      }}
+                    >
+                      正在加载专业运营工作台…
+                    </div>
+                  }
+                >
+                  <ProWorkspace
+                    lines={lines}
+                    stations={stations}
+                    sections={sections}
+                    mapSettings={mapSettings}
+                    mapDisplayName={mapDisplayName}
+                    initialProOps={proOps}
+                    isMobileCompact={isMobileViewport}
+                    siderHost={proSiderHost}
+                    stageHost={proStageHost}
+                    dockHost={proDockHost}
+                    onProOpsChange={handleProOpsChange}
+                    onExitProMode={() => setWorkspaceMode('studio')}
+                    onBindCanvasBridge={setProCanvasBridge}
+                    onBindUndoBridge={setProUndoBridge}
+                  />
+                </React.Suspense>
+              </>
+            ) : null}
           </Content>
         </Layout>
 

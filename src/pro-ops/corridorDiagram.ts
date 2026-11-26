@@ -2,7 +2,7 @@ import { Line } from '../types';
 import { MapGraph } from '../lib/graphOps';
 import { measureSectionDistance } from './distance';
 import { ServiceKinematicsResult } from './kinematics';
-import { buildOrderedLineSteps } from './reconcile';
+import { decomposeLineIntoSubCorridors } from './reconcile';
 import {
   ProOpsDocument,
   ProServicePattern,
@@ -17,30 +17,39 @@ export interface CorridorColumn {
   lineName: string;
   lineColor: string;
   cumulativeKm: number;
+  /** 是否与左侧前一列在物理轨道上直接相连（false 表示此处是新支线起点、第二段独立不连通区间起点或孤立站） */
+  connectToPrev: boolean;
+  /** 子走廊分段标签（如 "主线" / "支线（自科技园）" / "独立区段 2" / "环线全程"） */
+  subCorridorId: string;
+  subCorridorLabel?: string;
+  isLoopClosure?: boolean;
   transferLines: Array<{ id: string; name: string; color: string }>;
   hasTurnback: boolean;
   hasPassingTrack: boolean;
-  /** 若列在此处发生跨线道岔切换，展示切入的新线路提示 */
   junctionNote?: string;
 }
 
 export interface CorridorRowCell {
   colIndex: number;
   kind: 'none' | 'origin' | 'terminus' | 'stop' | 'pass';
-  /** 相对本交路始发站发车时刻的分钟数（如 12.5） */
   arrivalMin?: number;
   passSpeedKmh?: number;
+}
+
+export interface CorridorBandSpan {
+  startCol: number;
+  endCol: number;
 }
 
 export interface CorridorServiceRow {
   pattern: ProServicePattern;
   validation: ProServiceValidation;
   kinematics: ServiceKinematicsResult;
-  /** 相比同走廊全程普通车节省的分钟数（> 0.1 时展示） */
   savedMinutesVsLocal?: number;
+  /** 支持主支线跨越、环线错位始发等多段连续色带（彻底告别单一 startCol..endCol 假连线！） */
+  spans: CorridorBandSpan[];
   startCol: number;
   endCol: number;
-  /** 在单线走廊视角下，若交路从外线跨入或跨出本线，标注贯通方向说明 */
   throughEntryLabel?: string;
   throughExitLabel?: string;
   cells: CorridorRowCell[];
@@ -69,10 +78,12 @@ function collectTransferLinesForStation(
   return res;
 }
 
+const pairKey = (a: string, b: string) => (a < b ? `${a}::${b}` : `${b}::${a}`);
+
 /**
  * 构建一维拉直版运行体系导乘图模型：
- * - mode = 'pattern': 以指定交路（含环线完整一圈、6字线重复访问或跨线全程）作为横轴，叠加共走廊交路；
- * - mode = 'line':    以指定物理线路作为标准走廊轴（与 Phase 2 斜线运行图纵轴严格一致），展示本线所有交路及跨线车切入/切出。
+ * - mode = 'line': 完整展开该线路的所有主线、Y型支线、闭合环线、多个独立不连通分段及孤立站点（100% 不漏站）；
+ * - mode = 'pattern': 跟随选中交路全程访问序列一维拉直展开。
  */
 export function buildCorridorDiagramModel(params: {
   graph: MapGraph;
@@ -118,6 +129,9 @@ export function buildCorridorDiagramModel(params: {
         lineName: displayLine?.name || v.lineName,
         lineColor: displayLine?.color || v.lineColor,
         cumulativeKm: Math.round((v.cumulativeMeters / 1000) * 100) / 100,
+        connectToPrev: idx > 0,
+        subCorridorId: 'pattern_full',
+        ...(idx === 0 ? { subCorridorLabel: '全程走廊' } : {}),
         transferLines: collectTransferLinesForStation(graph, v.stationId, displayLineId),
         hasTurnback: v.hasTurnback,
         hasPassingTrack: v.hasPassingTrack,
@@ -125,7 +139,6 @@ export function buildCorridorDiagramModel(params: {
       });
     });
   } else {
-    // 按物理线路作为固定走廊轴
     const line =
       (targetLineId ? lineMap.get(targetLineId) : undefined) ||
       (focusPattern?.routeSteps[0]?.kind === 'section'
@@ -143,26 +156,64 @@ export function buildCorridorDiagramModel(params: {
       };
     }
 
-    const orderedSteps = buildOrderedLineSteps(graph, line.id);
-    if (orderedSteps.length > 0) {
-      const firstId = orderedSteps[0].fromStationId;
+    const subCorridors = decomposeLineIntoSubCorridors(graph, line.id);
+    // 记录已算出的站点基准里程，方便支线直接继承分岔枢纽站的累计里程！
+    const stationKnownMeters = new Map<string, number>();
+    const multiSub = subCorridors.length > 1;
+
+    subCorridors.forEach((sc) => {
+      if (sc.kind === 'isolated') {
+        sc.stationIds.forEach((sid, idx) => {
+          const st = stationMap.get(sid);
+          const prof = proOps.stationProfiles[sid];
+          columns.push({
+            colIndex: columns.length,
+            stationId: sid,
+            stationName: st?.name || sid,
+            lineId: line.id,
+            lineName: line.name,
+            lineColor: line.color,
+            cumulativeKm: 0,
+            connectToPrev: false,
+            subCorridorId: sc.id,
+            ...(idx === 0 ? { subCorridorLabel: sc.label } : {}),
+            transferLines: collectTransferLinesForStation(graph, sid, line.id),
+            hasTurnback: Boolean(prof?.hasTurnback),
+            hasPassingTrack: Boolean(prof?.hasPassingTrack)
+          });
+        });
+        return;
+      }
+
+      if (sc.stationIds.length === 0) return;
+      const firstId = sc.stationIds[0];
       const firstSt = stationMap.get(firstId);
       const firstProf = proOps.stationProfiles[firstId];
+      let cumMeters =
+        sc.kind === 'branch' && stationKnownMeters.has(firstId)
+          ? stationKnownMeters.get(firstId)!
+          : 0;
+      if (!stationKnownMeters.has(firstId)) {
+        stationKnownMeters.set(firstId, cumMeters);
+      }
+
       columns.push({
-        colIndex: 0,
+        colIndex: columns.length,
         stationId: firstId,
         stationName: firstSt?.name || firstId,
         lineId: line.id,
         lineName: line.name,
         lineColor: line.color,
-        cumulativeKm: 0,
+        cumulativeKm: Math.round((cumMeters / 1000) * 100) / 100,
+        connectToPrev: false,
+        subCorridorId: sc.id,
+        ...(multiSub || sc.isClosedLoop ? { subCorridorLabel: sc.label } : {}),
         transferLines: collectTransferLinesForStation(graph, firstId, line.id),
         hasTurnback: Boolean(firstProf?.hasTurnback),
         hasPassingTrack: Boolean(firstProf?.hasPassingTrack)
       });
 
-      let cumMeters = 0;
-      orderedSteps.forEach((step, idx) => {
+      sc.steps.forEach((step, stepIdx) => {
         if (step.kind !== 'section') return;
         const sec = sectionMap.get(step.sectionId);
         if (sec) {
@@ -176,37 +227,27 @@ export function buildCorridorDiagramModel(params: {
         }
         const st = stationMap.get(step.toStationId);
         const prof = proOps.stationProfiles[step.toStationId];
+        if (!stationKnownMeters.has(step.toStationId)) {
+          stationKnownMeters.set(step.toStationId, cumMeters);
+        }
+        const isClosureCol = Boolean(sc.isClosedLoop && stepIdx === sc.steps.length - 1);
         columns.push({
-          colIndex: idx + 1,
+          colIndex: columns.length,
           stationId: step.toStationId,
-          stationName: st?.name || step.toStationId,
+          stationName: isClosureCol ? `${st?.name || step.toStationId} ↻` : st?.name || step.toStationId,
           lineId: line.id,
           lineName: line.name,
           lineColor: line.color,
           cumulativeKm: Math.round((cumMeters / 1000) * 100) / 100,
+          connectToPrev: true,
+          subCorridorId: sc.id,
+          ...(isClosureCol ? { isLoopClosure: true } : {}),
           transferLines: collectTransferLinesForStation(graph, step.toStationId, line.id),
           hasTurnback: Boolean(prof?.hasTurnback),
           hasPassingTrack: Boolean(prof?.hasPassingTrack)
         });
       });
-    } else {
-      line.stationIds.forEach((sid, idx) => {
-        const st = stationMap.get(sid);
-        const prof = proOps.stationProfiles[sid];
-        columns.push({
-          colIndex: idx,
-          stationId: sid,
-          stationName: st?.name || sid,
-          lineId: line.id,
-          lineName: line.name,
-          lineColor: line.color,
-          cumulativeKm: 0,
-          transferLines: collectTransferLinesForStation(graph, sid, line.id),
-          hasTurnback: Boolean(prof?.hasTurnback),
-          hasPassingTrack: Boolean(prof?.hasPassingTrack)
-        });
-      });
-    }
+    });
   }
 
   if (columns.length === 0) {
@@ -219,17 +260,27 @@ export function buildCorridorDiagramModel(params: {
     };
   }
 
-  // 将各交路的访问序列对齐映射到当前走廊列（支持正向或反向共走廊子段对齐）
-  const mapVisitsToColumns = (
+  // 构建相邻物理连接列对索引：pairKey(u, v) -> Array<{ leftCol, rightCol }>
+  const adjacentColPairs = new Map<string, Array<{ leftCol: number; rightCol: number }>>();
+  for (let c = 1; c < columns.length; c += 1) {
+    if (!columns[c].connectToPrev) continue;
+    const pk = pairKey(columns[c - 1].stationId, columns[c].stationId);
+    const list = adjacentColPairs.get(pk) || [];
+    list.push({ leftCol: c - 1, rightCol: c });
+    adjacentColPairs.set(pk, list);
+  }
+
+  // 将交路的物理运行边精确投影到走廊的所有子区段（天然支持 Y 型主支贯通分段点亮、独立区段点亮、环线任意站始发绕圈点亮！）
+  const projectPatternOntoColumns = (
     kin: ServiceKinematicsResult
   ): {
-    matched: Map<number, { visitIdx: number; isStop: boolean; arrivalSec: number; passSpeedKmh: number }>;
+    spans: CorridorBandSpan[];
+    colVisitMap: Map<number, { visitIdx: number; isStop: boolean; arrivalSec: number; passSpeedKmh: number }>;
     firstMatchedVisitIdx: number;
     lastMatchedVisitIdx: number;
   } | null => {
     if (kin.status !== 'valid' || kin.visits.length < 2) return null;
 
-    // 若当前就是 focusPattern 的专属轴且列数完全相等，直接 1:1 精确映射（完美支持 6字线 / 环线重复访问！）
     if (
       axisMode === 'pattern' &&
       focusPattern &&
@@ -246,79 +297,99 @@ export function buildCorridorDiagramModel(params: {
         });
       });
       return {
-        matched: direct,
+        spans: [{ startCol: 0, endCol: columns.length - 1 }],
+        colVisitMap: direct,
         firstMatchedVisitIdx: 0,
         lastMatchedVisitIdx: kin.visits.length - 1
       };
     }
 
-    // 尝试正向与反向单调最长子序列匹配走廊列
-    const tryAlign = (visitSeq: typeof kin.visits, reversed: boolean) => {
-      let bestMap = new Map<number, { visitIdx: number; isStop: boolean; arrivalSec: number; passSpeedKmh: number }>();
-      let bestFirst = -1;
-      let bestLast = -1;
+    const activeUnitEdges = new Set<number>(); // leftCol index (represents edge leftCol <-> leftCol + 1)
+    const colVisitMap = new Map<
+      number,
+      { visitIdx: number; isStop: boolean; arrivalSec: number; passSpeedKmh: number }
+    >();
+    let firstMatchedVisitIdx = Number.MAX_SAFE_INTEGER;
+    let lastMatchedVisitIdx = -1;
 
-      for (let vStart = 0; vStart < visitSeq.length; vStart += 1) {
-        const startSid = visitSeq[vStart].stationId;
-        for (let cStart = 0; cStart < columns.length; cStart += 1) {
-          if (columns[cStart].stationId !== startSid) continue;
-          const temp = new Map<number, { visitIdx: number; isStop: boolean; arrivalSec: number; passSpeedKmh: number }>();
-          let cCursor = cStart;
-          let firstOrig = -1;
-          let lastOrig = -1;
-
-          for (let vIdx = vStart; vIdx < visitSeq.length && cCursor < columns.length; vIdx += 1) {
-            const v = visitSeq[vIdx];
-            if (columns[cCursor].stationId === v.stationId) {
-              const origIdx = reversed ? kin.visits.length - 1 - vIdx : vIdx;
-              if (firstOrig === -1) firstOrig = origIdx;
-              lastOrig = origIdx;
-              temp.set(cCursor, {
-                visitIdx: origIdx,
-                isStop: v.isStop,
-                arrivalSec: v.arrivalSec,
-                passSpeedKmh: v.passSpeedKmh
-              });
-              cCursor += 1;
-            } else {
-              break;
-            }
-          }
-
-          if (temp.size >= 2 && temp.size > bestMap.size) {
-            bestMap = temp;
-            bestFirst = Math.min(firstOrig, lastOrig);
-            bestLast = Math.max(firstOrig, lastOrig);
-          }
-        }
+    const recordColVisit = (colIdx: number, visitIdx: number) => {
+      const v = kin.visits[visitIdx];
+      if (!v) return;
+      const existing = colVisitMap.get(colIdx);
+      // 若同一列在环闭合端被始发和终到共同命中，优先保留端点/停靠语义
+      if (
+        !existing ||
+        visitIdx === 0 ||
+        visitIdx === kin.visits.length - 1 ||
+        (v.isStop && !existing.isStop)
+      ) {
+        colVisitMap.set(colIdx, {
+          visitIdx,
+          isStop: v.isStop,
+          arrivalSec: v.arrivalSec,
+          passSpeedKmh: v.passSpeedKmh
+        });
       }
-      return bestMap.size >= 2
-        ? { matched: bestMap, firstMatchedVisitIdx: bestFirst, lastMatchedVisitIdx: bestLast }
-        : null;
+      if (visitIdx < firstMatchedVisitIdx) firstMatchedVisitIdx = visitIdx;
+      if (visitIdx > lastMatchedVisitIdx) lastMatchedVisitIdx = visitIdx;
     };
 
-    const forwardRes = tryAlign(kin.visits, false);
-    const reverseRes = tryAlign([...kin.visits].reverse(), true);
-    if (forwardRes && reverseRes) {
-      return forwardRes.matched.size >= reverseRes.matched.size ? forwardRes : reverseRes;
+    for (let vIdx = 0; vIdx < kin.visits.length - 1; vIdx += 1) {
+      const u = kin.visits[vIdx].stationId;
+      const w = kin.visits[vIdx + 1].stationId;
+      if (u === w) continue;
+      const matches = adjacentColPairs.get(pairKey(u, w));
+      if (!matches || matches.length === 0) continue;
+
+      // 优先选择与上一匹配列相连的相邻列对
+      const chosen =
+        matches.find(
+          (m) =>
+            (columns[m.leftCol].stationId === u && colVisitMap.has(m.leftCol)) ||
+            (columns[m.rightCol].stationId === u && colVisitMap.has(m.rightCol))
+        ) || matches[0];
+
+      activeUnitEdges.add(chosen.leftCol);
+      if (columns[chosen.leftCol].stationId === u) {
+        recordColVisit(chosen.leftCol, vIdx);
+        recordColVisit(chosen.rightCol, vIdx + 1);
+      } else {
+        recordColVisit(chosen.rightCol, vIdx);
+        recordColVisit(chosen.leftCol, vIdx + 1);
+      }
     }
-    return forwardRes || reverseRes;
+
+    if (activeUnitEdges.size === 0) return null;
+
+    // 合并相邻已激活的物理单元边为连续色带区间 spans
+    const sortedEdges = Array.from(activeUnitEdges).sort((a, b) => a - b);
+    const spans: CorridorBandSpan[] = [];
+    sortedEdges.forEach((leftCol) => {
+      const prevSpan = spans[spans.length - 1];
+      if (prevSpan && prevSpan.endCol === leftCol && columns[leftCol + 1]?.connectToPrev) {
+        prevSpan.endCol = leftCol + 1;
+      } else {
+        spans.push({ startCol: leftCol, endCol: leftCol + 1 });
+      }
+    });
+
+    return {
+      spans,
+      colVisitMap,
+      firstMatchedVisitIdx: firstMatchedVisitIdx === Number.MAX_SAFE_INTEGER ? 0 : firstMatchedVisitIdx,
+      lastMatchedVisitIdx: Math.max(0, lastMatchedVisitIdx)
+    };
   };
 
-  // 计算同走廊基准慢车全程用时（用于展示快车省时分钟数）
-  let localBaselineSec: number | null = null;
+  // 按相同起终点对索引基准慢车用时（精准支持主线慢车 vs 主线快车、主支慢车 vs 主支快车对比省时！）
+  const localBaselineByOdKey = new Map<string, number>();
   proOps.servicePatterns.forEach((p) => {
     const kin = kinematicsMap[p.id];
-    if (
-      kin &&
-      kin.status === 'valid' &&
-      p.category === 'local' &&
-      kin.visits.length === columns.length &&
-      kin.visits[0]?.stationId === columns[0]?.stationId &&
-      kin.visits[kin.visits.length - 1]?.stationId === columns[columns.length - 1]?.stationId
-    ) {
-      if (localBaselineSec === null || kin.oneWayTravelSec > localBaselineSec) {
-        localBaselineSec = kin.oneWayTravelSec;
+    if (kin && kin.status === 'valid' && p.category === 'local' && kin.visits.length >= 2) {
+      const odKey = `${kin.visits[0].stationId}->${kin.visits[kin.visits.length - 1].stationId}::${kin.totalDistanceMeters}`;
+      const prev = localBaselineByOdKey.get(odKey);
+      if (prev === undefined || kin.oneWayTravelSec > prev) {
+        localBaselineByOdKey.set(odKey, kin.oneWayTravelSec);
       }
     }
   });
@@ -336,7 +407,6 @@ export function buildCorridorDiagramModel(params: {
     if (!kin) return;
 
     if (validation.status === 'broken') {
-      // 若属于本走廊关联线路，展示断链行以提醒修复
       const touchesCorridor = pattern.routeSteps.some((s) =>
         columns.some((c) => c.stationId === s.fromStationId || c.stationId === s.toStationId)
       );
@@ -345,6 +415,7 @@ export function buildCorridorDiagramModel(params: {
           pattern,
           validation,
           kinematics: kin,
+          spans: [],
           startCol: 0,
           endCol: Math.max(0, columns.length - 1),
           cells: columns.map((_, idx) => ({ colIndex: idx, kind: 'none' }))
@@ -353,43 +424,45 @@ export function buildCorridorDiagramModel(params: {
       return;
     }
 
-    const aligned = mapVisitsToColumns(kin);
-    if (!aligned) return;
+    const projected = projectPatternOntoColumns(kin);
+    if (!projected) return;
 
-    const matchedCols = Array.from(aligned.matched.keys()).sort((a, b) => a - b);
-    const startCol = matchedCols[0];
-    const endCol = matchedCols[matchedCols.length - 1];
+    const startCol = projected.spans[0].startCol;
+    const endCol = projected.spans[projected.spans.length - 1].endCol;
 
     let throughEntryLabel: string | undefined;
     let throughExitLabel: string | undefined;
-    if (aligned.firstMatchedVisitIdx > 0) {
+    if (projected.firstMatchedVisitIdx > 0) {
       const originVisit = kin.visits[0];
       throughEntryLabel = `贯通自 ${originVisit.lineName}·${originVisit.stationName}`;
     }
-    if (aligned.lastMatchedVisitIdx < kin.visits.length - 1) {
+    if (projected.lastMatchedVisitIdx < kin.visits.length - 1) {
       const termVisit = kin.visits[kin.visits.length - 1];
       throughExitLabel = `贯通至 ${termVisit.lineName}·${termVisit.stationName}`;
     }
 
     let savedMinutesVsLocal: number | undefined;
-    if (
-      localBaselineSec !== null &&
-      startCol === 0 &&
-      endCol === columns.length - 1 &&
-      aligned.firstMatchedVisitIdx === 0 &&
-      aligned.lastMatchedVisitIdx === kin.visits.length - 1
-    ) {
-      const diffMin = (localBaselineSec - kin.oneWayTravelSec) / 60;
-      if (diffMin >= 0.3) {
-        savedMinutesVsLocal = Math.round(diffMin * 10) / 10;
+    if (kin.visits.length >= 2) {
+      const odKey = `${kin.visits[0].stationId}->${kin.visits[kin.visits.length - 1].stationId}::${kin.totalDistanceMeters}`;
+      const baseSec = localBaselineByOdKey.get(odKey);
+      if (baseSec !== undefined) {
+        const diffMin = (baseSec - kin.oneWayTravelSec) / 60;
+        if (diffMin >= 0.3) {
+          savedMinutesVsLocal = Math.round(diffMin * 10) / 10;
+        }
       }
     }
 
+    const coveredCols = new Set<number>();
+    projected.spans.forEach((sp) => {
+      for (let c = sp.startCol; c <= sp.endCol; c += 1) coveredCols.add(c);
+    });
+
     const cells: CorridorRowCell[] = columns.map((_, colIdx) => {
-      if (colIdx < startCol || colIdx > endCol) {
+      if (!coveredCols.has(colIdx)) {
         return { colIndex: colIdx, kind: 'none' };
       }
-      const hit = aligned.matched.get(colIdx);
+      const hit = projected.colVisitMap.get(colIdx);
       if (!hit) {
         return { colIndex: colIdx, kind: 'pass' };
       }
@@ -415,6 +488,7 @@ export function buildCorridorDiagramModel(params: {
       validation,
       kinematics: kin,
       ...(savedMinutesVsLocal !== undefined ? { savedMinutesVsLocal } : {}),
+      spans: projected.spans,
       startCol,
       endCol,
       ...(throughEntryLabel ? { throughEntryLabel } : {}),
@@ -423,13 +497,14 @@ export function buildCorridorDiagramModel(params: {
     });
   });
 
-  const totalKm = columns[columns.length - 1]?.cumulativeKm || 0;
+  const uniqueStationCount = new Set(columns.map((c) => c.stationId)).size;
+  const subCount = new Set(columns.map((c) => c.subCorridorId)).size;
   const distinctLineNames = Array.from(new Set(columns.map((c) => c.lineName)));
   const title =
     axisMode === 'pattern' && focusPattern
       ? `${focusPattern.name} · 全程运行体系导乘图`
-      : `${distinctLineNames.join(' / ')} · 走廊运行体系导乘图`;
-  const subtitle = `共 ${columns.length} 站 · 走廊里程 ${totalKm.toFixed(2)} km · 已编排 ${rows.length} 种运行交路`;
+      : `${distinctLineNames.join(' / ')} · 全拓扑运行体系导乘图`;
+  const subtitle = `覆盖 ${uniqueStationCount} 座车站${subCount > 1 ? `（含 ${subCount} 个主支/分段走廊）` : ''} · 已编排 ${rows.length} 种交路`;
 
   return {
     title,
@@ -448,9 +523,6 @@ const escapeXml = (str: string): string =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
 
-/**
- * 将一维拉直版运行体系导乘图渲染为高分辨率独立矢量 SVG（支持浅色/深色主题，零外部字体依赖）。
- */
 export function buildServiceDiagramSvg(
   model: CorridorDiagramModel,
   theme: 'light' | 'dark' = 'light'
@@ -462,12 +534,13 @@ export function buildServiceDiagramSvg(
   const textMain = isDark ? '#f8fafc' : '#0f172a';
   const textSub = isDark ? '#94a3b8' : '#64748b';
   const gridLine = isDark ? 'rgba(148, 163, 184, 0.14)' : 'rgba(15, 23, 42, 0.08)';
+  const breakLine = isDark ? 'rgba(245, 158, 11, 0.45)' : 'rgba(217, 119, 6, 0.35)';
 
   const leftHeaderW = 248;
   const colStep = 78;
   const padX = 28;
   const padTop = 82;
-  const stationHeaderH = 112;
+  const stationHeaderH = 114;
   const rowH = 58;
   const footerH = 38;
 
@@ -485,7 +558,6 @@ export function buildServiceDiagramSvg(
     `<rect x="0" y="0" width="${width}" height="${height}" fill="${bg}" rx="16"/>`
   );
 
-  // 顶部标题与图例栏
   parts.push(
     `<text x="${padX}" y="38" font-size="18" font-weight="800" fill="${textMain}">${escapeXml(model.title)}</text>`,
     `<text x="${padX}" y="60" font-size="12" fill="${textSub}">${escapeXml(model.subtitle)}</text>`
@@ -506,39 +578,51 @@ export function buildServiceDiagramSvg(
     );
   }
 
-  // 线路归属连续色带（跨线时自动分段变色）
+  // 按物理连通子走廊（subCorridorId + lineId）分组绘制顶部胶囊横幅，不同支线/独立区段自动断开标明！
   const bannerY = padTop;
   let segStart = 0;
   while (segStart < model.columns.length) {
     let segEnd = segStart;
-    const lineId = model.columns[segStart].lineId;
-    while (segEnd + 1 < model.columns.length && model.columns[segEnd + 1].lineId === lineId) {
+    const startColObj = model.columns[segStart];
+    while (
+      segEnd + 1 < model.columns.length &&
+      model.columns[segEnd + 1].connectToPrev &&
+      model.columns[segEnd + 1].lineId === startColObj.lineId &&
+      model.columns[segEnd + 1].subCorridorId === startColObj.subCorridorId
+    ) {
       segEnd += 1;
     }
     const x1 = colCenterX(segStart) - colStep * 0.42;
     const x2 = colCenterX(segEnd) + colStep * 0.42;
-    const color = model.columns[segStart].lineColor;
-    const lineName = model.columns[segStart].lineName;
+    const color = startColObj.lineColor;
+    const bannerText = startColObj.subCorridorLabel
+      ? `${startColObj.lineName} · ${startColObj.subCorridorLabel}`
+      : startColObj.lineName;
     parts.push(
-      `<rect x="${x1.toFixed(1)}" y="${bannerY}" width="${Math.max(24, x2 - x1).toFixed(1)}" height="22" rx="11" fill="${escapeXml(color)}"/>`,
-      `<text x="${((x1 + x2) / 2).toFixed(1)}" y="${bannerY + 15}" text-anchor="middle" font-size="11" font-weight="700" fill="#ffffff">${escapeXml(lineName)}</text>`
+      `<rect x="${x1.toFixed(1)}" y="${bannerY}" width="${Math.max(36, x2 - x1).toFixed(1)}" height="22" rx="11" fill="${escapeXml(color)}"/>`,
+      `<text x="${((x1 + x2) / 2).toFixed(1)}" y="${bannerY + 15}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#ffffff">${escapeXml(bannerText)}</text>`
     );
     segStart = segEnd + 1;
   }
 
-  // 车站纵向虚线与站名表头
   const tableTop = padTop + stationHeaderH;
   const tableBottom = tableTop + rowCount * rowH;
 
   model.columns.forEach((col, idx) => {
     const cx = colCenterX(idx);
+    // 在非物理连续的支线/独立分段交界处画醒目的分段竖虚线
+    if (idx > 0 && !col.connectToPrev) {
+      const sepX = cx - colStep / 2;
+      parts.push(
+        `<line x1="${sepX}" y1="${padTop}" x2="${sepX}" y2="${tableBottom}" stroke="${breakLine}" stroke-width="1.5" stroke-dasharray="5,4"/>`
+      );
+    }
     parts.push(
       `<line x1="${cx}" y1="${padTop + 28}" x2="${cx}" y2="${tableBottom}" stroke="${gridLine}" stroke-width="1" stroke-dasharray="3,3"/>`,
       `<text x="${cx}" y="${padTop + 44}" text-anchor="middle" font-size="10" fill="${textSub}">${col.cumulativeKm.toFixed(1)}km</text>`,
       `<text x="${cx}" y="${padTop + 66}" text-anchor="middle" font-size="12.5" font-weight="700" fill="${textMain}">${escapeXml(col.stationName)}</text>`
     );
 
-    // 换乘小胶囊（最多展示前 2 条，避免遮挡）
     col.transferLines.slice(0, 2).forEach((tr, tIdx) => {
       const py = padTop + 76 + tIdx * 16;
       parts.push(
@@ -548,7 +632,6 @@ export function buildServiceDiagramSvg(
     });
   });
 
-  // 各运行交路横带
   if (model.rows.length === 0) {
     parts.push(
       `<rect x="${padX}" y="${tableTop}" width="${width - padX * 2}" height="${rowH}" rx="10" fill="${cardBg}" stroke="${border}"/>`,
@@ -582,20 +665,33 @@ export function buildServiceDiagramSvg(
         `<text x="${padX + 12}" y="${ry + 44}" font-size="10.5" fill="${textSub}">${escapeXml(metaLine)}</text>`
       );
 
-      const xStart = colCenterX(row.startCol);
-      const xEnd = colCenterX(row.endCol);
-      parts.push(
-        `<line x1="${xStart}" y1="${midY}" x2="${xEnd}" y2="${midY}" stroke="${escapeXml(p.color)}" stroke-width="6" stroke-linecap="round"/>`
-      );
+      // 按物理连续子段绘制多段色带（支持 Y 型主支跳转虚线衔接！）
+      row.spans.forEach((sp, spIdx) => {
+        const x1 = colCenterX(sp.startCol);
+        const x2 = colCenterX(sp.endCol);
+        parts.push(
+          `<line x1="${x1}" y1="${midY}" x2="${x2}" y2="${midY}" stroke="${escapeXml(p.color)}" stroke-width="6" stroke-linecap="round"/>`
+        );
+        if (spIdx > 0) {
+          const prevSp = row.spans[spIdx - 1];
+          const prevEnd = colCenterX(prevSp.endCol);
+          // 若是主支贯通列车在主干分岔站跳到右侧支线同站列，用柔和细虚线弧提示跨段接续
+          if (model.columns[prevSp.endCol]?.stationId === model.columns[sp.startCol]?.stationId) {
+            parts.push(
+              `<line x1="${prevEnd}" y1="${midY}" x2="${x1}" y2="${midY}" stroke="${escapeXml(p.color)}" stroke-width="2" stroke-dasharray="4,4" opacity="0.55"/>`
+            );
+          }
+        }
+      });
 
       if (row.throughEntryLabel) {
         parts.push(
-          `<text x="${xStart + 4}" y="${midY - 12}" font-size="9.5" font-weight="600" fill="${escapeXml(p.color)}">◀ ${escapeXml(row.throughEntryLabel)}</text>`
+          `<text x="${colCenterX(row.startCol) + 4}" y="${midY - 12}" font-size="9.5" font-weight="600" fill="${escapeXml(p.color)}">◀ ${escapeXml(row.throughEntryLabel)}</text>`
         );
       }
       if (row.throughExitLabel) {
         parts.push(
-          `<text x="${xEnd - 4}" y="${midY - 12}" text-anchor="end" font-size="9.5" font-weight="600" fill="${escapeXml(p.color)}">${escapeXml(row.throughExitLabel)} ▶</text>`
+          `<text x="${colCenterX(row.endCol) - 4}" y="${midY - 12}" text-anchor="end" font-size="9.5" font-weight="600" fill="${escapeXml(p.color)}">${escapeXml(row.throughExitLabel)} ▶</text>`
         );
       }
 
@@ -629,9 +725,6 @@ export function buildServiceDiagramSvg(
   return parts.join('\n');
 }
 
-/**
- * 将 SVG 矢量字符串光栅化为高清 PNG Blob（2x 视网膜采样）。
- */
 export function rasterizeSvgToPngBlob(svgContent: string, scale = 2): Promise<Blob> {
   return new Promise((resolve, reject) => {
     const matchW = svgContent.match(/width="(\d+(?:\.\d+)?)"/);

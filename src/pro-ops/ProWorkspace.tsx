@@ -4,6 +4,7 @@ import { Modal, message } from 'antd';
 import { Line, MapSettings, Section, Station } from '../types';
 import { MapGraph } from '../lib/graphOps';
 import { CanvasOverlayRenderContext } from '../components/Canvas';
+import ElasticCapsuleTabs from '../components/ElasticCapsuleTabs';
 import { isAndroidClient, saveAndroidExport } from '../lib/androidClient';
 import { hasDesktopBridge, saveDesktopExport } from '../lib/desktopClient';
 import { sanitizeProjectFilename } from '../lib/projectFile';
@@ -17,8 +18,10 @@ import {
 import { ServiceKinematicsResult, solveServiceKinematics } from './kinematics';
 import {
   buildOrderedLineSteps,
+  createAllSubCorridorPatternsForLine,
   createLineAllStopPattern,
   createLineExpressPattern,
+  listLineRouteVariants,
   reconcileProOps
 } from './reconcile';
 import {
@@ -63,11 +66,136 @@ export interface ProWorkspaceProps {
   isMobileCompact: boolean;
   siderHost: HTMLElement | null;
   stageHost: HTMLElement | null;
+  dockHost: HTMLElement | null;
   onProOpsChange: (next: ProOpsDocument) => void;
   onExitProMode: () => void;
   onBindCanvasBridge: (bridge: ProCanvasBridge | null) => void;
   onBindUndoBridge: (bridge: ProUndoBridge | null) => void;
 }
+
+/**
+ * 允许完整删空多位数字重新填写的数值输入框：
+ * - 删除全部数字时自动挂 0 显示（若 allowZero=true 则同步提交 0；若 min > 0 则在输入期间挂 0 不强制弹回原默认值，失焦后再收敛到合法范围）；
+ * - 挂 0 状态下直接敲击新数字（如 3）会自动替换占位 0 为 3，敲击小数点（0.）则顺畅输入小数。
+ */
+interface ProNumberInputProps {
+  value: number;
+  onChange: (next: number) => void;
+  min?: number;
+  max?: number;
+  allowDecimal?: boolean;
+  allowZero?: boolean;
+  unitSuffix?: string;
+  style?: React.CSSProperties;
+}
+
+const ProNumberInput: React.FC<ProNumberInputProps> = ({
+  value,
+  onChange,
+  min = 0,
+  max = 100000,
+  allowDecimal = false,
+  allowZero = false,
+  unitSuffix,
+  style
+}) => {
+  const [text, setText] = useState<string>(() => String(value));
+  const focusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!focusedRef.current) {
+      setText(String(value));
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let raw = e.target.value.replace(/[^\d.]/g, '');
+    if (!allowDecimal) {
+      raw = raw.replace(/\./g, '');
+    } else {
+      const firstDot = raw.indexOf('.');
+      if (firstDot >= 0) {
+        raw = raw.slice(0, firstDot + 1) + raw.slice(firstDot + 1).replace(/\./g, '');
+      }
+    }
+
+    // 全部删空时挂 0
+    if (raw === '' || raw === '.') {
+      setText('0');
+      if (allowZero) {
+        onChange(0);
+      }
+      return;
+    }
+
+    // 从挂 0 状态继续输入非零数字时（可能出现 "03" 或光标在左时的 "30"），自动去掉占位 0
+    if (text === '0' && raw.length === 2 && !raw.includes('.')) {
+      if (raw.startsWith('0') && raw[1] !== '0') {
+        raw = raw.slice(1);
+      } else if (raw.endsWith('0') && raw[0] !== '0') {
+        // 光标在挂零 '0' 左侧直接敲入新数字时替换占位 0
+        raw = raw[0];
+      }
+    } else if (raw.length > 1 && raw.startsWith('0') && raw[1] !== '.') {
+      raw = raw.replace(/^0+/, '') || '0';
+    }
+
+    setText(raw);
+
+    // 末尾刚敲小数点（如 "12."）时暂不截断，等输入小数位
+    if (raw.endsWith('.')) return;
+
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return;
+
+    if (parsed === 0) {
+      if (allowZero) onChange(0);
+      return;
+    }
+
+    const clamped = Math.min(max, Math.max(allowZero ? 0 : min, parsed));
+    if (parsed >= (allowZero ? 0 : min)) {
+      onChange(clamped);
+    }
+  };
+
+  const handleBlur = () => {
+    focusedRef.current = false;
+    const parsed = Number(text);
+    const effectiveMin = allowZero ? 0 : min;
+    const safe = Number.isFinite(parsed)
+      ? Math.min(max, Math.max(effectiveMin, parsed))
+      : effectiveMin;
+    const rounded = allowDecimal ? Math.round(safe * 100) / 100 : Math.round(safe);
+    setText(String(rounded));
+    if (rounded !== value) {
+      onChange(rounded);
+    }
+  };
+
+  const inputEl = (
+    <input
+      type="text"
+      inputMode={allowDecimal ? 'decimal' : 'numeric'}
+      className="pro-input"
+      style={style}
+      value={text}
+      onFocus={() => {
+        focusedRef.current = true;
+      }}
+      onChange={handleChange}
+      onBlur={handleBlur}
+    />
+  );
+
+  if (!unitSuffix) return inputEl;
+  return (
+    <div className="pro-input-unit-wrap">
+      {inputEl}
+      <span className="pro-input-unit-wrap__suffix">{unitSuffix}</span>
+    </div>
+  );
+};
 
 const MAX_PRO_HISTORY = 40;
 
@@ -81,6 +209,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
   isMobileCompact,
   siderHost,
   stageHost,
+  dockHost,
   onProOpsChange,
   onExitProMode,
   onBindCanvasBridge,
@@ -94,7 +223,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     return reconcileProOps({ lines, stations, sections }, normalized).proOps;
   });
 
-  // 当云端懒加载返回或切换了工程文档时同步外部 initialProOps
   const lastInitialRef = useRef<ProOpsDocument | null>(initialProOps);
   useEffect(() => {
     if (initialProOps !== lastInitialRef.current) {
@@ -108,7 +236,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     }
   }, [initialProOps, graph]);
 
-  // 独立专业模式 Undo / Redo 历史栈（与普通线网绘制历史栈完全物理隔离）
   const docRef = useRef<ProOpsDocument>(doc);
   docRef.current = doc;
   const pastRef = useRef<ProOpsDocument[]>([]);
@@ -159,7 +286,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     setHistoryTick((t) => t + 1);
   }, [graph, onProOpsChange]);
 
-  // 挂载期间绑定顶栏撤销/重做与键盘 Ctrl+Z / Ctrl+Y
   useEffect(() => {
     onBindUndoBridge({
       canUndo: pastRef.current.length > 0,
@@ -191,7 +317,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [handleProUndo, handleProRedo]);
 
-  // 实时计算拓扑校验、全网里程与所有交路的连续速度包络时分
   const reconciledState = useMemo(() => reconcileProOps(graph, doc), [graph, doc]);
   const validations = reconciledState.validations;
 
@@ -214,26 +339,23 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     return res;
   }, [graph, reconciledState.proOps, validations, isGeoMode]);
 
-  // 工作台交互状态
   const [activeTab, setActiveTab] = useState<'services' | 'scale' | 'connections'>('services');
   const [targetLineId, setTargetLineId] = useState<string>(() => lines[0]?.id || '');
+  const [targetVariantKey, setTargetVariantKey] = useState<string>('');
   const [selectedPatternId, setSelectedPatternId] = useState<string | null>(
     () => doc.servicePatterns[0]?.id || null
   );
   const [selectedStationId, setSelectedStationId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
 
-  // 两点标尺校准状态
   const [rulerMode, setRulerMode] = useState(false);
   const [rulerStations, setRulerStations] = useState<Station[]>([]);
-  const [rulerKmInput, setRulerKmInput] = useState('2.0');
+  const [rulerKmVal, setRulerKmVal] = useState<number>(2);
 
-  // 底部一维导乘图状态
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [axisMode, setAxisMode] = useState<'line' | 'pattern'>('line');
   const [corridorLineId, setCorridorLineId] = useState<string>(() => lines[0]?.id || '');
 
-  // 小交路 / 跨线交路弹窗状态
   const [shortTurnModalOpen, setShortTurnModalOpen] = useState(false);
   const [stStartId, setStStartId] = useState<string>('');
   const [stEndId, setStEndId] = useState<string>('');
@@ -244,13 +366,17 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
   const [thEndId, setThEndId] = useState<string>('');
   const [thExpress, setThExpress] = useState<boolean>(false);
 
-  // 新建跨线轨行连接表单状态
   const [connFromLineId, setConnFromLineId] = useState<string>(() => lines[0]?.id || '');
   const [connFromStationId, setConnFromStationId] = useState<string>('');
   const [connToLineId, setConnToLineId] = useState<string>(() => lines[1]?.id || lines[0]?.id || '');
   const [connToStationId, setConnToStationId] = useState<string>('');
   const [connDistanceM, setConnDistanceM] = useState<number>(180);
   const [connSpeedKmh, setConnSpeedKmh] = useState<number>(45);
+
+  const lineVariants = useMemo(
+    () => (targetLineId ? listLineRouteVariants(graph, targetLineId) : []),
+    [graph, targetLineId]
+  );
 
   useEffect(() => {
     if (!lines.some((l) => l.id === targetLineId)) {
@@ -260,6 +386,12 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       setCorridorLineId(lines[0]?.id || '');
     }
   }, [lines, targetLineId, corridorLineId]);
+
+  useEffect(() => {
+    if (!lineVariants.some((v) => v.key === targetVariantKey)) {
+      setTargetVariantKey(lineVariants[0]?.key || '');
+    }
+  }, [lineVariants, targetVariantKey]);
 
   useEffect(() => {
     if (
@@ -277,7 +409,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     [reconciledState.proOps.servicePatterns, selectedPatternId]
   );
 
-  // 绑定只读画布点击检视与 Konva 叠加渲染桥
   const handleStationClickOnCanvas = useCallback(
     (station: Station) => {
       if (rulerMode) {
@@ -351,7 +482,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     return () => onBindCanvasBridge(null);
   }, [onBindCanvasBridge, handleStationClickOnCanvas, handleSectionClickOnCanvas, renderStageOverlay]);
 
-  // 导乘图模型
   const diagramModel = useMemo(
     () =>
       buildCorridorDiagramModel({
@@ -381,8 +511,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
   const handleBootstrapAllLinesLocal = () => {
     const created: ProServicePattern[] = [];
     lines.forEach((line) => {
-      const p = createLineAllStopPattern(graph, line.id);
-      if (p) created.push(p);
+      created.push(...createAllSubCorridorPatternsForLine(graph, line.id));
     });
     if (created.length === 0) {
       message.warning('当前线网还没有已连接的区间，请先在「线网绘制」中连接至少两个站点');
@@ -394,12 +523,12 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     }));
     setSelectedPatternId(created[0].id);
     setCorridorLineId(lines[0]?.id || '');
-    message.success(`已为 ${created.length} 条线路生成基准全程普通车交路`);
+    message.success(`已为全网各主支线及区段生成 ${created.length} 条普通车交路`);
   };
 
   const handleAddLocalPattern = () => {
     if (!targetLineId) return;
-    const p = createLineAllStopPattern(graph, targetLineId);
+    const p = createLineAllStopPattern(graph, targetLineId, targetVariantKey || undefined);
     if (!p) {
       message.warning('该线路尚无有效连接区间');
       return;
@@ -412,7 +541,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
 
   const handleAddExpressPattern = () => {
     if (!targetLineId) return;
-    const p = createLineExpressPattern(graph, targetLineId);
+    const p = createLineExpressPattern(graph, targetLineId, targetVariantKey || undefined);
     if (!p) {
       message.warning('该线路尚无有效连接区间');
       return;
@@ -420,7 +549,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     commitDoc((prev) => ({ ...prev, servicePatterns: [...prev.servicePatterns, p] }));
     setSelectedPatternId(p.id);
     setCorridorLineId(targetLineId);
-    message.success(`已创建「${p.name}」（可在下方逐次访问列表点选切换越站/停靠）`);
+    message.success(`已创建「${p.name}」`);
   };
 
   const openShortTurnBuilder = () => {
@@ -430,7 +559,9 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       return;
     }
     setStStartId(line.stationIds[0]);
-    setStEndId(line.stationIds[Math.min(line.stationIds.length - 1, Math.max(1, Math.floor(line.stationIds.length * 0.6)))]);
+    setStEndId(
+      line.stationIds[Math.min(line.stationIds.length - 1, Math.max(1, Math.floor(line.stationIds.length * 0.6)))]
+    );
     setShortTurnModalOpen(true);
   };
 
@@ -442,7 +573,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       endStationId: stEndId
     });
     if (steps.length === 0) {
-      message.error('所选起止站在本线上无法连通，请检查车站选择');
+      message.error('所选起止站在本线上处于不连通分段或无法连通，请选择同一连通区段内的车站');
       return;
     }
     const stationMap = new Map(stations.map((s) => [s.id, s]));
@@ -450,14 +581,17 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     const eName = stationMap.get(stEndId)?.name || '终点';
     const pattern: ProServicePattern = {
       id: createId(),
-      name: `${line.name} 区间 (${sName}-${eName})`,
-      code: '区间',
+      name:
+        stStartId === stEndId
+          ? `${line.name} 环线 (${sName}始发)`
+          : `${line.name} 区间 (${sName}-${eName})`,
+      code: stStartId === stEndId ? '环行' : '区间',
       color: line.color,
-      category: 'short_turn',
+      category: stStartId === stEndId ? 'local' : 'short_turn',
       stopAtStart: true,
       routeSteps: steps,
       headwaySec: 300,
-      bidirectional: true
+      bidirectional: stStartId !== stEndId
     };
     commitDoc((prev) => ({
       ...prev,
@@ -471,10 +605,9 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     setSelectedPatternId(pattern.id);
     setCorridorLineId(line.id);
     setShortTurnModalOpen(false);
-    message.success(`已创建小交路「${pattern.name}」，并已自动开启两端折返配线标记`);
+    message.success(`已创建交路「${pattern.name}」`);
   };
 
-  // 检测共站换乘候选对（用于快速创建同站跨线道岔）
   const sharedJunctionCandidates = useMemo(() => {
     const stationMap = new Map(stations.map((s) => [s.id, s]));
     const existingSet = new Set(
@@ -514,7 +647,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
   const handleQuickAddSameStationJunction = (stationId: string, stationName: string, lineA: Line, lineB: Line) => {
     const conn: ProTrackConnection = {
       id: createId(),
-      name: `${stationName} (${lineA.name}⇄${lineB.name} 道岔)`,
+      name: `${stationName} (${lineA.name}⇄${lineB.name})`,
       kind: 'same_station_junction',
       fromLineId: lineA.id,
       fromStationId: stationId,
@@ -552,7 +685,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     const conn: ProTrackConnection = {
       id: createId(),
       name: isSameSt
-        ? `${sFrom?.name || ''} (${lFrom?.name || ''}⇄${lTo?.name || ''} 道岔)`
+        ? `${sFrom?.name || ''} (${lFrom?.name || ''}⇄${lTo?.name || ''})`
         : `${sFrom?.name || ''}—${sTo?.name || ''} 联络线`,
       kind: isSameSt ? 'same_station_junction' : 'inter_station_link',
       fromLineId: connFromLineId,
@@ -653,7 +786,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       return;
     }
 
-    // 最终终点必停靠
     routeSteps[routeSteps.length - 1] = {
       ...routeSteps[routeSteps.length - 1],
       stopAtEnd: true
@@ -683,13 +815,12 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     message.success(`已创建跨线交路「${pattern.name}」`);
   };
 
-  // 切换单步访问停靠/越站（完美支持环线或6字线同一车站不同访问步独立切换！）
   const handleToggleStepStop = (patternId: string, stepIndex: number) => {
     commitDoc((prev) => ({
       ...prev,
       servicePatterns: prev.servicePatterns.map((p) => {
         if (p.id !== patternId) return p;
-        if (stepIndex < 0 || stepIndex >= p.routeSteps.length - 1) return p; // 终到站保持停靠
+        if (stepIndex < 0 || stepIndex >= p.routeSteps.length - 1) return p;
         const nextSteps = p.routeSteps.map((s, idx) =>
           idx === stepIndex ? { ...s, stopAtEnd: !s.stopAtEnd } : s
         );
@@ -698,7 +829,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     }));
   };
 
-  // 反转交路运行方向
   const handleReversePattern = (pattern: ProServicePattern) => {
     if (pattern.routeSteps.length === 0) return;
     const stationMap = new Map(stations.map((s) => [s.id, s]));
@@ -706,7 +836,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       .reverse()
       .map((step, idx, arr) => {
         const isLast = idx === arr.length - 1;
-        // 原第 k 步的起点是否停靠 = 原第 k-1 步的 stopAtEnd（若 k===0 则为 stopAtStart）
         const origIdx = pattern.routeSteps.length - 1 - idx;
         const nextStopAtEnd = isLast
           ? true
@@ -747,7 +876,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     message.success('已反转交路运行方向');
   };
 
-  // 一键重连修复 broken 单线交路
   const handleRepairBrokenPattern = (pattern: ProServicePattern) => {
     const firstSectionStep = pattern.routeSteps.find((s) => s.kind === 'section');
     const lineId =
@@ -760,7 +888,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     const oldStart = pattern.routeSteps[0]?.fromStationId;
     const oldEnd = pattern.routeSteps[pattern.routeSteps.length - 1]?.toStationId;
 
-    // 保留原交路曾设为越站（pass）的车站偏好
     const passedStations = new Set<string>();
     pattern.routeSteps.slice(0, -1).forEach((s) => {
       if (!s.stopAtEnd) passedStations.add(s.toStationId);
@@ -790,18 +917,16 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     message.success(`已沿最新线路拓扑重新接续「${pattern.name}」`);
   };
 
-  // 应用两点标尺校准
   const handleApplyRulerCalibration = () => {
     if (rulerStations.length < 2) return;
-    const km = Number(rulerKmInput);
-    if (!Number.isFinite(km) || km <= 0) {
+    if (!Number.isFinite(rulerKmVal) || rulerKmVal <= 0) {
       message.warning('请输入大于 0 的实际距离（公里）');
       return;
     }
     const nextMpu = calibrateMetersPerUnitBetweenPoints(
       rulerStations[0],
       rulerStations[1],
-      km * 1000
+      rulerKmVal * 1000
     );
     if (!nextMpu) {
       message.warning('所选两站坐标重合，请选择相距一定距离的两座车站');
@@ -819,7 +944,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     message.success(`标尺已校准：1 画布单位 = ${nextMpu} 米`);
   };
 
-  // 导出一维运行体系导乘图 SVG / PNG
   const saveExportBlob = async (blob: Blob, filename: string) => {
     if (isAndroidClient) {
       await saveAndroidExport(blob, filename);
@@ -888,28 +1012,19 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
               </button>
             </div>
 
-            <div className="pro-sider-tabs" role="tablist">
-              <button
-                type="button"
-                className={`pro-sider-tabs__btn${activeTab === 'services' ? ' is-active' : ''}`}
-                onClick={() => setActiveTab('services')}
-              >
-                运行体系
-              </button>
-              <button
-                type="button"
-                className={`pro-sider-tabs__btn${activeTab === 'scale' ? ' is-active' : ''}`}
-                onClick={() => setActiveTab('scale')}
-              >
-                标尺与制式
-              </button>
-              <button
-                type="button"
-                className={`pro-sider-tabs__btn${activeTab === 'connections' ? ' is-active' : ''}`}
-                onClick={() => setActiveTab('connections')}
-              >
-                跨线连接
-              </button>
+            <div className="pro-sider-tabs-wrap">
+              <ElasticCapsuleTabs
+                size="sm"
+                block
+                ariaLabel="专业运营功能分栏"
+                value={activeTab}
+                onChange={setActiveTab}
+                options={[
+                  { value: 'services', label: '运行体系' },
+                  { value: 'scale', label: '标尺制式' },
+                  { value: 'connections', label: '跨线连接' }
+                ]}
+              />
             </div>
 
             <div className="pro-sider-body">
@@ -917,22 +1032,26 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                 <>
                   {reconciledState.proOps.servicePatterns.length === 0 && lines.length > 0 && (
                     <div className="pro-card">
-                      <div className="pro-card__title">快速开启运行体系编排</div>
+                      <div className="pro-card__title">
+                        <span>快速开启运行体系</span>
+                      </div>
                       <div className="pro-card__hint">
-                        越站快车、大小交路与跨线直通均作为独立运行交路挂载在物理线网上，绝不污染原线网线路数与换乘环。
+                        越站快车、大小交路与跨线直通均作为独立交路挂载，不增加物理线路数。
                       </div>
                       <button
                         type="button"
                         className="pro-btn pro-btn--primary"
                         onClick={handleBootstrapAllLinesLocal}
                       >
-                        一键生成各线基准普通车
+                        一键生成各线普通车
                       </button>
                     </div>
                   )}
 
                   <div className="pro-card">
-                    <div className="pro-card__title">新建运行交路</div>
+                    <div className="pro-card__title">
+                      <span>新建运行交路</span>
+                    </div>
                     <div className="pro-field">
                       <label>基准物理线路</label>
                       <select
@@ -947,6 +1066,22 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                         ))}
                       </select>
                     </div>
+                    {lineVariants.length > 1 && (
+                      <div className="pro-field">
+                        <label>走廊路径（主支线 / 独立区段）</label>
+                        <select
+                          className="pro-select"
+                          value={targetVariantKey}
+                          onChange={(e) => setTargetVariantKey(e.target.value)}
+                        >
+                          {lineVariants.map((v) => (
+                            <option key={v.key} value={v.key}>
+                              {v.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <div className="pro-quick-grid">
                       <button type="button" className="pro-btn" onClick={handleAddLocalPattern}>
                         + 全程普通车
@@ -955,7 +1090,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                         + 大站快车
                       </button>
                       <button type="button" className="pro-btn" onClick={openShortTurnBuilder}>
-                        + 区间小交路
+                        + 区间 / 环行
                       </button>
                       <button type="button" className="pro-btn" onClick={openThroughRunningBuilder}>
                         + 跨线直通
@@ -1017,8 +1152,8 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                     return (
                       <div className={`pro-card${isBroken ? ' pro-card--warn' : ''}`}>
                         <div className="pro-card__title">
-                          <span>交路参数与逐站停靠</span>
-                          <div style={{ display: 'flex', gap: 4 }}>
+                          <span>交路参数与停靠</span>
+                          <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                             <button
                               type="button"
                               className="pro-btn pro-btn--sm"
@@ -1082,7 +1217,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                             />
                           </div>
                           <div className="pro-field">
-                            <label>种别简称（如 快车）</label>
+                            <label>种别简称</label>
                             <input
                               className="pro-input"
                               maxLength={8}
@@ -1102,16 +1237,13 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
 
                         <div className="pro-field-row">
                           <div className="pro-field">
-                            <label>发车间隔（秒）</label>
-                            <input
-                              type="number"
-                              className="pro-input"
+                            <label>发车间隔</label>
+                            <ProNumberInput
+                              value={activePattern.headwaySec}
                               min={60}
                               max={3600}
-                              step={15}
-                              value={activePattern.headwaySec}
-                              onChange={(e) => {
-                                const sec = Math.max(60, Math.min(3600, Number(e.target.value) || 240));
+                              unitSuffix="秒"
+                              onChange={(sec) => {
                                 commitDoc((prev) => ({
                                   ...prev,
                                   servicePatterns: prev.servicePatterns.map((p) =>
@@ -1122,7 +1254,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                             />
                           </div>
                           <div className="pro-field">
-                            <label>标识色</label>
+                            <label>标识颜色</label>
                             <input
                               type="color"
                               className="pro-input"
@@ -1146,14 +1278,10 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                             <div className="pro-card__hint">
                               全程 <strong>{kin.totalDistanceKm} km</strong> · 纯运行{' '}
                               <strong>{(kin.pureRunSec / 60).toFixed(1)} 分</strong> + 停站{' '}
-                              <strong>{(kin.totalIntermediateDwellSec / 60).toFixed(1)} 分</strong> · 单向运能{' '}
+                              <strong>{(kin.totalIntermediateDwellSec / 60).toFixed(1)} 分</strong> · 运能{' '}
                               <strong>{kin.hourlyCapacityPphpd.toLocaleString()} 人/h</strong>
                             </div>
-                            <div className="pro-card__hint">
-                              点击中间站按钮切换「停靠 / 越站」（环线或 6 字线重复经过同一站时按访问次序独立生效）：
-                            </div>
                             <div className="pro-visit-list">
-                              {/* 始发站 */}
                               <div className="pro-visit-row">
                                 <div className="pro-visit-row__left">
                                   <span className="pro-visit-row__idx">1</span>
@@ -1162,7 +1290,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                                 <span className="pro-stop-toggle is-endpoint">始发 0.0&apos;</span>
                               </div>
 
-                              {/* 逐步到达访问点（与 routeSteps 一一对应，确保同站道岔与环线都能精准切换） */}
                               {activePattern.routeSteps.map((step, sIdx) => {
                                 const isSameStJunction =
                                   step.kind === 'connection' && step.fromStationId === step.toStationId;
@@ -1226,28 +1353,27 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                 <>
                   <div className="pro-card">
                     <div className="pro-card__title">
-                      <span>测距标尺与全网里程</span>
+                      <span>标尺与全网里程</span>
                       <span className="pro-sider-header__badge">
-                        总计 {mileageSummary.totalLineKm} km
+                        {mileageSummary.totalLineKm} km
                       </span>
                     </div>
                     {isGeoMode ? (
                       <div className="pro-card__hint">
-                        当前为<strong>地理底图模式</strong>：具备经纬度的站点与弯点默认直接按地球测地线真实距离测算。
+                        当前为<strong>地理底图模式</strong>：具备经纬度的站点与弯点默认按 WGS84 真实距离测算。
                       </div>
                     ) : (
                       <>
                         <div className="pro-field">
-                          <label>1 画布世界单位 = 多少米</label>
-                          <input
-                            type="number"
-                            className="pro-input"
-                            min={0.5}
-                            max={5000}
-                            step={0.5}
+                          <label>1 画布世界单位对应实际距离</label>
+                          <ProNumberInput
                             value={reconciledState.proOps.scaleConfig.metersPerUnit}
-                            onChange={(e) => {
-                              const v = Math.max(0.5, Math.min(5000, Number(e.target.value) || 25));
+                            min={0}
+                            max={10000}
+                            allowDecimal
+                            allowZero
+                            unitSuffix="米"
+                            onChange={(v) => {
                               commitDoc((prev) => ({
                                 ...prev,
                                 scaleConfig: { ...prev.scaleConfig, metersPerUnit: v }
@@ -1269,7 +1395,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                     )}
 
                     {mileageSummary.lines.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 4 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2 }}>
                         {mileageSummary.lines.map((lm) => (
                           <div key={lm.lineId} className="pro-visit-row">
                             <div className="pro-visit-row__left">
@@ -1284,7 +1410,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                               />
                               <span className="pro-visit-row__name">{lm.lineName}</span>
                             </div>
-                            <span style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>
+                            <span style={{ fontSize: 11, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
                               {lm.lengthKm} km · {lm.stationCount} 站
                             </span>
                           </div>
@@ -1294,7 +1420,9 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                   </div>
 
                   <div className="pro-card">
-                    <div className="pro-card__title">线路车辆制式与牵引参数</div>
+                    <div className="pro-card__title">
+                      <span>车辆制式与牵引参数</span>
+                    </div>
                     <div className="pro-field">
                       <label>选择物理线路</label>
                       <select
@@ -1343,33 +1471,31 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                           </div>
                           <div className="pro-field-row">
                             <div className="pro-field">
-                              <label>最高时速 (km/h)</label>
-                              <input
-                                type="number"
-                                className="pro-input"
-                                min={30}
-                                max={350}
+                              <label>最高时速</label>
+                              <ProNumberInput
                                 value={spec.maxSpeedKmh}
-                                onChange={(e) =>
+                                min={25}
+                                max={350}
+                                unitSuffix="km/h"
+                                onChange={(v) =>
                                   patchSpec({
                                     rollingStock: 'custom',
-                                    maxSpeedKmh: Math.max(30, Math.min(350, Number(e.target.value) || 80))
+                                    maxSpeedKmh: v
                                   })
                                 }
                               />
                             </div>
                             <div className="pro-field">
-                              <label>额定定员 (人/列)</label>
-                              <input
-                                type="number"
-                                className="pro-input"
+                              <label>额定定员</label>
+                              <ProNumberInput
+                                value={spec.carCapacity}
                                 min={100}
                                 max={5000}
-                                value={spec.carCapacity}
-                                onChange={(e) =>
+                                unitSuffix="人"
+                                onChange={(v) =>
                                   patchSpec({
                                     rollingStock: 'custom',
-                                    carCapacity: Math.max(100, Math.min(5000, Number(e.target.value) || 1460))
+                                    carCapacity: v
                                   })
                                 }
                               />
@@ -1377,36 +1503,29 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                           </div>
                           <div className="pro-field-row">
                             <div className="pro-field">
-                              <label>起步加速度 (m/s²)</label>
-                              <input
-                                type="number"
-                                className="pro-input"
-                                step={0.05}
-                                min={0.3}
-                                max={2.0}
+                              <label>加速度</label>
+                              <ProNumberInput
                                 value={spec.accelMps2}
-                                onChange={(e) =>
+                                min={0.2}
+                                max={2.5}
+                                allowDecimal
+                                unitSuffix="m/s²"
+                                onChange={(v) =>
                                   patchSpec({
                                     rollingStock: 'custom',
-                                    accelMps2: Math.max(0.3, Math.min(2.0, Number(e.target.value) || 1.0))
+                                    accelMps2: v
                                   })
                                 }
                               />
                             </div>
                             <div className="pro-field">
-                              <label>折返时间 (秒)</label>
-                              <input
-                                type="number"
-                                className="pro-input"
-                                step={10}
-                                min={45}
-                                max={600}
+                              <label>折返时间</label>
+                              <ProNumberInput
                                 value={spec.turnbackSec}
-                                onChange={(e) =>
-                                  patchSpec({
-                                    turnbackSec: Math.max(45, Math.min(600, Number(e.target.value) || 150))
-                                  })
-                                }
+                                min={30}
+                                max={600}
+                                unitSuffix="秒"
+                                onChange={(v) => patchSpec({ turnbackSec: v })}
                               />
                             </div>
                           </div>
@@ -1415,12 +1534,13 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                     })()}
                   </div>
 
-                  {/* 画布点选车站/区间检视器 */}
                   <div className="pro-card">
-                    <div className="pro-card__title">画布点选配线与限速检视</div>
+                    <div className="pro-card__title">
+                      <span>点选配线与限速</span>
+                    </div>
                     {!inspectedStation && !inspectedSection && (
                       <div className="pro-card__hint">
-                        在右侧画布直接点击任意<strong>车站</strong>（配置折返线、越行线、停站时间、越站限速）或<strong>区间线段</strong>（覆写精确里程或曲线限速）。
+                        在右侧画布点击<strong>车站</strong>（设折返线/越行线/停站时分）或<strong>区间</strong>（覆写里程/限速）。
                       </div>
                     )}
 
@@ -1458,11 +1578,11 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                           </div>
                           <div className="pro-field-row">
                             <div className="pro-field">
-                              <label>停站时间 (秒，空为默认)</label>
+                              <label>停站时间 (秒)</label>
                               <input
                                 type="number"
                                 className="pro-input"
-                                placeholder="默认 30 / 45"
+                                placeholder="默认 30/45"
                                 value={prof.dwellSec ?? ''}
                                 onChange={(e) => {
                                   const raw = e.target.value.trim();
@@ -1517,10 +1637,10 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                       return (
                         <>
                           <div style={{ fontSize: 12.5, fontWeight: 700 }}>
-                            {line?.name || ''} 区间：{sA?.name || ''} — {sB?.name || ''}
+                            {line?.name || ''}：{sA?.name || ''} — {sB?.name || ''}
                           </div>
                           <div className="pro-card__hint">
-                            当前有效里程：<strong>{(measured.meters / 1000).toFixed(2)} km</strong>（{measured.meters} 米）
+                            有效里程：<strong>{(measured.meters / 1000).toFixed(2)} km</strong>（{measured.meters} 米）
                           </div>
                           <div className="pro-field-row">
                             <div className="pro-field">
@@ -1544,7 +1664,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                               <input
                                 type="number"
                                 className="pro-input"
-                                placeholder="同线路最高速"
+                                placeholder="同最高速"
                                 value={ov.speedLimitKmh ?? ''}
                                 onChange={(e) => {
                                   const raw = e.target.value.trim();
@@ -1566,15 +1686,17 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
               {activeTab === 'connections' && (
                 <>
                   <div className="pro-card">
-                    <div className="pro-card__title">跨线物理轨行连接</div>
+                    <div className="pro-card__title">
+                      <span>跨线物理轨行连接</span>
+                    </div>
                     <div className="pro-card__hint">
-                      严格区分<strong>乘客换乘</strong>与<strong>列车跨线</strong>：两条线路共站换乘默认无轨道连通，只有在此添加跨线道岔或联络线后，才允许开行跨线直通列车。
+                      共站换乘默认无轨道连通；仅添加跨线道岔或联络线后，方可编排跨线直通列车。
                     </div>
 
                     {sharedJunctionCandidates.length > 0 && (
                       <>
                         <div className="pro-card__hint" style={{ fontWeight: 600, color: 'var(--color-text)' }}>
-                          识别到共站换乘枢纽（点击一键启用同站跨线道岔）：
+                          识别到共站枢纽（一键启用同站道岔）：
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                           {sharedJunctionCandidates.slice(0, 8).map((cand, idx) => (
@@ -1592,10 +1714,10 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                                 )
                               }
                             >
-                              <span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {cand.stationName}：{cand.lineA.name} ⇄ {cand.lineB.name}
                               </span>
-                              <span style={{ color: 'var(--color-primary-600)' }}>+ 启用道岔</span>
+                              <span style={{ color: 'var(--color-primary-600)', flexShrink: 0 }}>+ 启用</span>
                             </button>
                           ))}
                         </div>
@@ -1604,7 +1726,9 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                   </div>
 
                   <div className="pro-card">
-                    <div className="pro-card__title">自定义跨线道岔 / 异站联络线</div>
+                    <div className="pro-card__title">
+                      <span>自定义道岔 / 联络线</span>
+                    </div>
                     <div className="pro-field-row">
                       <div className="pro-field">
                         <label>引出线路</label>
@@ -1679,25 +1803,23 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
 
                     <div className="pro-field-row">
                       <div className="pro-field">
-                        <label>轨道长度 (米)</label>
-                        <input
-                          type="number"
-                          className="pro-input"
-                          min={20}
-                          max={30000}
+                        <label>轨道长度</label>
+                        <ProNumberInput
                           value={connDistanceM}
-                          onChange={(e) => setConnDistanceM(Number(e.target.value) || 180)}
+                          min={15}
+                          max={30000}
+                          unitSuffix="米"
+                          onChange={setConnDistanceM}
                         />
                       </div>
                       <div className="pro-field">
-                        <label>道岔/联络限速 (km/h)</label>
-                        <input
-                          type="number"
-                          className="pro-input"
+                        <label>连接限速</label>
+                        <ProNumberInput
+                          value={connSpeedKmh}
                           min={15}
                           max={160}
-                          value={connSpeedKmh}
-                          onChange={(e) => setConnSpeedKmh(Number(e.target.value) || 45)}
+                          unitSuffix="km/h"
+                          onChange={setConnSpeedKmh}
                         />
                       </div>
                     </div>
@@ -1714,16 +1836,26 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                   {reconciledState.proOps.trackConnections.length > 0 && (
                     <div className="pro-card">
                       <div className="pro-card__title">
-                        已启用连接（{reconciledState.proOps.trackConnections.length}）
+                        <span>已启用连接（{reconciledState.proOps.trackConnections.length}）</span>
                       </div>
                       {reconciledState.proOps.trackConnections.map((conn) => {
                         const isBroken = reconciledState.brokenConnectionIds.has(conn.id);
                         return (
                           <div key={conn.id} className="pro-visit-row">
-                            <div className="pro-visit-row__left" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}>
+                            <div
+                              className="pro-visit-row__left"
+                              style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}
+                            >
                               <span className="pro-visit-row__name">{conn.name}</span>
-                              <span style={{ fontSize: 10, color: isBroken ? '#d97706' : 'var(--color-text-muted)' }}>
-                                {isBroken ? '两端车站已变动' : `${conn.distanceMeters}m · 限速 ${conn.speedLimitKmh}km/h`}
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  color: isBroken ? '#d97706' : 'var(--color-text-muted)'
+                                }}
+                              >
+                                {isBroken
+                                  ? '两端车站已变动'
+                                  : `${conn.distanceMeters}m · 限速 ${conn.speedLimitKmh}km/h`}
                               </span>
                             </div>
                             <button
@@ -1751,163 +1883,166 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
         )
       : null;
 
-  // ==================== 画布顶部 HUD 与底部一维拉直版运行体系导乘图 ====================
-  const stageOverlayContent = stageHost
-    ? createPortal(
-        <>
+  // ==================== 画布内部：仅在两点标尺校准激活时展示引导条（去掉图1常驻提示） ====================
+  const stageRulerHud =
+    rulerMode && stageHost
+      ? createPortal(
           <div className="pro-stage-top-hud">
-            {rulerMode ? (
-              <>
-                <span style={{ fontWeight: 700, color: 'var(--color-primary-600)' }}>
-                  两点标尺校准：
-                </span>
-                {rulerStations.length === 0 && <span>请依次在画布上点击两座车站（1/2）</span>}
-                {rulerStations.length === 1 && (
-                  <span>已选点 A「{rulerStations[0].name}」，请点击点 B 车站（2/2）</span>
-                )}
-                {rulerStations.length === 2 && (
-                  <>
-                    <span>
-                      {rulerStations[0].name} → {rulerStations[1].name} 实际距离(km)：
-                    </span>
-                    <input
-                      type="number"
-                      className="pro-input"
-                      style={{ width: 72, height: 26 }}
-                      step={0.1}
-                      min={0.1}
-                      value={rulerKmInput}
-                      onChange={(e) => setRulerKmInput(e.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className="pro-btn pro-btn--primary pro-btn--sm"
-                      onClick={handleApplyRulerCalibration}
-                    >
-                      确认校准
-                    </button>
-                  </>
-                )}
-                <button
-                  type="button"
-                  className="pro-btn pro-btn--sm"
-                  onClick={() => {
-                    setRulerMode(false);
-                    setRulerStations([]);
-                  }}
-                >
-                  取消
-                </button>
-              </>
-            ) : (
+            <span style={{ fontWeight: 700, color: 'var(--color-primary-600)' }}>两点标尺校准：</span>
+            {rulerStations.length === 0 && <span>请依次在画布上点击两座车站（1/2）</span>}
+            {rulerStations.length === 1 && (
+              <span>已选点 A「{rulerStations[0].name}」，请点击点 B 车站（2/2）</span>
+            )}
+            {rulerStations.length === 2 && (
               <>
                 <span>
-                  {isMobileCompact
-                    ? '运营导乘只读预览（手机端锁定防误触）'
-                    : '专业运营检视态 · 线网几何已锁定只读（点选车站/区间可调配线与限速）'}
+                  {rulerStations[0].name} → {rulerStations[1].name} 实际距离：
                 </span>
-                {isMobileCompact && (
-                  <button
-                    type="button"
-                    className="pro-btn pro-btn--primary pro-btn--sm"
-                    onClick={onExitProMode}
-                  >
-                    返回绘图
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-
-          <div className={`pro-strip-dock${dockCollapsed ? ' is-collapsed' : ''}`}>
-            <div className="pro-strip-dock__bar">
-              <div className="pro-strip-dock__bar-left">
-                <span className="pro-strip-dock__title">一维拉直版运行体系导乘图</span>
-                {!dockCollapsed && (
-                  <>
-                    <select
-                      className="pro-select"
-                      style={{ width: 'auto', height: 26 }}
-                      value={axisMode === 'pattern' ? '__pattern__' : corridorLineId}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        if (val === '__pattern__') {
-                          setAxisMode('pattern');
-                        } else {
-                          setAxisMode('line');
-                          setCorridorLineId(val);
-                        }
-                      }}
-                    >
-                      {lines.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          走廊轴：{l.name}
-                        </option>
-                      ))}
-                      {activePattern ? (
-                        <option value="__pattern__">全程轴：跟随「{activePattern.name}」</option>
-                      ) : null}
-                    </select>
-                  </>
-                )}
-              </div>
-
-              <div className="pro-strip-dock__bar-right">
-                {!dockCollapsed && (
-                  <>
-                    <button
-                      type="button"
-                      className="pro-btn pro-btn--sm"
-                      onClick={() => void handleExportDiagramSvg()}
-                    >
-                      导出 SVG
-                    </button>
-                    <button
-                      type="button"
-                      className="pro-btn pro-btn--sm"
-                      onClick={() => void handleExportDiagramPng()}
-                    >
-                      导出 PNG
-                    </button>
-                  </>
-                )}
+                <ProNumberInput
+                  value={rulerKmVal}
+                  min={0.05}
+                  max={500}
+                  allowDecimal
+                  unitSuffix="km"
+                  style={{ width: 88, height: 26 }}
+                  onChange={setRulerKmVal}
+                />
                 <button
                   type="button"
-                  className="pro-btn pro-btn--sm"
-                  onClick={() => setDockCollapsed((c) => !c)}
+                  className="pro-btn pro-btn--primary pro-btn--sm"
+                  onClick={handleApplyRulerCalibration}
                 >
-                  {dockCollapsed ? '展开导乘图' : '收起'}
+                  确认校准
                 </button>
-              </div>
+              </>
+            )}
+            <button
+              type="button"
+              className="pro-btn pro-btn--sm"
+              onClick={() => {
+                setRulerMode(false);
+                setRulerStations([]);
+              }}
+            >
+              取消
+            </button>
+          </div>,
+          stageHost
+        )
+      : null;
+
+  // ==================== 底部独立停靠导乘图（位于画布容器下方，与右下角缩放栏零重叠） ====================
+  const bottomDockContent = dockHost
+    ? createPortal(
+        <div className={`pro-strip-dock${dockCollapsed ? ' is-collapsed' : ''}`}>
+          <div className="pro-strip-dock__bar">
+            <div className="pro-strip-dock__bar-left">
+              <span className="pro-strip-dock__title">运行体系导乘图</span>
+              {!dockCollapsed && (
+                <select
+                  className="pro-select"
+                  style={{ width: 'auto', height: 26 }}
+                  value={axisMode === 'pattern' ? '__pattern__' : corridorLineId}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '__pattern__') {
+                      setAxisMode('pattern');
+                    } else {
+                      setAxisMode('line');
+                      setCorridorLineId(val);
+                    }
+                  }}
+                >
+                  {lines.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      全拓扑走廊：{l.name}
+                    </option>
+                  ))}
+                  {activePattern ? (
+                    <option value="__pattern__">交路全程轴：「{activePattern.name}」</option>
+                  ) : null}
+                </select>
+              )}
             </div>
 
-            {!dockCollapsed && (
-              <div className="pro-strip-dock__scroll">
-                {diagramModel.columns.length === 0 ? (
-                  <div className="pro-card__hint" style={{ padding: '12px 4px' }}>
-                    当前走廊暂无车站，请先在线网绘制模式绘制线路与车站。
-                  </div>
-                ) : (
-                  <div className="pro-strip-matrix">
-                    {/* 表头车站列 */}
-                    <div className="pro-strip-header-row">
-                      <div className="pro-strip-left-col">
-                        <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--color-text)' }}>
-                          {diagramModel.title}
-                        </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--color-text-muted)' }}>
-                          {diagramModel.subtitle}
-                        </div>
+            <div className="pro-strip-dock__bar-right">
+              {!dockCollapsed && (
+                <>
+                  <button
+                    type="button"
+                    className="pro-btn pro-btn--sm"
+                    onClick={() => void handleExportDiagramSvg()}
+                  >
+                    导出 SVG
+                  </button>
+                  <button
+                    type="button"
+                    className="pro-btn pro-btn--sm"
+                    onClick={() => void handleExportDiagramPng()}
+                  >
+                    导出 PNG
+                  </button>
+                </>
+              )}
+              {isMobileCompact && (
+                <button
+                  type="button"
+                  className="pro-btn pro-btn--primary pro-btn--sm"
+                  onClick={onExitProMode}
+                >
+                  返回绘图
+                </button>
+              )}
+              <button
+                type="button"
+                className="pro-btn pro-btn--sm"
+                onClick={() => setDockCollapsed((c) => !c)}
+              >
+                {dockCollapsed ? '展开导乘图' : '收起'}
+              </button>
+            </div>
+          </div>
+
+          {!dockCollapsed && (
+            <div className="pro-strip-dock__scroll">
+              {diagramModel.columns.length === 0 ? (
+                <div className="pro-card__hint" style={{ padding: '12px 4px' }}>
+                  当前走廊暂无车站，请先在线网绘制模式绘制线路与车站。
+                </div>
+              ) : (
+                <div className="pro-strip-matrix">
+                  <div className="pro-strip-header-row">
+                    <div className="pro-strip-left-col">
+                      <div style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--color-text)' }}>
+                        {diagramModel.title}
                       </div>
-                      <div className="pro-strip-stations-track">
-                        {diagramModel.columns.map((col) => (
-                          <div key={`col_${col.colIndex}`} className="pro-strip-station-col">
-                            <span
-                              className="pro-strip-station-col__line-pill"
-                              style={{ background: col.lineColor }}
-                            >
-                              {col.lineName}
-                            </span>
+                      <div style={{ fontSize: 10.5, color: 'var(--color-text-muted)' }}>
+                        {diagramModel.subtitle}
+                      </div>
+                    </div>
+                    <div className="pro-strip-stations-track">
+                      {diagramModel.columns.map((col) => {
+                        const isBreak = col.colIndex > 0 && !col.connectToPrev;
+                        return (
+                          <div
+                            key={`col_${col.colIndex}`}
+                            className={`pro-strip-station-col${isBreak ? ' is-subcorridor-break' : ''}`}
+                          >
+                            {col.subCorridorLabel ? (
+                              <span
+                                className="pro-strip-station-col__subtag"
+                                title={col.subCorridorLabel}
+                              >
+                                {col.subCorridorLabel}
+                              </span>
+                            ) : (
+                              <span
+                                className="pro-strip-station-col__line-pill"
+                                style={{ background: col.lineColor }}
+                              >
+                                {col.lineName}
+                              </span>
+                            )}
                             <span className="pro-strip-station-col__km">
                               {col.cumulativeKm.toFixed(1)}km
                             </span>
@@ -1944,112 +2079,136 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                               ) : null}
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        );
+                      })}
                     </div>
+                  </div>
 
-                    {/* 各运行体系行 */}
-                    {diagramModel.rows.length === 0 ? (
-                      <div
-                        style={{
-                          padding: '10px 12px',
-                          borderRadius: 8,
-                          border: '1px dashed var(--color-border-strong)',
-                          fontSize: 12,
-                          color: 'var(--color-text-muted)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          gap: 8
-                        }}
-                      >
-                        <span>尚未给本走廊编排运行交路（普通车 / 快车 / 跨线车）</span>
-                        {!isMobileCompact && lines.length > 0 ? (
-                          <button
-                            type="button"
-                            className="pro-btn pro-btn--primary pro-btn--sm"
-                            onClick={handleBootstrapAllLinesLocal}
-                          >
-                            一键生成基准交路
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : (
-                      diagramModel.rows.map((row) => {
-                        const p = row.pattern;
-                        const kin = row.kinematics;
-                        const isBroken = row.validation.status === 'broken';
-                        const isRowActive = p.id === selectedPatternId;
-                        const colW = 74;
-                        const bandLeft = row.startCol * colW + colW / 2;
-                        const bandWidth = Math.max(0, (row.endCol - row.startCol) * colW);
+                  {diagramModel.rows.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: 8,
+                        border: '1px dashed var(--color-border-strong)',
+                        fontSize: 12,
+                        color: 'var(--color-text-muted)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 8
+                      }}
+                    >
+                      <span>尚未给本走廊编排运行交路（普通车 / 快车 / 跨线车）</span>
+                      {!isMobileCompact && lines.length > 0 ? (
+                        <button
+                          type="button"
+                          className="pro-btn pro-btn--primary pro-btn--sm"
+                          onClick={handleBootstrapAllLinesLocal}
+                        >
+                          一键生成基准交路
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : (
+                    diagramModel.rows.map((row) => {
+                      const p = row.pattern;
+                      const kin = row.kinematics;
+                      const isBroken = row.validation.status === 'broken';
+                      const isRowActive = p.id === selectedPatternId;
+                      const colW = 76;
 
-                        return (
-                          <div
-                            key={p.id}
-                            className={`pro-strip-service-row${isRowActive ? ' is-active' : ''}`}
-                            onClick={() => setSelectedPatternId(p.id)}
-                          >
-                            <div className="pro-strip-left-col">
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                                <span className="pro-code-pill" style={{ background: p.color }}>
-                                  {p.code}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: 12,
-                                    fontWeight: 700,
-                                    overflow: 'hidden',
-                                    textOverflow: 'ellipsis',
-                                    whiteSpace: 'nowrap'
-                                  }}
-                                >
-                                  {p.name}
-                                </span>
-                              </div>
-                              <div
+                      return (
+                        <div
+                          key={p.id}
+                          className={`pro-strip-service-row${isRowActive ? ' is-active' : ''}`}
+                          onClick={() => setSelectedPatternId(p.id)}
+                        >
+                          <div className="pro-strip-left-col">
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <span className="pro-code-pill" style={{ background: p.color }}>
+                                {p.code}
+                              </span>
+                              <span
                                 style={{
-                                  fontSize: 10.5,
-                                  color: isBroken ? '#d97706' : 'var(--color-text-muted)',
-                                  marginTop: 2,
-                                  display: 'flex',
-                                  alignItems: 'center',
-                                  gap: 5,
-                                  flexWrap: 'wrap'
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap'
                                 }}
                               >
-                                {isBroken ? (
-                                  <span>断链待修复</span>
-                                ) : (
-                                  <>
-                                    <span>
-                                      每 {(p.headwaySec / 60).toFixed(1).replace(/\.0$/, '')} 分 ·{' '}
-                                      {(kin.oneWayTravelSec / 60).toFixed(1)} 分
-                                    </span>
-                                    {row.savedMinutesVsLocal ? (
-                                      <span className="pro-status-tag pro-status-tag--saved">
-                                        省 {row.savedMinutesVsLocal} 分
-                                      </span>
-                                    ) : null}
-                                  </>
-                                )}
-                              </div>
+                                {p.name}
+                              </span>
                             </div>
+                            <div
+                              style={{
+                                fontSize: 10.5,
+                                color: isBroken ? '#d97706' : 'var(--color-text-muted)',
+                                marginTop: 2,
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 5,
+                                flexWrap: 'wrap'
+                              }}
+                            >
+                              {isBroken ? (
+                                <span>断链待修复</span>
+                              ) : (
+                                <>
+                                  <span>
+                                    每 {(p.headwaySec / 60).toFixed(1).replace(/\.0$/, '')} 分 ·{' '}
+                                    {(kin.oneWayTravelSec / 60).toFixed(1)} 分
+                                  </span>
+                                  {row.savedMinutesVsLocal ? (
+                                    <span className="pro-status-tag pro-status-tag--saved">
+                                      省 {row.savedMinutesVsLocal} 分
+                                    </span>
+                                  ) : null}
+                                </>
+                              )}
+                            </div>
+                          </div>
 
-                            {!isBroken && (
-                              <div className="pro-strip-cells-wrap">
-                                <div
-                                  className="pro-strip-band-line"
-                                  style={{
-                                    left: bandLeft,
-                                    width: bandWidth,
-                                    background: p.color
-                                  }}
-                                />
-                                {row.cells.map((cell) => (
+                          {!isBroken && (
+                            <div className="pro-strip-cells-wrap" style={{ color: p.color }}>
+                              {row.spans.map((sp, spIdx) => {
+                                const left = sp.startCol * colW + colW / 2;
+                                const width = Math.max(0, (sp.endCol - sp.startCol) * colW);
+                                const prevSp = spIdx > 0 ? row.spans[spIdx - 1] : null;
+                                const showBridge =
+                                  prevSp &&
+                                  diagramModel.columns[prevSp.endCol]?.stationId ===
+                                    diagramModel.columns[sp.startCol]?.stationId;
+                                const bridgeLeft = prevSp ? prevSp.endCol * colW + colW / 2 : 0;
+                                return (
+                                  <React.Fragment key={`span_${p.id}_${spIdx}`}>
+                                    {showBridge && (
+                                      <div
+                                        className="pro-strip-band-bridge"
+                                        style={{
+                                          left: bridgeLeft,
+                                          width: Math.max(0, left - bridgeLeft)
+                                        }}
+                                      />
+                                    )}
+                                    <div
+                                      className="pro-strip-band-line"
+                                      style={{
+                                        left,
+                                        width,
+                                        background: p.color
+                                      }}
+                                    />
+                                  </React.Fragment>
+                                );
+                              })}
+                              {row.cells.map((cell) => {
+                                const col = diagramModel.columns[cell.colIndex];
+                                const isBreak = cell.colIndex > 0 && col && !col.connectToPrev;
+                                return (
                                   <div
                                     key={`cell_${p.id}_${cell.colIndex}`}
-                                    className="pro-strip-cell"
+                                    className={`pro-strip-cell${isBreak ? ' is-subcorridor-break' : ''}`}
                                     style={{ color: p.color }}
                                     title={
                                       cell.kind === 'pass'
@@ -2072,33 +2231,33 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                                         </span>
                                       )}
                                   </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </>,
-        stageHost
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>,
+        dockHost
       )
     : null;
 
   return (
     <>
       {siderContent}
-      {stageOverlayContent}
+      {stageRulerHud}
+      {bottomDockContent}
 
-      {/* 区间小交路构建器 */}
       <Modal
         open={shortTurnModalOpen}
-        title="新建区间小交路"
-        okText="创建区间交路"
+        title="新建区间 / 环行交路"
+        okText="创建交路"
         cancelText="取消"
         onCancel={() => setShortTurnModalOpen(false)}
         onOk={handleConfirmShortTurn}
@@ -2127,7 +2286,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
           </div>
           <div className="pro-field-row">
             <div className="pro-field">
-              <label>小交路折返起点</label>
+              <label>折返起点站（环线可选同站绕圈）</label>
               <select
                 className="pro-select"
                 value={stStartId}
@@ -2141,7 +2300,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
               </select>
             </div>
             <div className="pro-field">
-              <label>小交路折返终点</label>
+              <label>折返终点站</label>
               <select
                 className="pro-select"
                 value={stEndId}
@@ -2161,7 +2320,6 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
         </div>
       </Modal>
 
-      {/* 跨线直通交路构建器 */}
       <Modal
         open={throughModalOpen}
         title="新建跨线直通交路"

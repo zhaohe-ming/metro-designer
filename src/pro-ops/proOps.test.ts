@@ -1,15 +1,18 @@
 import { DEFAULT_MAP_SETTINGS } from '../types';
 import { insertStationOnSection, MapGraph, reconcileGraph } from '../lib/graphOps';
 import { parseMetroProjectJson, serializeMetroProject } from '../lib/projectFile';
-import { calibrateMetersPerUnitBetweenPoints, haversineMeters } from './distance';
+import { calibrateMetersPerUnitBetweenPoints, computeNetworkMileageSummary, haversineMeters } from './distance';
 import { solveServiceKinematics } from './kinematics';
 import {
+  buildOrderedLineSteps,
+  createAllSubCorridorPatternsForLine,
   createLineAllStopPattern,
   createLineExpressPattern,
+  decomposeLineIntoSubCorridors,
   reconcileProOps
 } from './reconcile';
 import { buildCorridorDiagramModel, buildServiceDiagramSvg } from './corridorDiagram';
-import { createEmptyProOpsDocument, ProOpsDocument, ProServicePattern } from './types';
+import { createEmptyProOpsDocument, normalizeProOpsDocument, ProOpsDocument, ProServicePattern } from './types';
 
 function createFourStationLinearGraph(): MapGraph {
   // 4 座间距各 1500m（60 单位 × 25 m/单位 = 1500m）的车站：A - B - C - D
@@ -353,5 +356,113 @@ describe('Pro Operations Mode Phase 1 Engine & Isolation', () => {
 
     expect(calibrateMetersPerUnitBetweenPoints({ x: 0, y: 0 }, { x: 100, y: 0 }, 2500)).toBe(25);
     expect(haversineMeters(116.39, 39.9, 116.4, 39.9)).toBeGreaterThan(800);
+  });
+
+  test('line corridor covers main trunk, Y-branches, multiple disconnected segments, loops, and zero parked scale', () => {
+    // 同一条 1 号线同时包含：
+    // - 分量1（主线 A-B-C + 支线 B-E-F）
+    // - 分量2（独立东段 X-Y-Z）
+    // - 孤立未连线站 U
+    const complexGraph: MapGraph = {
+      stations: [
+        { id: 'A', name: '西园', x: 0, y: 0 },
+        { id: 'B', name: '科技园', x: 40, y: 0 },
+        { id: 'C', name: '东岸', x: 80, y: 0 },
+        { id: 'E', name: '空港北', x: 40, y: -40 },
+        { id: 'F', name: '航站楼', x: 80, y: -40 },
+        { id: 'X', name: '沙河', x: 200, y: 0 },
+        { id: 'Y', name: '高教园', x: 240, y: 0 },
+        { id: 'Z', name: '新城东', x: 280, y: 0 },
+        { id: 'U', name: '远期预留站', x: 340, y: 0 }
+      ],
+      sections: [
+        { id: 's_ab', lineId: 'L1', startStationId: 'A', endStationId: 'B' },
+        { id: 's_bc', lineId: 'L1', startStationId: 'B', endStationId: 'C' },
+        { id: 's_be', lineId: 'L1', startStationId: 'B', endStationId: 'E' },
+        { id: 's_ef', lineId: 'L1', startStationId: 'E', endStationId: 'F' },
+        { id: 's_xy', lineId: 'L1', startStationId: 'X', endStationId: 'Y' },
+        { id: 's_yz', lineId: 'L1', startStationId: 'Y', endStationId: 'Z' }
+      ],
+      lines: [
+        {
+          id: 'L1',
+          name: '1号线',
+          color: '#2563eb',
+          stationIds: ['A', 'B', 'C', 'E', 'F', 'X', 'Y', 'Z', 'U'],
+          sectionIds: ['s_ab', 's_bc', 's_be', 's_ef', 's_xy', 's_yz']
+        }
+      ]
+    };
+
+    const subs = decomposeLineIntoSubCorridors(complexGraph, 'L1');
+    // 包含：分量1主线、分量1支线、分量2独立区段、孤立站，共 4 个子走廊
+    expect(subs.length).toBe(4);
+
+    // 一键生成全线普通车自动覆盖主线、主支贯通与独立东段
+    const allPatterns = createAllSubCorridorPatternsForLine(complexGraph, 'L1');
+    expect(allPatterns.length).toBe(3);
+
+    const doc = createEmptyProOpsDocument();
+    doc.servicePatterns = allPatterns;
+    const { proOps, validations } = reconcileProOps(complexGraph, doc);
+    const kinMap = Object.fromEntries(
+      proOps.servicePatterns.map((p) => [
+        p.id,
+        solveServiceKinematics(complexGraph, proOps, p, validations[p.id], false)
+      ])
+    );
+
+    const model = buildCorridorDiagramModel({
+      graph: complexGraph,
+      proOps,
+      validations,
+      kinematicsMap: kinMap,
+      isGeoMode: false,
+      axisMode: 'line',
+      targetLineId: 'L1'
+    });
+
+    // 全部 9 座唯一站点 100% 出现在走廊列中，无任何遗漏
+    const uniqueColStations = new Set(model.columns.map((c) => c.stationId));
+    expect(uniqueColStations.size).toBe(9);
+
+    // 最长链 A-B-E-F(4站)被识别为主线（不点亮支线 C），而主支贯通 A-B-C 跨主干与支线两段色带（不点亮 E、F！）
+    const mainTrunkRow = model.rows.find((r) => r.pattern.name.includes('主线'))!;
+    const throughBranchRow = model.rows.find((r) => r.pattern.name.includes('主支贯通'))!;
+    expect(mainTrunkRow).toBeDefined();
+    expect(throughBranchRow).toBeDefined();
+    expect(throughBranchRow.spans.length).toBe(2);
+    const colC = model.columns.find((c) => c.stationId === 'C')!;
+    const colE = model.columns.find((c) => c.stationId === 'E')!;
+    const colF = model.columns.find((c) => c.stationId === 'F')!;
+    expect(mainTrunkRow.cells[colC.colIndex].kind).toBe('none');
+    expect(throughBranchRow.cells[colC.colIndex].kind).toBe('terminus');
+    expect(throughBranchRow.cells[colE.colIndex].kind).toBe('none');
+    expect(throughBranchRow.cells[colF.colIndex].kind).toBe('none');
+
+    // 环线任意中间站始发（如从 C 出发 C -> D -> A -> B -> C）在闭合环走廊上精确映射为两段环绕色带
+    const loopGraph = reconcileGraph({
+      stations: [
+        { id: 'a', name: 'A', x: 0, y: 0 },
+        { id: 'b', name: 'B', x: 40, y: 0 },
+        { id: 'c', name: 'C', x: 40, y: 40 },
+        { id: 'd', name: 'D', x: 0, y: 40 }
+      ],
+      sections: [
+        { id: 'ab', lineId: 'LP', startStationId: 'a', endStationId: 'b' },
+        { id: 'bc', lineId: 'LP', startStationId: 'b', endStationId: 'c' },
+        { id: 'cd', lineId: 'LP', startStationId: 'c', endStationId: 'd' },
+        { id: 'da', lineId: 'LP', startStationId: 'd', endStationId: 'a' }
+      ],
+      lines: [{ id: 'LP', name: '环线', color: '#e11d48', stationIds: ['a', 'b', 'c', 'd'], sectionIds: ['ab', 'bc', 'cd', 'da'] }]
+    });
+    const midLoopSteps = buildOrderedLineSteps(loopGraph, 'LP', { startStationId: 'c', endStationId: 'c' });
+    expect(midLoopSteps).toHaveLength(4);
+
+    // 比例尺临时删空挂 0 时保持合法 0 值，不强制弹回 25 或 0.2
+    const zeroNorm = normalizeProOpsDocument({ scaleConfig: { metersPerUnit: 0 } })!;
+    expect(zeroNorm.scaleConfig.metersPerUnit).toBe(0);
+    const zeroMileage = computeNetworkMileageSummary(complexGraph, zeroNorm, false);
+    expect(zeroMileage.totalLineKm).toBe(0);
   });
 });

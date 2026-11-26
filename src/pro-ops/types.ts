@@ -280,7 +280,7 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
 
   const rawScale = src.scaleConfig && typeof src.scaleConfig === 'object' ? src.scaleConfig : {};
   const scaleConfig: ProScaleConfig = {
-    metersPerUnit: Math.round(clampNum(rawScale.metersPerUnit, DEFAULT_PRO_SCALE_CONFIG.metersPerUnit, 0.2, 10000) * 100) / 100,
+    metersPerUnit: Math.round(clampNum(rawScale.metersPerUnit, DEFAULT_PRO_SCALE_CONFIG.metersPerUnit, 0, 10000) * 100) / 100,
     useGeoDistanceWhenAvailable: rawScale.useGeoDistanceWhenAvailable !== false
   };
 
