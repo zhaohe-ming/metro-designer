@@ -7,6 +7,7 @@ import {
   normalizeMapSettings,
   normalizeSections
 } from '../types';
+import type { ProOpsDocument } from '../pro-ops/types';
 
 export const METRO_PROJECT_FORMAT = 'metro-designer-project';
 export const METRO_PROJECT_EXT = '.metro';
@@ -28,6 +29,8 @@ export interface MetroProjectData {
   mapSettings: MapSettings;
   currentLineId: string | null;
   viewport?: MetroProjectViewport;
+  /** 专业运营模式旁路数据：仅在工程包含非空运营配置时写出，对旧版客户端透明无侵入 */
+  proOps?: ProOpsDocument;
 }
 
 export function stripProjectExtension(filename: string): string {
@@ -53,6 +56,19 @@ export function sanitizeProjectFilename(name: string): string {
   return safe.length > 80 ? safe.slice(0, 80).trim() : safe;
 }
 
+function isNonEmptyProOpsPayload(raw?: ProOpsDocument | null): raw is ProOpsDocument {
+  if (!raw || typeof raw !== 'object') return false;
+  return (
+    (Array.isArray(raw.servicePatterns) && raw.servicePatterns.length > 0) ||
+    (Array.isArray(raw.trackConnections) && raw.trackConnections.length > 0) ||
+    (Boolean(raw.lineSpecs) && Object.keys(raw.lineSpecs).length > 0) ||
+    (Boolean(raw.stationProfiles) && Object.keys(raw.stationProfiles).length > 0) ||
+    (Boolean(raw.sectionOverrides) && Object.keys(raw.sectionOverrides).length > 0) ||
+    (typeof raw.scaleConfig?.metersPerUnit === 'number' && Math.abs(raw.scaleConfig.metersPerUnit - 25) > 1e-3) ||
+    raw.scaleConfig?.useGeoDistanceWhenAvailable === false
+  );
+}
+
 export function serializeMetroProject(input: {
   name: string;
   lines: Line[];
@@ -61,6 +77,7 @@ export function serializeMetroProject(input: {
   mapSettings: MapSettings;
   currentLineId?: string | null;
   viewport?: MetroProjectViewport;
+  proOps?: ProOpsDocument | null;
 }): string {
   const payload: MetroProjectData = {
     format: METRO_PROJECT_FORMAT,
@@ -87,7 +104,8 @@ export function serializeMetroProject(input: {
             y: input.viewport.y
           }
         }
-      : {})
+      : {}),
+    ...(isNonEmptyProOpsPayload(input.proOps) ? { proOps: input.proOps } : {})
   };
   return JSON.stringify(payload, null, 2);
 }
@@ -188,6 +206,11 @@ export function parseMetroProjectJson(rawText: string, fallbackFilename = ''): M
       ? source.currentLineId
       : lines[0]?.id || null;
 
+  const rawProOps =
+    source.proOps && typeof source.proOps === 'object' && !Array.isArray(source.proOps)
+      ? (source.proOps as ProOpsDocument)
+      : undefined;
+
   return {
     format: METRO_PROJECT_FORMAT,
     version: 1,
@@ -198,6 +221,7 @@ export function parseMetroProjectJson(rawText: string, fallbackFilename = ''): M
     sections,
     mapSettings,
     currentLineId,
-    ...(viewport ? { viewport } : {})
+    ...(viewport ? { viewport } : {}),
+    ...(isNonEmptyProOpsPayload(rawProOps) ? { proOps: rawProOps } : {})
   };
 }

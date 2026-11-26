@@ -224,8 +224,19 @@ function generateNextStationName(stations: ReadonlyArray<Station>): string {
   return `站点 ${idx}`;
 }
 
+export interface CanvasOverlayRenderContext {
+  scale: number;
+  isAmapMode: boolean;
+  isDarkCanvas: boolean;
+  getStationDisplayPoint: (station: Station) => { x: number; y: number };
+  getWaypointDisplayPoint: (wp: Waypoint) => { x: number; y: number };
+}
+
 interface CanvasProps {
   readOnly?: boolean;
+  onReadOnlyStationClick?: (station: Station) => void;
+  onReadOnlySectionClick?: (section: Section) => void;
+  renderStageOverlay?: (ctx: CanvasOverlayRenderContext) => React.ReactNode;
   currentLineId: string | null;
   lines: LineType[];
   sections: Section[];
@@ -270,6 +281,9 @@ interface CanvasProps {
 
 const Canvas: React.FC<CanvasProps> = ({
   readOnly = false,
+  onReadOnlyStationClick,
+  onReadOnlySectionClick,
+  renderStageOverlay,
   currentLineId,
   lines,
   sections,
@@ -3346,6 +3360,10 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const handleStationClick = (station: Station, e?: any) => {
     if (readOnly) {
+      if (onReadOnlyStationClick) {
+        onReadOnlyStationClick(station);
+        return;
+      }
       setStationInfoModal({ visible: true, station, note: station.note || '' });
       return;
     }
@@ -4244,7 +4262,13 @@ const Canvas: React.FC<CanvasProps> = ({
       };
 
       const handleSectionClick = (e: any) => {
-        if (readOnly) return;
+        if (readOnly) {
+          if (onReadOnlySectionClick) {
+            e.cancelBubble = true;
+            onReadOnlySectionClick(seg.section);
+          }
+          return;
+        }
         const button = e.evt?.button;
         if (button !== undefined && button !== 0) return;
         if (e.evt?.touches !== undefined && !touchTapAllowedRef.current) return;
@@ -6054,6 +6078,15 @@ const Canvas: React.FC<CanvasProps> = ({
             </>
           )}
         </Layer>
+        {renderStageOverlay
+          ? renderStageOverlay({
+              scale: viewportScaleForHit,
+              isAmapMode,
+              isDarkCanvas,
+              getStationDisplayPoint: getDisplayPoint,
+              getWaypointDisplayPoint
+            })
+          : null}
       </Stage>
 
       {/* 底图造景态：行内片区/水系地名输入框（移动端自动吸附在软键盘上方） */}

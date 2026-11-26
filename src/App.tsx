@@ -109,6 +109,10 @@ import {
   stripProjectExtension
 } from './lib/projectFile';
 import { compressImageDataUrl } from './utils/imageCompress';
+import type { ProOpsDocument } from './pro-ops/types';
+import type { ProCanvasBridge, ProUndoBridge } from './pro-ops/ProWorkspace';
+
+const ProWorkspace = React.lazy(() => import('./pro-ops/ProWorkspace'));
 
 // 头像 dataURL 体积阈值：超过即认为是"需要压缩的大头像"。
 // 后端 PUT /api/me 给的硬上限是 200_000；这里取 60KB 作为"还能再瘦一点"的软阈值。
@@ -612,6 +616,28 @@ const App: React.FC = () => {
   useLayoutEffect(() => { currentLineIdRef.current = currentLineId; }, [currentLineId]);
   const commandInputRef = useRef<HTMLInputElement | null>(null);
   const [viewCmd, setViewCmd] = useState<{ seq: number; action: AppAction } | null>(null);
+
+  // ── 专业运营模式（Pro Operations Mode）旁路状态：普通绘制时保持冷引用，零拷贝、零包体加载 ──
+  const [workspaceMode, setWorkspaceMode] = useState<'studio' | 'pro'>('studio');
+  const workspaceModeRef = useRef<'studio' | 'pro'>('studio');
+  workspaceModeRef.current = workspaceMode;
+  const [proOps, setProOps] = useState<ProOpsDocument | null>(null);
+  const proOpsRef = useRef<ProOpsDocument | null>(null);
+  proOpsRef.current = proOps;
+  const proOpsDirtyRef = useRef(false);
+  const proOpsLoadedMapIdRef = useRef<string | null>(null);
+  const [proSiderHost, setProSiderHost] = useState<HTMLDivElement | null>(null);
+  const [proStageHost, setProStageHost] = useState<HTMLDivElement | null>(null);
+  const [proCanvasBridge, setProCanvasBridge] = useState<ProCanvasBridge | null>(null);
+  const [proUndoBridge, setProUndoBridge] = useState<ProUndoBridge | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth <= 768
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobileViewport(window.innerWidth <= 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
 
   const pushHistory = useCallback(() => {
     if (isApplyingHistoryRef.current) return;
@@ -1203,6 +1229,10 @@ const App: React.FC = () => {
     setGuestInitialViewport(draft.viewport);
     setGuestViewport(draft.viewport);
     setCurrentMap(null);
+    setProOps(draft.proOps || null);
+    proOpsRef.current = draft.proOps || null;
+    proOpsDirtyRef.current = false;
+    proOpsLoadedMapIdRef.current = null;
     resetHistory();
     setGuestReady(true);
   };
@@ -1242,9 +1272,10 @@ const App: React.FC = () => {
   useLayoutEffect(() => {
     draftSnapshotRef.current = guestDraftId ? {
       version: 1, id: guestDraftId, updatedAt: Date.now(), name: mapName, gallerySourceToken: gallerySourceRef.current,
-      lines, stations, sections, mapSettings, currentLineId, viewport: guestViewport
+      lines, stations, sections, mapSettings, currentLineId, viewport: guestViewport,
+      ...(proOps ? { proOps } : {})
     } : null;
-  }, [guestDraftId, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport]);
+  }, [guestDraftId, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport, proOps]);
 
   const persistGuestDraft = useCallback(async () => {
     const snapshot = draftSnapshotRef.current;
@@ -1263,7 +1294,7 @@ const App: React.FC = () => {
     if (!guestDraftId || !guestReady || guestReadFailedRef.current) return;
     const timer = window.setTimeout(() => { void persistGuestDraft(); }, 250);
     return () => window.clearTimeout(timer);
-  }, [guestDraftId, guestReady, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport, persistGuestDraft]);
+  }, [guestDraftId, guestReady, lines, stations, sections, mapSettings, currentLineId, mapName, guestViewport, proOps, persistGuestDraft]);
   useEffect(() => {
     const persist = () => { if (document.visibilityState === 'hidden') void persistGuestDraft(); };
     document.addEventListener('visibilitychange', persist);
@@ -1409,6 +1440,11 @@ const App: React.FC = () => {
       setCurrentLineId(null);
       setCurrentMap(null);
       setMapName('');
+      setProOps(null);
+      proOpsRef.current = null;
+      proOpsDirtyRef.current = false;
+      proOpsLoadedMapIdRef.current = null;
+      setWorkspaceMode('studio');
       setMapSettings({
         ...DEFAULT_MAP_SETTINGS,
         labelDensity: stickyLabelDensity,
@@ -1615,6 +1651,10 @@ const App: React.FC = () => {
     setMapName(project.name);
     setGuestInitialViewport(project.viewport);
     setGuestViewport(project.viewport);
+    setProOps(project.proOps || null);
+    proOpsRef.current = project.proOps || null;
+    proOpsDirtyRef.current = false;
+    proOpsLoadedMapIdRef.current = null;
     resetHistory();
     setGuestReady(true);
     setIsMapOpening(false);
@@ -1691,7 +1731,8 @@ const App: React.FC = () => {
       sections: sectionsRef.current,
       mapSettings: mapSettingsRef.current,
       currentLineId: currentLineIdRef.current,
-      viewport: guestViewport
+      viewport: guestViewport,
+      proOps: proOpsRef.current
     });
 
     if (hasDesktopBridge() && window.metroDesktop) {
@@ -1826,6 +1867,11 @@ const App: React.FC = () => {
       const { map } = targetMapId
         ? await api.updateMap(targetMapId, { name, ...snapshot })
         : await api.createMap({ name, ...snapshot, clientDraftId: savingGuestId || undefined, gallerySourceToken: gallerySourceRef.current });
+      if ((proOpsDirtyRef.current || !targetMapId) && proOpsRef.current) {
+        await api.saveMapProOps(map.id, proOpsRef.current);
+        proOpsDirtyRef.current = false;
+        proOpsLoadedMapIdRef.current = map.id;
+      }
       if (getToken() !== requestToken) {
         message.destroy('save-map');
         return;
@@ -1927,6 +1973,10 @@ const App: React.FC = () => {
       updatedAt: map.updatedAt
     });
     setMapName(map.name);
+    setProOps(null);
+    proOpsRef.current = null;
+    proOpsDirtyRef.current = false;
+    proOpsLoadedMapIdRef.current = null;
     resetHistory();
     setVideoModalOpen(false);
     try {
@@ -2476,10 +2526,60 @@ const App: React.FC = () => {
     }
   };
 
+  // 仅当用户主动切入「专业运营」模式时，按需拉取云端 map_pro_ops 旁路存档（普通模式零请求）
+  useEffect(() => {
+    if (workspaceMode !== 'pro') return;
+    const mapId = currentMap?.id;
+    if (!mapId || !userProfile || proOpsLoadedMapIdRef.current === mapId) return;
+    let cancelled = false;
+    void api
+      .getMapProOps(mapId)
+      .then((res) => {
+        if (cancelled || currentMapRef.current?.id !== mapId) return;
+        proOpsLoadedMapIdRef.current = mapId;
+        if (res.proOps && !proOpsDirtyRef.current) {
+          proOpsRef.current = res.proOps;
+          setProOps(res.proOps);
+        }
+      })
+      .catch(() => {
+        /* 离线或尚无旁路存档时保持本地空运营文档 */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceMode, currentMap?.id, userProfile]);
+
+  const handleProOpsChange = useCallback(
+    (nextProOps: ProOpsDocument) => {
+      documentSessionRef.current.edit();
+      proOpsRef.current = nextProOps;
+      proOpsDirtyRef.current = true;
+      setProOps(nextProOps);
+      markDirty();
+    },
+    [markDirty]
+  );
+
   // 命令栏入口：支持单条指令或用 `;` / 换行分隔的批量指令流（整批共享一次撤销记录）
   const runCommand = (input: string): CommandSubmitResult => {
     const trimmed = input.trim();
     if (!trimmed) return { ok: false, message: '请输入命令' };
+
+    if (/^(\/?pro|ops\s+open|专业模式|专业运营|运营模式)$/i.test(trimmed)) {
+      setWorkspaceMode('pro');
+      return { ok: true, message: '已进入专业运营模式（物理几何已锁定只读）' };
+    }
+    if (/^(\/?studio|\/?draw|绘制模式|线网绘制|退出专业模式)$/i.test(trimmed)) {
+      setWorkspaceMode('studio');
+      return { ok: true, message: '已返回线网绘制模式' };
+    }
+    if (workspaceModeRef.current === 'pro') {
+      return {
+        ok: false,
+        message: '当前处于专业运营模式（几何只读），输入 studio 或点击左上角「线网绘制」返回后再编辑图形'
+      };
+    }
 
     // 若整句是 ai / ? 自然语言请求，保留分号不拆分，整句交给 AI
     if (/^(ai\s+|ask\s+|\?|？)/i.test(trimmed)) {
@@ -2812,6 +2912,20 @@ const App: React.FC = () => {
   };
   const settingsMenuItems = [
     { key: 'gallery', className: 'metro-user-menu__mobile-only', icon: <AppstoreOutlined />, label: language === 'en-US' ? 'Gallery' : '作品广场', onClick: openGallery },
+    {
+      key: 'mobile-pro-preview',
+      className: 'metro-user-menu__mobile-only',
+      icon: <PlaySquareOutlined />,
+      label:
+        workspaceMode === 'pro'
+          ? language === 'en-US'
+            ? 'Back to Network Studio'
+            : '退出运营导乘预览'
+          : language === 'en-US'
+            ? 'Pro Operations Preview'
+            : '运营导乘预览',
+      onClick: () => setWorkspaceMode((m) => (m === 'pro' ? 'studio' : 'pro'))
+    },
     { key: 'settings', icon: <SettingOutlined />, label: language === 'en-US' ? 'Settings' : '设置', onClick: () => setSettingsVisible(true) },
     ...(!isAndroidClient && !isDesktopClient ? [{ key: 'download-client', icon: <DownloadOutlined />,
       label: <a href={isAndroidDevice ? '/android.html' : '/downloads.html'} target="_blank" rel="noopener noreferrer">{language === 'en-US' ? 'Download app' : '下载客户端'}</a> }] : []),
@@ -3035,6 +3149,30 @@ const App: React.FC = () => {
                   {language === 'en-US' ? 'Offline' : '离线可用'}
                 </span>
               ) : null}
+              <div className="metro-header-mode-switch" role="tablist" aria-label="工作台模式切换">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workspaceMode === 'studio'}
+                  className={`metro-header-mode-switch__btn${workspaceMode === 'studio' ? ' is-active' : ''}`}
+                  onClick={() => setWorkspaceMode('studio')}
+                >
+                  {language === 'en-US' ? 'Studio' : '线网绘制'}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={workspaceMode === 'pro'}
+                  className={`metro-header-mode-switch__btn${workspaceMode === 'pro' ? ' is-active' : ''}`}
+                  onClick={() => setWorkspaceMode('pro')}
+                  title="切换至专业运营实验室（快慢车越站 / 大小交路 / 跨线直通 / 测距配车）"
+                >
+                  <span>{language === 'en-US' ? 'Pro Ops' : '专业运营'}</span>
+                  {proOps && proOps.servicePatterns.length > 0 ? (
+                    <span className="metro-header-mode-switch__dot" title="包含运行体系配置" />
+                  ) : null}
+                </button>
+              </div>
             </section>
 
             <section className={`metro-toolbar-panel${isMobileSidebarOpen ? ' is-mobile-obscured' : ''}`}>
@@ -3045,10 +3183,10 @@ const App: React.FC = () => {
                 onOpenVideoModal={() => (userProfile || isDesktopClient || hasDesktopBridge()) ? setVideoModalOpen(true) : requestGuestAuth('video')}
                 onOpenGallery={openGallery}
                 onOpenGuide={() => setViewCmd({ seq: Date.now() + Math.random(), action: { type: 'open_guide' } })}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
-                canUndo={canUndo}
-                canRedo={canRedo}
+                onUndo={workspaceMode === 'pro' && proUndoBridge ? proUndoBridge.undo : handleUndo}
+                onRedo={workspaceMode === 'pro' && proUndoBridge ? proUndoBridge.redo : handleRedo}
+                canUndo={workspaceMode === 'pro' ? Boolean(proUndoBridge?.canUndo) : canUndo}
+                canRedo={workspaceMode === 'pro' ? Boolean(proUndoBridge?.canRedo) : canRedo}
                 mobileViewControlsRef={setMobileViewControlsHost}
               />
             </section>
@@ -3146,35 +3284,43 @@ const App: React.FC = () => {
           <Sider
             id="metro-line-sidebar"
             className={`metro-sider${isMobileSidebarOpen ? ' is-mobile-open' : ''}`}
-            width={252}
+            width={workspaceMode === 'pro' && !isMobileViewport ? 316 : 252}
           >
-            <Sidebar
-              language={language}
-              createLineRequest={createLineRequest}
-              lines={lines}
-              stations={stations}
-              currentLineId={currentLineId}
-              onSelectLine={handleSidebarSelectLine}
-              onDeselectLine={handleDeselectLine}
-              onAddLine={handleSidebarAddLine}
-              onDeleteLine={handleDeleteLine}
-              onChangeLineColor={handleChangeLineColor}
-              onChangeLineName={handleChangeLineName}
-              onRemoveStationFromLine={handleRemoveStationFromLine}
-              onReorderStations={handleReorderStations}
-              onReorderLines={handleReorderLines}
-              onCloseMobile={() => setIsMobileSidebarOpen(false)}
-              onFocusStation={(stationId) => {
-                setIsMobileSidebarOpen(false);
-                setViewCmd({ seq: Date.now() + Math.random(), action: { type: 'center', stationId } });
-              }}
-            />
+            {workspaceMode === 'pro' && !isMobileViewport ? (
+              <div ref={setProSiderHost} style={{ height: '100%' }} />
+            ) : (
+              <Sidebar
+                language={language}
+                createLineRequest={createLineRequest}
+                lines={lines}
+                stations={stations}
+                currentLineId={currentLineId}
+                onSelectLine={handleSidebarSelectLine}
+                onDeselectLine={handleDeselectLine}
+                onAddLine={handleSidebarAddLine}
+                onDeleteLine={handleDeleteLine}
+                onChangeLineColor={handleChangeLineColor}
+                onChangeLineName={handleChangeLineName}
+                onRemoveStationFromLine={handleRemoveStationFromLine}
+                onReorderStations={handleReorderStations}
+                onReorderLines={handleReorderLines}
+                onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                onFocusStation={(stationId) => {
+                  setIsMobileSidebarOpen(false);
+                  setViewCmd({ seq: Date.now() + Math.random(), action: { type: 'center', stationId } });
+                }}
+              />
+            )}
           </Sider>
 
           <Content className="metro-content">
             <div className="metro-canvas-stage">
 
               {(!previewMode || guestReady) ? <Canvas
+                readOnly={workspaceMode === 'pro'}
+                onReadOnlyStationClick={workspaceMode === 'pro' ? proCanvasBridge?.onReadOnlyStationClick : undefined}
+                onReadOnlySectionClick={workspaceMode === 'pro' ? proCanvasBridge?.onReadOnlySectionClick : undefined}
+                renderStageOverlay={workspaceMode === 'pro' ? proCanvasBridge?.renderStageOverlay : undefined}
                 documentKey={currentMap?.id || localProject?.id || guestDraftId || 'draft'}
                 isDocumentLoading={isMapOpening}
                 initialViewport={guestInitialViewport}
@@ -3222,14 +3368,56 @@ const App: React.FC = () => {
                 mobileViewControlsHost={mobileViewControlsHost}
               />
               : <div className="metro-guest-loading" role="status">正在打开本机草稿…</div>}
-              <CommandBar
-                onSubmit={runCommand}
-                onAskAI={triggerAiPromptFromCli}
-                lines={lines}
-                stations={stations}
-                currentLineId={currentLineId}
-                inputRef={commandInputRef}
-              />
+              {workspaceMode === 'pro' ? (
+                <>
+                  <div ref={setProStageHost} />
+                  <React.Suspense
+                    fallback={
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: 14,
+                          left: '50%',
+                          transform: 'translateX(-50%)',
+                          zIndex: 30,
+                          padding: '6px 14px',
+                          borderRadius: 999,
+                          background: 'var(--color-surface)',
+                          border: '1px solid var(--color-border-strong)',
+                          fontSize: 12
+                        }}
+                      >
+                        正在加载专业运营工作台…
+                      </div>
+                    }
+                  >
+                    <ProWorkspace
+                      lines={lines}
+                      stations={stations}
+                      sections={sections}
+                      mapSettings={mapSettings}
+                      mapDisplayName={mapDisplayName}
+                      initialProOps={proOps}
+                      isMobileCompact={isMobileViewport}
+                      siderHost={proSiderHost}
+                      stageHost={proStageHost}
+                      onProOpsChange={handleProOpsChange}
+                      onExitProMode={() => setWorkspaceMode('studio')}
+                      onBindCanvasBridge={setProCanvasBridge}
+                      onBindUndoBridge={setProUndoBridge}
+                    />
+                  </React.Suspense>
+                </>
+              ) : (
+                <CommandBar
+                  onSubmit={runCommand}
+                  onAskAI={triggerAiPromptFromCli}
+                  lines={lines}
+                  stations={stations}
+                  currentLineId={currentLineId}
+                  inputRef={commandInputRef}
+                />
+              )}
             </div>
           </Content>
         </Layout>

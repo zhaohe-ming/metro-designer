@@ -1,4 +1,5 @@
 import { DEFAULT_MAP_SETTINGS, Line, MapSettings, Section, Station, normalizeMapSettings, normalizeSections } from '../types';
+import type { ProOpsDocument } from '../pro-ops/types';
 import { createId } from '../utils/id';
 
 export interface GuestDraft {
@@ -13,6 +14,7 @@ export interface GuestDraft {
   mapSettings: MapSettings;
   currentLineId: string | null;
   viewport?: { scale: number; x: number; y: number };
+  proOps?: ProOpsDocument;
 }
 
 const ACTIVE_KEY = 'metro_guest_active';

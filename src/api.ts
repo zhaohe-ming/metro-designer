@@ -1,4 +1,5 @@
 import { Line, MapSettings, Section, Station } from './types';
+import type { ProOpsDocument } from './pro-ops/types';
 import {
   clearAuthSession,
   getStoredToken,
@@ -404,6 +405,14 @@ export const api = {
   updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[]; mapSettings?: MapSettings }) =>
     request<{ map: MapSummary }>(`/api/maps/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, 'login'),
   deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, 'login'),
+  getMapProOps: (id: string) =>
+    request<{ proOps: ProOpsDocument | null; updatedAt: string | null }>(`/api/maps/${id}/pro-ops`, {}, 'login'),
+  saveMapProOps: (id: string, proOps: ProOpsDocument) =>
+    request<{ ok: boolean; proOps: ProOpsDocument; updatedAt: string }>(
+      `/api/maps/${id}/pro-ops`,
+      { method: 'PUT', body: JSON.stringify({ proOps }) },
+      'login'
+    ),
   getAmapStaticMap: (params: {
     center: [number, number];
     zoom: number;

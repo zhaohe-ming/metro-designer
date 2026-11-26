@@ -13,6 +13,7 @@ const { sendVerificationEmail, sendPasswordResetEmail, hasResendKey, APP_BASE_UR
 const ai = require('./lib/ai');
 const { createTileProxyHandler } = require('./lib/tileProxy');
 const { DEFAULT_MAP_SETTINGS, normalizeMapSettings } = require('./lib/mapSettings');
+const { normalizeProOpsDocument } = require('./lib/proOps');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -156,7 +157,7 @@ function ensureJsonDb() {
     fs.writeFileSync(
       DB_PATH,
       JSON.stringify(
-        { users: [], maps: [], bans: [], rate_violations: [], email_tokens: [], seq: { user: 1, map: 1 } },
+        { users: [], maps: [], map_pro_ops: {}, bans: [], rate_violations: [], email_tokens: [], seq: { user: 1, map: 1 } },
         null,
         2
       ),
@@ -170,6 +171,7 @@ function readJsonDb() {
   const db = JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
   db.users = Array.isArray(db.users) ? db.users : [];
   db.maps = Array.isArray(db.maps) ? db.maps : [];
+  db.map_pro_ops = db.map_pro_ops && typeof db.map_pro_ops === 'object' && !Array.isArray(db.map_pro_ops) ? db.map_pro_ops : {};
   // bans / rate_violations / email_tokens 在 dev JSON 模式下也保存，跨重启不丢
   db.bans = Array.isArray(db.bans) ? db.bans : [];
   db.rate_violations = Array.isArray(db.rate_violations) ? db.rate_violations : [];
@@ -310,6 +312,14 @@ async function ensurePgSchema() {
       );
 
       CREATE INDEX IF NOT EXISTS maps_user_updated_idx ON maps(user_id, updated_at DESC);
+
+      -- 专业运营模式旁路表：与 maps 主表物理隔离，普通绘图加载/保存零读写开销
+      CREATE TABLE IF NOT EXISTS map_pro_ops (
+        map_id TEXT PRIMARY KEY REFERENCES maps(id) ON DELETE CASCADE,
+        schema_version INT NOT NULL DEFAULT 1,
+        pro_ops JSONB NOT NULL DEFAULT '{}'::jsonb,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
 
       -- 速率限制相关：违规事件流水 + 当前生效封禁
       CREATE TABLE IF NOT EXISTS rate_violations (
@@ -700,8 +710,68 @@ const storage = {
     const index = db.maps.findIndex(map => map.id === mapId && map.userId === userId);
     if (index < 0) return false;
     db.maps.splice(index, 1);
+    if (db.map_pro_ops && db.map_pro_ops[mapId]) {
+      delete db.map_pro_ops[mapId];
+    }
     writeJsonDb(db);
     return true;
+  },
+
+  async getMapProOps(userId, mapId) {
+    if (pgPool) {
+      await ensurePgSchema();
+      const own = await pgPool.query('SELECT 1 FROM maps WHERE id = $1 AND user_id = $2 LIMIT 1', [mapId, userId]);
+      if (own.rowCount === 0) return { foundMap: false, proOps: null };
+      const { rows } = await pgPool.query('SELECT pro_ops, updated_at FROM map_pro_ops WHERE map_id = $1 LIMIT 1', [mapId]);
+      if (!rows[0]) return { foundMap: true, proOps: null };
+      return {
+        foundMap: true,
+        proOps: normalizeProOpsDocument(rows[0].pro_ops),
+        updatedAt: toIsoDate(rows[0].updated_at)
+      };
+    }
+
+    const db = readJsonDb();
+    const map = db.maps.find(item => item.id === mapId && item.userId === userId);
+    if (!map) return { foundMap: false, proOps: null };
+    const record = db.map_pro_ops ? db.map_pro_ops[mapId] : null;
+    if (!record) return { foundMap: true, proOps: null };
+    return {
+      foundMap: true,
+      proOps: normalizeProOpsDocument(record.proOps),
+      updatedAt: record.updatedAt || map.updatedAt
+    };
+  },
+
+  async saveMapProOps(userId, mapId, rawProOps) {
+    const normalized = normalizeProOpsDocument(rawProOps);
+    const now = new Date().toISOString();
+    if (pgPool) {
+      await ensurePgSchema();
+      const own = await pgPool.query('SELECT 1 FROM maps WHERE id = $1 AND user_id = $2 LIMIT 1', [mapId, userId]);
+      if (own.rowCount === 0) return null;
+      await pgPool.query(
+        `INSERT INTO map_pro_ops (map_id, schema_version, pro_ops, updated_at)
+         VALUES ($1, 1, $2::jsonb, $3)
+         ON CONFLICT (map_id) DO UPDATE SET
+           schema_version = 1,
+           pro_ops = EXCLUDED.pro_ops,
+           updated_at = EXCLUDED.updated_at`,
+        [mapId, JSON.stringify(normalized), now]
+      );
+      return { proOps: normalized, updatedAt: now };
+    }
+
+    const db = readJsonDb();
+    const map = db.maps.find(item => item.id === mapId && item.userId === userId);
+    if (!map) return null;
+    db.map_pro_ops[mapId] = {
+      schemaVersion: 1,
+      proOps: normalized,
+      updatedAt: now
+    };
+    writeJsonDb(db);
+    return { proOps: normalized, updatedAt: now };
   },
 
   // ── 限流违规事件 & 自动封禁 ────────────────────────────────────────────
@@ -2279,6 +2349,18 @@ app.delete('/api/maps/:id', auth, asyncHandler(async (req, res) => {
   const deleted = await storage.deleteMap(req.userId, req.params.id);
   if (!deleted) return res.status(404).json({ message: '地图不存在' });
   res.json({ ok: true });
+}));
+
+app.get('/api/maps/:id/pro-ops', auth, asyncHandler(async (req, res) => {
+  const result = await storage.getMapProOps(req.userId, req.params.id);
+  if (!result.foundMap) return res.status(404).json({ message: '地图不存在' });
+  res.json({ proOps: result.proOps, updatedAt: result.updatedAt || null });
+}));
+
+app.put('/api/maps/:id/pro-ops', auth, asyncHandler(async (req, res) => {
+  const saved = await storage.saveMapProOps(req.userId, req.params.id, req.body?.proOps);
+  if (!saved) return res.status(404).json({ message: '地图不存在' });
+  res.json({ ok: true, proOps: saved.proOps, updatedAt: saved.updatedAt });
 }));
 
 app.use((error, req, res, _next) => {
