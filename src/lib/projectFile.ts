@@ -61,6 +61,7 @@ function isNonEmptyProOpsPayload(raw?: ProOpsDocument | null): raw is ProOpsDocu
   return (
     (Array.isArray(raw.servicePatterns) && raw.servicePatterns.length > 0) ||
     (Array.isArray(raw.trackConnections) && raw.trackConnections.length > 0) ||
+    (Array.isArray(raw.sharedTrackLinePairs) && raw.sharedTrackLinePairs.length > 0) ||
     (Boolean(raw.lineSpecs) && Object.keys(raw.lineSpecs).length > 0) ||
     (Boolean(raw.stationProfiles) && Object.keys(raw.stationProfiles).length > 0) ||
     (Boolean(raw.sectionOverrides) && Object.keys(raw.sectionOverrides).length > 0) ||
@@ -136,18 +137,36 @@ function normalizeLines(rawLines: unknown): Line[] {
   }
   return rawLines
     .filter((item): item is Record<string, any> => Boolean(item && typeof item === 'object'))
-    .map((line, idx) => ({
-      id: typeof line.id === 'string' && line.id.trim() ? line.id.trim() : `line_${idx}`,
-      name: typeof line.name === 'string' && line.name.trim() ? line.name.trim() : `${idx + 1}号线`,
-      color: typeof line.color === 'string' && line.color.trim() ? line.color.trim() : '#2563eb',
-      stationIds: Array.isArray(line.stationIds)
-        ? line.stationIds.filter((id: unknown): id is string => typeof id === 'string')
-        : [],
-      sectionIds: Array.isArray(line.sectionIds)
-        ? line.sectionIds.filter((id: unknown): id is string => typeof id === 'string')
-        : [],
-      ...(typeof line.lastAddedStationId === 'string' ? { lastAddedStationId: line.lastAddedStationId } : {})
-    }));
+    .map((line, idx) => {
+      const lp = line.labelPosition;
+      const validLabelPos =
+        lp &&
+        typeof lp === 'object' &&
+        typeof lp.x === 'number' &&
+        Number.isFinite(lp.x) &&
+        typeof lp.y === 'number' &&
+        Number.isFinite(lp.y)
+          ? {
+              x: lp.x,
+              y: lp.y,
+              ...(typeof lp.lng === 'number' && Number.isFinite(lp.lng) ? { lng: lp.lng } : {}),
+              ...(typeof lp.lat === 'number' && Number.isFinite(lp.lat) ? { lat: lp.lat } : {})
+            }
+          : undefined;
+      return {
+        id: typeof line.id === 'string' && line.id.trim() ? line.id.trim() : `line_${idx}`,
+        name: typeof line.name === 'string' && line.name.trim() ? line.name.trim() : `${idx + 1}号线`,
+        color: typeof line.color === 'string' && line.color.trim() ? line.color.trim() : '#2563eb',
+        stationIds: Array.isArray(line.stationIds)
+          ? line.stationIds.filter((id: unknown): id is string => typeof id === 'string')
+          : [],
+        sectionIds: Array.isArray(line.sectionIds)
+          ? line.sectionIds.filter((id: unknown): id is string => typeof id === 'string')
+          : [],
+        ...(typeof line.lastAddedStationId === 'string' ? { lastAddedStationId: line.lastAddedStationId } : {}),
+        ...(validLabelPos ? { labelPosition: validLabelPos } : {})
+      };
+    });
 }
 
 /**

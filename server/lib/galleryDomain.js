@@ -29,22 +29,44 @@ function snapshot(map, includeNotes) {
     if (Number.isFinite(source.lng) && Number.isFinite(source.lat) && Math.abs(source.lng) <= 180 && Math.abs(source.lat) <= 85.05112878) Object.assign(result, { lng: source.lng, lat: source.lat });
     return result;
   };
+  const VALID_LABEL_POS = ['auto','top','right','bottom','left','top-left','top-right','bottom-left','bottom-right','hidden'];
   const stations = map.stations.map(item => ({ id: item.id, name: text(item.name, 80, true), ...point(item),
-    labelPosition: ['auto','top','right','bottom','left','hidden'].includes(item.labelPosition) ? item.labelPosition : 'auto',
+    labelPosition: VALID_LABEL_POS.includes(item.labelPosition) ? item.labelPosition : 'auto',
     ...(includeNotes && typeof item.note === 'string' ? { note: item.note.slice(0, 2000) } : {}) }));
+  const cleanWaypoint = wp => {
+    const base = { ...point(wp) };
+    if (wp.hidden === true) base.hidden = true;
+    if (typeof wp.radius === 'number' && Number.isFinite(wp.radius) && wp.radius >= 0 && wp.radius <= 2000) {
+      base.radius = Math.round(wp.radius * 100) / 100;
+    }
+    if (wp.mode === 'corner' || wp.mode === 'arc') {
+      base.mode = wp.mode;
+    }
+    return base;
+  };
   const sections = map.sections.map(item => {
     if (!lineIds.has(item.lineId) || !stationIds.has(item.startStationId) || !stationIds.has(item.endStationId)) throw fail('地图存在缺失的线路或站点连接');
-    if (item.waypoints !== undefined && (!Array.isArray(item.waypoints) || item.waypoints.length > 20)) throw fail('区间折点格式无效');
+    if (item.waypoints !== undefined && (!Array.isArray(item.waypoints) || item.waypoints.length > 300)) throw fail('区间折点格式无效');
     const parallelOrder = Array.isArray(item.parallelOrder)
       ? [...new Set(item.parallelOrder.filter(id => typeof id === 'string' && lineIds.has(id)))].slice(0, 16)
       : [];
     return { id: item.id, lineId: item.lineId, startStationId: item.startStationId, endStationId: item.endStationId,
-      ...(item.waypoints?.length ? { waypoints: item.waypoints.map(item => ({ ...point(item), ...(item.hidden ? { hidden: true } : {}) })) } : {}),
+      ...(item.waypoints?.length ? { waypoints: item.waypoints.map(cleanWaypoint) } : {}),
       ...(parallelOrder.length >= 2 ? { parallelOrder } : {}) };
   });
   const lines = map.lines.map(item => {
     if (!Array.isArray(item.stationIds) || !item.stationIds.every(id => stationIds.has(id))) throw fail('线路的站点列表无效');
-    return { id: item.id, name: text(item.name, 60, true), color: color(item.color), stationIds: [...item.stationIds], sectionIds: sections.filter(edge => edge.lineId === item.id).map(edge => edge.id) };
+    const customLabel = item.labelPosition && typeof item.labelPosition === 'object' && finite(item.labelPosition.x) && finite(item.labelPosition.y)
+      ? point(item.labelPosition)
+      : undefined;
+    return {
+      id: item.id,
+      name: text(item.name, 60, true),
+      color: color(item.color),
+      stationIds: [...item.stationIds],
+      sectionIds: sections.filter(edge => edge.lineId === item.id).map(edge => edge.id),
+      ...(customLabel ? { labelPosition: customLabel } : {})
+    };
   });
   const mapSettings = normalizeMapSettings(map.mapSettings);
   if (mapSettings.baseMap.mode === 'amap' && [...stations, ...sections.flatMap(edge => edge.waypoints || [])].some(item => !Number.isFinite(item.lng) || !Number.isFinite(item.lat))) throw fail('高德线网含有缺少经纬度的站点或折点，请补齐后发布');
@@ -53,7 +75,41 @@ function snapshot(map, includeNotes) {
 const project = (lng, lat, zoom) => { const s = Math.sin(lat * Math.PI / 180), size = 256 * 2 ** zoom;
   return { x: (lng + 180) / 360 * size, y: (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * size }; };
 const unproject = (x, y, zoom) => { const size = 256 * 2 ** zoom; return [Number((x / size * 360 - 180).toFixed(6)), Number((Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI).toFixed(6))]; };
-function artwork(work, baseImage) {
+function buildRoundedRouteSvgPath(pts, radii, defaultR) {
+  if (pts.length < 2) return '';
+  if (pts.length === 2) return `M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)} L ${pts[1].x.toFixed(2)} ${pts[1].y.toFixed(2)}`;
+  const d = [`M ${pts[0].x.toFixed(2)} ${pts[0].y.toFixed(2)}`];
+  for (let i = 1; i < pts.length - 1; i += 1) {
+    const p0 = pts[i - 1], p1 = pts[i], p2 = pts[i + 1];
+    const rWanted = radii[i] !== undefined ? radii[i] : defaultR;
+    const v1x = p0.x - p1.x, v1y = p0.y - p1.y;
+    const v2x = p2.x - p1.x, v2y = p2.y - p1.y;
+    const l1 = Math.hypot(v1x, v1y), l2 = Math.hypot(v2x, v2y);
+    if (!rWanted || rWanted <= 0.5 || l1 < 1 || l2 < 1) {
+      d.push(`L ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`);
+      continue;
+    }
+    const cosA = Math.max(-0.999, Math.min(0.999, (v1x * v2x + v1y * v2y) / (l1 * l2)));
+    const halfAngle = Math.acos(cosA) / 2;
+    const tanHalf = Math.tan(halfAngle);
+    if (tanHalf <= 1e-3) {
+      d.push(`L ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}`);
+      continue;
+    }
+    const trim = Math.min(rWanted / tanHalf, l1 * 0.48, l2 * 0.48);
+    const actualR = trim * tanHalf;
+    const sX = p1.x + (v1x / l1) * trim, sY = p1.y + (v1y / l1) * trim;
+    const eX = p1.x + (v2x / l2) * trim, eY = p1.y + (v2y / l2) * trim;
+    const cross = (-v1x) * v2y - (-v1y) * v2x;
+    const sweep = cross >= 0 ? 1 : 0;
+    d.push(`L ${sX.toFixed(2)} ${sY.toFixed(2)}`);
+    d.push(`A ${actualR.toFixed(2)} ${actualR.toFixed(2)} 0 0 ${sweep} ${eX.toFixed(2)} ${eY.toFixed(2)}`);
+  }
+  const last = pts[pts.length - 1];
+  d.push(`L ${last.x.toFixed(2)} ${last.y.toFixed(2)}`);
+  return d.join(' ');
+}
+function artwork(work, baseImage, baseAttribution = '© OpenStreetMap') {
   const graph = work.snapshot, dark = graph.mapSettings.canvasTheme === 'dark';
   const geo = graph.mapSettings.baseMap.mode === 'amap';
   const points = [...graph.stations, ...graph.sections.flatMap(edge => edge.waypoints || [])];
@@ -74,9 +130,13 @@ function artwork(work, baseImage) {
   const memberships = new Map(); const terminals = new Set();
   graph.lines.forEach(line => { terminals.add(line.stationIds[0]); terminals.add(line.stationIds[line.stationIds.length-1]); line.stationIds.forEach(id => { if(!memberships.has(id)) memberships.set(id,new Set());memberships.get(id).add(line.color); }); });
   const lineById = new Map(graph.lines.map(line => [line.id,line]));
+  const defaultCornerR = (graph.mapSettings.cornerRadius || 0) * scale;
   const routes = graph.sections.map(edge => {
-    const points = [byId.get(edge.startStationId), ...(edge.waypoints || []), byId.get(edge.endStationId)].map(pos);
-    return `<polyline points="${points.map(p => `${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')}" fill="none" stroke="${color(lineById.get(edge.lineId).color)}" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>`;
+    const wps = edge.waypoints || [];
+    const pts = [byId.get(edge.startStationId), ...wps, byId.get(edge.endStationId)].map(pos);
+    const radii = [0, ...wps.map(wp => typeof wp.radius === 'number' ? wp.radius * scale : undefined), 0];
+    const d = buildRoundedRouteSvgPath(pts, radii, defaultCornerR);
+    return `<path d="${d}" fill="none" stroke="${color(lineById.get(edge.lineId).color)}" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"/>`;
   }).join('');
   const labels = [], occupied = [];
   const labelIds=new Set(graph.stations.filter(st=>st.labelPosition!=='hidden'&&(terminals.has(st.id)||(memberships.get(st.id)?.size||0)>1))
@@ -104,7 +164,7 @@ function artwork(work, baseImage) {
     }
     return '';
   }).join('') : '';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(work.title)}"><rect width="100%" height="100%" fill="${lc?(dark?'#0f172a':'#f6f7f9'):(dark?'#0b2035':'#f8fbfd')}"/>${baseImage?`<image href="${baseImage}" width="768" height="480"/>`:''}${lcSvg?`<g opacity="${lc.opacity??1}">${lcSvg}</g>`:''}<g font-family="Microsoft YaHei,PingFang SC,sans-serif">${routes}${dots}${labels.join('')}</g>${baseImage?'<text x="754" y="470" font-size="10" fill="#18344b" text-anchor="end">© OpenStreetMap</text>':''}</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(work.title)}"><rect width="100%" height="100%" fill="${lc?(dark?'#0f172a':'#f6f7f9'):(dark?'#0b2035':'#f8fbfd')}"/>${baseImage?`<image href="${baseImage}" width="768" height="480"/>`:''}${lcSvg?`<g opacity="${lc.opacity??1}">${lcSvg}</g>`:''}<g font-family="Microsoft YaHei,PingFang SC,sans-serif">${routes}${dots}${labels.join('')}</g>${baseImage?`<text x="754" y="470" font-size="10" fill="#18344b" text-anchor="end">${xml(baseAttribution)}</text>`:''}</svg>`;
   return { svg, staticMap: geo ? { center: geoCenter, zoom, width, height } : null };
 }
 function summary(work, owner = false) {

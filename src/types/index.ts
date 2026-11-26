@@ -45,6 +45,15 @@ export interface Section {
   parallelOrder?: string[];
 }
 
+export interface LineLabelPosition {
+  /** 纯画布 / 轻城市模式下的自定义中心世界坐标 */
+  x: number;
+  y: number;
+  /** 地理底图模式下的自定义中心经纬度（WGS-84） */
+  lng?: number;
+  lat?: number;
+}
+
 export interface Line {
   id: string;
   name: string;
@@ -52,6 +61,8 @@ export interface Line {
   stationIds: string[];
   sectionIds: string[];
   lastAddedStationId?: string;
+  /** 用户在「选择」模式下手工拖拽自定义后的线路名胶囊中心位置（undefined 表示自动跟随首末站） */
+  labelPosition?: LineLabelPosition;
 }
 
 export type MapStyle = 'classic-badge' | 'dot-label';
@@ -190,6 +201,8 @@ export interface MapSettings {
   cornerRadius: number;
   // 是否默认隐藏画布上的途经点控制柄（圆弧/折角仍正常生效，仅选中或右键区间唤醒时才显示控制柄）
   hideWaypoints?: boolean;
+  // 是否锁定线路名胶囊位置禁止鼠标拖拽（默认 false，即在选择模式下可直接拖拽移动线路标签）
+  lockLineNameLabels?: boolean;
   videoExport?: VideoExportConfig;
 }
 
@@ -423,6 +436,7 @@ export const normalizeMapSettings = (settings?: Partial<MapSettings> | null): Ma
         : 'paper',
     cornerRadius: normalizeNumber(settings?.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40),
     hideWaypoints: settings?.hideWaypoints === true,
+    ...(settings?.lockLineNameLabels === true ? { lockLineNameLabels: true } : {}),
     ...(settings?.videoExport ? { videoExport: normalizeVideoExportConfig(settings.videoExport) } : {})
   };
 };

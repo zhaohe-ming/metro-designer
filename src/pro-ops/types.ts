@@ -159,6 +159,12 @@ export interface ProOpsDocument {
   stationProfiles: Record<string, ProStationProfile>;
   sectionOverrides: Record<string, ProSectionOverride>;
   trackConnections: ProTrackConnection[];
+  /**
+   * 显式声明「共线共轨运行」的线路对（格式："minLineId::maxLineId"）。
+   * 默认空数组：两条线路即便在相邻两站间平行经过，也视为「各自独立双隧」，互不混入对方运行图与追踪冲突检算；
+   * 仅当在此声明为共线共轨（或列车通过跨线道岔实际驶入对方物理区间）时，才合并进入同一张运行图并联合检算追踪间隔。
+   */
+  sharedTrackLinePairs?: string[];
   servicePatterns: ProServicePattern[];
   timetableConfig?: ProTimetableConfig;
 }
@@ -265,6 +271,10 @@ export function createDefaultLineSpec(code: ProRollingStockCode = '6B'): ProLine
   };
 }
 
+export function makeCanonicalLinePairKey(lineAId: string, lineBId: string): string {
+  return lineAId < lineBId ? `${lineAId}::${lineBId}` : `${lineBId}::${lineAId}`;
+}
+
 export function createEmptyProOpsDocument(): ProOpsDocument {
   return {
     schemaVersion: 1,
@@ -273,6 +283,7 @@ export function createEmptyProOpsDocument(): ProOpsDocument {
     stationProfiles: {},
     sectionOverrides: {},
     trackConnections: [],
+    sharedTrackLinePairs: [],
     servicePatterns: [],
     timetableConfig: { ...DEFAULT_PRO_TIMETABLE_CONFIG }
   };
@@ -283,6 +294,7 @@ export function hasMeaningfulProOps(doc?: ProOpsDocument | null): boolean {
   return (
     doc.servicePatterns.length > 0 ||
     doc.trackConnections.length > 0 ||
+    (doc.sharedTrackLinePairs?.length || 0) > 0 ||
     Object.keys(doc.lineSpecs).length > 0 ||
     Object.keys(doc.stationProfiles).length > 0 ||
     Object.keys(doc.sectionOverrides).length > 0 ||
@@ -495,6 +507,18 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
     });
   }
 
+  const sharedTrackSet = new Set<string>();
+  if (Array.isArray(src.sharedTrackLinePairs)) {
+    src.sharedTrackLinePairs.slice(0, 300).forEach((rawPair: unknown) => {
+      if (typeof rawPair !== 'string') return;
+      const parts = rawPair.split('::').map((s) => cleanStr(s, 96));
+      if (parts.length === 2 && parts[0] && parts[1] && parts[0] !== parts[1]) {
+        sharedTrackSet.add(makeCanonicalLinePairKey(parts[0], parts[1]));
+      }
+    });
+  }
+  const sharedTrackLinePairs = Array.from(sharedTrackSet);
+
   const rawTt = src.timetableConfig && typeof src.timetableConfig === 'object' ? src.timetableConfig : {};
   const timetableConfig: ProTimetableConfig = {
     windowStartMin: Math.round(clampNum(rawTt.windowStartMin, DEFAULT_PRO_TIMETABLE_CONFIG.windowStartMin, 0, 1380)),
@@ -509,6 +533,7 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
     stationProfiles,
     sectionOverrides,
     trackConnections,
+    sharedTrackLinePairs,
     servicePatterns,
     timetableConfig
   };
@@ -522,6 +547,7 @@ export function cloneProOpsDocument(doc: ProOpsDocument): ProOpsDocument {
     stationProfiles: Object.fromEntries(Object.entries(doc.stationProfiles).map(([k, v]) => [k, { ...v }])),
     sectionOverrides: Object.fromEntries(Object.entries(doc.sectionOverrides).map(([k, v]) => [k, { ...v }])),
     trackConnections: doc.trackConnections.map((c) => ({ ...c })),
+    sharedTrackLinePairs: [...(doc.sharedTrackLinePairs || [])],
     servicePatterns: doc.servicePatterns.map((p) => ({
       ...p,
       routeSteps: p.routeSteps.map((s) => ({ ...s }))

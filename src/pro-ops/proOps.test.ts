@@ -13,13 +13,20 @@ import {
 } from './reconcile';
 import { buildCorridorDiagramModel, buildServiceDiagramSvg } from './corridorDiagram';
 import {
+  autoResolveCorridorConflicts,
   buildMareyDiagramModel,
   buildMareyDiagramSvg,
   computeLiveTrainSnapshots,
   recommendOptimalPhaseOffset,
   solveNetworkTimetable
 } from './timetable';
-import { createEmptyProOpsDocument, normalizeProOpsDocument, ProOpsDocument, ProServicePattern } from './types';
+import {
+  createEmptyProOpsDocument,
+  makeCanonicalLinePairKey,
+  normalizeProOpsDocument,
+  ProOpsDocument,
+  ProServicePattern
+} from './types';
 
 function createFourStationLinearGraph(): MapGraph {
   // 4 座间距各 1500m（60 单位 × 25 m/单位 = 1500m）的车站：A - B - C - D
@@ -604,5 +611,174 @@ describe('Pro Operations Mode Phase 1 Engine & Isolation', () => {
     const snapsAtOvertake = computeLiveTrainSnapshots(ttResolved.trains, ttResolved.overtakes[0].timeSec);
     expect(snapsAtOvertake.length).toBeGreaterThanOrEqual(2);
     expect(snapsAtOvertake.some((s) => s.status === 'yielding' || s.status === 'dwelling')).toBe(true);
+  });
+
+  test('loop lines run bidirectionally (inner + outer ring) by default and project both directions cleanly onto Marey chart', () => {
+    const loopGraph = reconcileGraph({
+      stations: [
+        { id: 's1', name: '北站', x: 0, y: -60 },
+        { id: 's2', name: '东门', x: 60, y: 0 },
+        { id: 's3', name: '南门', x: 0, y: 60 },
+        { id: 's4', name: '西门', x: -60, y: 0 }
+      ],
+      sections: [
+        { id: 'e12', lineId: 'LOOP', startStationId: 's1', endStationId: 's2' },
+        { id: 'e23', lineId: 'LOOP', startStationId: 's2', endStationId: 's3' },
+        { id: 'e34', lineId: 'LOOP', startStationId: 's3', endStationId: 's4' },
+        { id: 'e41', lineId: 'LOOP', startStationId: 's4', endStationId: 's1' }
+      ],
+      lines: [
+        {
+          id: 'LOOP',
+          name: '4号环线',
+          color: '#db2777',
+          stationIds: ['s1', 's2', 's3', 's4'],
+          sectionIds: ['e12', 'e23', 'e34', 'e41']
+        }
+      ]
+    });
+
+    const loopLocal = createLineAllStopPattern(loopGraph, 'LOOP')!;
+    expect(loopLocal.bidirectional).toBe(true);
+
+    const doc: ProOpsDocument = {
+      ...createEmptyProOpsDocument(),
+      servicePatterns: [loopLocal]
+    };
+    const state = reconcileProOps(loopGraph, doc);
+    const kinMap = {
+      [loopLocal.id]: solveServiceKinematics(loopGraph, state.proOps, loopLocal, state.validations[loopLocal.id], false)
+    };
+    const tt = solveNetworkTimetable({
+      graph: loopGraph,
+      proOps: state.proOps,
+      validations: state.validations,
+      kinematicsMap: kinMap,
+      isGeoMode: false
+    });
+
+    expect(tt.trains.some((t) => t.direction === 'up')).toBe(true);
+    expect(tt.trains.some((t) => t.direction === 'down')).toBe(true);
+
+    const marey = buildMareyDiagramModel({
+      graph: loopGraph,
+      proOps: state.proOps,
+      timetable: tt,
+      isGeoMode: false,
+      targetLineId: 'LOOP',
+      directionFilter: 'both'
+    });
+    expect(marey.isClosedLoop).toBe(true);
+    expect(marey.threads.some((th) => th.direction === 'up' && th.points.length >= 5)).toBe(true);
+    expect(marey.threads.some((th) => th.direction === 'down' && th.points.length >= 5)).toBe(true);
+  });
+
+  test('parallel separate tunnels stay isolated by default and merge only when sharedTrackLinePairs is enabled; autoResolveCorridorConflicts clears bottlenecks', () => {
+    // 1号线 (A-B-C-D) 与 6号线 (X-B-C-Y) 在 B-C 区间平行经过
+    const graph = reconcileGraph({
+      stations: [
+        { id: 'A', name: '青石路', x: 0, y: 0 },
+        { id: 'B', name: '大学城', x: 60, y: 0 },
+        { id: 'C', name: '科技园', x: 120, y: 0 },
+        { id: 'D', name: '文化宫', x: 180, y: 0 },
+        { id: 'X', name: '北苑', x: 60, y: -60 },
+        { id: 'Y', name: '松林', x: 120, y: 60 }
+      ],
+      sections: [
+        { id: 'l1_ab', lineId: 'L1', startStationId: 'A', endStationId: 'B' },
+        { id: 'l1_bc', lineId: 'L1', startStationId: 'B', endStationId: 'C' },
+        { id: 'l1_cd', lineId: 'L1', startStationId: 'C', endStationId: 'D' },
+        { id: 'l6_xb', lineId: 'L6', startStationId: 'X', endStationId: 'B' },
+        { id: 'l6_bc', lineId: 'L6', startStationId: 'B', endStationId: 'C' },
+        { id: 'l6_cy', lineId: 'L6', startStationId: 'C', endStationId: 'Y' }
+      ],
+      lines: [
+        { id: 'L1', name: '1号线', color: '#2563eb', stationIds: ['A', 'B', 'C', 'D'], sectionIds: ['l1_ab', 'l1_bc', 'l1_cd'] },
+        { id: 'L6', name: '6号线', color: '#0891b2', stationIds: ['X', 'B', 'C', 'Y'], sectionIds: ['l6_xb', 'l6_bc', 'l6_cy'] }
+      ]
+    });
+
+    const p1 = { ...createLineAllStopPattern(graph, 'L1')!, headwaySec: 240, firstDepartureOffsetSec: 0 };
+    const p6 = { ...createLineAllStopPattern(graph, 'L6')!, headwaySec: 240, firstDepartureOffsetSec: 0 };
+
+    // 默认：各自独立双隧 -> 6号线绝不混入1号线导乘图与运行图，且同秒进入 B-C 也不会误报共轨冲突！
+    const separateDoc: ProOpsDocument = {
+      ...createEmptyProOpsDocument(),
+      servicePatterns: [p1, p6]
+    };
+    const sepState = reconcileProOps(graph, separateDoc);
+    const sepKin = Object.fromEntries(
+      sepState.proOps.servicePatterns.map((p) => [
+        p.id,
+        solveServiceKinematics(graph, sepState.proOps, p, sepState.validations[p.id], false)
+      ])
+    );
+
+    const sepStripL1 = buildCorridorDiagramModel({
+      graph,
+      proOps: sepState.proOps,
+      validations: sepState.validations,
+      kinematicsMap: sepKin,
+      isGeoMode: false,
+      axisMode: 'line',
+      targetLineId: 'L1'
+    });
+    expect(sepStripL1.rows).toHaveLength(1);
+    expect(sepStripL1.rows[0].pattern.id).toBe(p1.id);
+
+    const sepTt = solveNetworkTimetable({
+      graph,
+      proOps: sepState.proOps,
+      validations: sepState.validations,
+      kinematicsMap: sepKin,
+      isGeoMode: false
+    });
+    expect(sepTt.conflicts).toHaveLength(0);
+
+    const sepMareyL1 = buildMareyDiagramModel({
+      graph,
+      proOps: sepState.proOps,
+      timetable: sepTt,
+      isGeoMode: false,
+      targetLineId: 'L1',
+      directionFilter: 'both'
+    });
+    expect(sepMareyL1.threads.every((th) => th.patternId === p1.id)).toBe(true);
+
+    // 显式开启「共线共轨」：1号线与6号线在 B-C 共用同一对轨道 -> 合并入同一运行图并检出共轨追踪冲突，且一键消解可自动错峰化解！
+    const sharedDoc: ProOpsDocument = {
+      ...separateDoc,
+      sharedTrackLinePairs: [makeCanonicalLinePairKey('L1', 'L6')]
+    };
+    const shState = reconcileProOps(graph, sharedDoc);
+    const shTt = solveNetworkTimetable({
+      graph,
+      proOps: shState.proOps,
+      validations: shState.validations,
+      kinematicsMap: sepKin,
+      isGeoMode: false
+    });
+    expect(shTt.conflicts.length).toBeGreaterThan(0);
+    expect(shTt.bottlenecks.length).toBeGreaterThan(0);
+
+    const shMareyL1 = buildMareyDiagramModel({
+      graph,
+      proOps: shState.proOps,
+      timetable: shTt,
+      isGeoMode: false,
+      targetLineId: 'L1',
+      directionFilter: 'both'
+    });
+    expect(shMareyL1.threads.some((th) => th.patternId === p6.id)).toBe(true);
+
+    const autoFixed = autoResolveCorridorConflicts({
+      graph,
+      proOps: shState.proOps,
+      validations: shState.validations,
+      kinematicsMap: sepKin,
+      targetLineId: 'L1',
+      isGeoMode: false
+    });
+    expect(autoFixed.remainingConflicts).toBe(0);
   });
 });

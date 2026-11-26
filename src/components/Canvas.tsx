@@ -4080,6 +4080,31 @@ const Canvas: React.FC<CanvasProps> = ({
       );
       const labelHeight = scaledLineLabelFontSize + scaledLineLabelPaddingY * 2 + 2;
 
+      // 若用户手工拖拽自定义过该线路标签的位置，优先采用用户放置点
+      if (line.labelPosition) {
+        let customCenter: { x: number; y: number } | null = null;
+        if (
+          isAmapMode &&
+          typeof line.labelPosition.lng === 'number' &&
+          typeof line.labelPosition.lat === 'number'
+        ) {
+          customCenter = projectLngLatToContainerPoint(line.labelPosition.lng, line.labelPosition.lat);
+        } else if (!isAmapMode && Number.isFinite(line.labelPosition.x) && Number.isFinite(line.labelPosition.y)) {
+          customCenter = { x: line.labelPosition.x, y: line.labelPosition.y };
+        }
+        if (customCenter && Number.isFinite(customCenter.x) && Number.isFinite(customCenter.y)) {
+          const customRect = {
+            x: customCenter.x - labelWidth / 2,
+            y: customCenter.y - labelHeight / 2,
+            width: labelWidth,
+            height: labelHeight
+          };
+          occupiedGrid.insert(customRect);
+          placements.push({ key: line.id, line, labelText, ...customRect });
+          return;
+        }
+      }
+
       const terminalPairs = isLoop
         ? [{ terminal: orderedStations[0], neighbor: orderedStations[1], preference: 0, tangentNormal: true }]
         : [
@@ -5501,40 +5526,121 @@ const Canvas: React.FC<CanvasProps> = ({
               >
               {renderLines(suppressShadows)}
 
-              {lineNamePlacements.map((label) => (
-                <Group
-                  key={`line_label_${label.key}`}
-                  name="zoom-sized-element"
-                  x={label.x}
-                  y={label.y}
-                  listening={false}
-                >
-                  <Rect
-                    width={label.width}
-                    height={label.height}
-                    cornerRadius={label.height / 2}
-                    fill={lineBadgeColors.fill}
-                    stroke={label.line.color}
-                    strokeWidth={isAmapMode ? Math.max(1.5, scaledLineLabelStrokeWidth) : scaledLineLabelStrokeWidth}
-                    shadowColor={label.line.color}
-                    shadowBlur={suppressShadows ? 0 : isAmapMode ? 8 : 4}
-                    shadowOpacity={suppressShadows ? 0 : isAmapMode ? 0.22 : 0.16}
-                    perfectDrawEnabled={false}
-                  />
-                  <Text
-                    text={label.labelText}
-                    width={label.width}
-                    height={label.height}
-                    align="center"
-                    verticalAlign="middle"
-                    wrap="none"
-                    fontSize={scaledLineLabelFontSize}
-                    fontStyle={`${stylePreset.lineLabelFontWeight}`}
-                    fill={lineBadgeColors.text}
-                    perfectDrawEnabled={false}
-                  />
-                </Group>
-              ))}
+              {lineNamePlacements.map((label) => {
+                const canDragBadge =
+                  !readOnly &&
+                  !terrainEditMode &&
+                  activeTool === 'select' &&
+                  !isSpaceHeld &&
+                  !mapSettings.lockLineNameLabels &&
+                  Boolean(onApplyGraphTransaction);
+                return (
+                  <Group
+                    key={`line_label_${label.key}`}
+                    name="zoom-sized-element"
+                    x={label.x}
+                    y={label.y}
+                    listening={canDragBadge}
+                    draggable={canDragBadge}
+                    onMouseEnter={(e) => {
+                      if (!canDragBadge) return;
+                      const container = e.target.getStage()?.container();
+                      if (container) container.style.cursor = 'grab';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!canDragBadge) return;
+                      const container = e.target.getStage()?.container();
+                      if (container) container.style.cursor = '';
+                    }}
+                    onMouseDown={(e) => {
+                      if (canDragBadge) e.cancelBubble = true;
+                    }}
+                    onTouchStart={(e) => {
+                      if (canDragBadge) e.cancelBubble = true;
+                    }}
+                    onDragStart={(e) => {
+                      e.cancelBubble = true;
+                      const container = e.target.getStage()?.container();
+                      if (container) container.style.cursor = 'grabbing';
+                    }}
+                    onDragMove={(e) => {
+                      e.cancelBubble = true;
+                    }}
+                    onDragEnd={(e) => {
+                      e.cancelBubble = true;
+                      const container = e.target.getStage()?.container();
+                      if (container) container.style.cursor = 'grab';
+                      if (!onApplyGraphTransaction) return;
+                      const centerX = e.target.x() + label.width / 2;
+                      const centerY = e.target.y() + label.height / 2;
+                      const geoLl = isAmapMode ? getLngLatFromContainerPoint({ x: centerX, y: centerY }) : null;
+                      const nextLabelPos = {
+                        x: Math.round(centerX * 10) / 10,
+                        y: Math.round(centerY * 10) / 10,
+                        ...(geoLl
+                          ? {
+                              lng: Number(geoLl.lng.toFixed(6)),
+                              lat: Number(geoLl.lat.toFixed(6))
+                            }
+                          : label.line.labelPosition?.lng !== undefined && label.line.labelPosition?.lat !== undefined
+                            ? {
+                                lng: label.line.labelPosition.lng,
+                                lat: label.line.labelPosition.lat
+                              }
+                            : {})
+                      };
+                      onApplyGraphTransaction(
+                        (curr) => ({
+                          ...curr,
+                          lines: curr.lines.map((l) =>
+                            l.id === label.line.id ? { ...l, labelPosition: nextLabelPos } : l
+                          )
+                        }),
+                        { recordHistory: true }
+                      );
+                    }}
+                    onDblClick={(e) => {
+                      if (!canDragBadge || !onApplyGraphTransaction || !label.line.labelPosition) return;
+                      e.cancelBubble = true;
+                      onApplyGraphTransaction(
+                        (curr) => ({
+                          ...curr,
+                          lines: curr.lines.map((l) =>
+                            l.id === label.line.id ? { ...l, labelPosition: undefined } : l
+                          )
+                        }),
+                        { recordHistory: true }
+                      );
+                      message.success?.('已恢复该线路名称标签的自动跟随排布');
+                    }}
+                  >
+                    <Rect
+                      width={label.width}
+                      height={label.height}
+                      cornerRadius={label.height / 2}
+                      fill={lineBadgeColors.fill}
+                      stroke={label.line.color}
+                      strokeWidth={isAmapMode ? Math.max(1.5, scaledLineLabelStrokeWidth) : scaledLineLabelStrokeWidth}
+                      shadowColor={label.line.color}
+                      shadowBlur={suppressShadows ? 0 : isAmapMode ? 8 : 4}
+                      shadowOpacity={suppressShadows ? 0 : isAmapMode ? 0.22 : 0.16}
+                      perfectDrawEnabled={false}
+                    />
+                    <Text
+                      text={label.labelText}
+                      width={label.width}
+                      height={label.height}
+                      align="center"
+                      verticalAlign="middle"
+                      wrap="none"
+                      fontSize={scaledLineLabelFontSize}
+                      fontStyle={`${stylePreset.lineLabelFontWeight}`}
+                      fill={lineBadgeColors.text}
+                      perfectDrawEnabled={false}
+                    />
+                  </Group>
+                );
+              })}
 
               {/* 途经点控制柄：支持全局「默认隐藏途经点」开关（选中或调节圆弧时仍显示当前控制柄） */}
               {sections.map((section) => {

@@ -1,7 +1,13 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from 'antd';
 import { AmapStyle } from '../types';
 import DraggableModal from './DraggableModal';
+import {
+  CUSTOM_AMAP_CHANGED_EVENT,
+  hasConfiguredCustomAmapKey,
+  isCustomAmapActive,
+  setCustomAmapEngineEnabled
+} from '../lib/amapCustomConfig';
 
 const styles: { value: AmapStyle; zh: string; en: string; hint: string; hintEn: string }[] = [
   { value: 'normal', zh: '标准', en: 'Standard', hint: '信息完整，方便定位', hintEn: 'Detailed geography' },
@@ -16,10 +22,28 @@ interface BaseMapPickerProps {
   hasContent: boolean;
   onCancel: () => void;
   onConfirm: (style: AmapStyle) => void;
+  onOpenAmapSettings?: () => void;
 }
 
-const BaseMapPicker: React.FC<BaseMapPickerProps> = ({ initialStyle, language, hasContent, onCancel, onConfirm }) => {
+const BaseMapPicker: React.FC<BaseMapPickerProps> = ({
+  initialStyle,
+  language,
+  hasContent,
+  onCancel,
+  onConfirm,
+  onOpenAmapSettings
+}) => {
   const [selected, setSelected] = useState(initialStyle);
+  const [amapActive, setAmapActive] = useState(() => isCustomAmapActive());
+  const [hasKey, setHasKey] = useState(() => hasConfiguredCustomAmapKey());
+  useEffect(() => {
+    const sync = () => {
+      setAmapActive(isCustomAmapActive());
+      setHasKey(hasConfiguredCustomAmapKey());
+    };
+    window.addEventListener(CUSTOM_AMAP_CHANGED_EVENT, sync);
+    return () => window.removeEventListener(CUSTOM_AMAP_CHANGED_EVENT, sync);
+  }, []);
   const en = language === 'en-US';
   return (
     <DraggableModal open title={en ? 'Choose a basemap style' : '选择底图风格'}
@@ -36,7 +60,42 @@ const BaseMapPicker: React.FC<BaseMapPickerProps> = ({ initialStyle, language, h
           <span className="metro-basemap-option__hint">{en ? style.hintEn : style.hint}</span>
         </label>)}
       </div>
-      <p className="metro-basemap-credit">{en ? 'Same location in all previews · © OpenStreetMap · CARTO' : '预览使用同一位置 · © OpenStreetMap · CARTO'}</p>
+      <div
+        style={{
+          marginTop: 12,
+          padding: '8px 12px',
+          borderRadius: 10,
+          background: 'var(--color-surface-subtle, #f8fafc)',
+          border: '1px solid var(--color-border, #e2e8f0)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 8,
+          flexWrap: 'wrap',
+          fontSize: 12.5
+        }}
+      >
+        <span>
+          {amapActive
+            ? '当前渲染引擎：高德矢量底图（自有 Key 已启用）'
+            : '当前渲染引擎：内置免配置公开瓦片（OpenStreetMap / CARTO）'}
+        </span>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {hasKey ? (
+            <Button
+              size="small"
+              onClick={() => setCustomAmapEngineEnabled(!amapActive)}
+            >
+              {amapActive ? '切回内置瓦片' : '一键切至高德底图'}
+            </Button>
+          ) : null}
+          {onOpenAmapSettings ? (
+            <Button size="small" type="primary" ghost onClick={onOpenAmapSettings}>
+              {hasKey ? '修改高德 Key' : '配置个人高德 Key（更清晰）'}
+            </Button>
+          ) : null}
+        </div>
+      </div>
     </DraggableModal>
   );
 };

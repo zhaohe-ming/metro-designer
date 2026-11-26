@@ -2324,7 +2324,7 @@ app.get('/api/maps/:id', auth, asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/maps', auth, asyncHandler(async (req, res) => {
-  const { name, lines, stations, sections, mapSettings, clientDraftId } = req.body || {};
+  const { name, lines, stations, sections, mapSettings, clientDraftId, proOps } = req.body || {};
   if (clientDraftId !== undefined && (typeof clientDraftId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(clientDraftId))) {
     return res.status(400).json({ message: '草稿标识格式无效' });
   }
@@ -2334,14 +2334,28 @@ app.post('/api/maps', auth, asyncHandler(async (req, res) => {
   const origin = galleryService.readOrigin(req.body.gallerySourceToken);
   const map = await storage.createMap(req.userId, { name, lines, stations, sections, mapSettings, clientDraftId });
   await galleryService.recordOrigin(map.id, req.userId, origin);
-  if (typeof req.body.sourcePrivateMapId === 'string') await galleryService.copyOrigin(req.body.sourcePrivateMapId, map.id, req.userId);
+  if (typeof req.body.sourcePrivateMapId === 'string') {
+    await galleryService.copyOrigin(req.body.sourcePrivateMapId, map.id, req.userId);
+    if (proOps === undefined) {
+      const sourcePro = await storage.getMapProOps(req.userId, req.body.sourcePrivateMapId);
+      if (sourcePro?.proOps) {
+        await storage.saveMapProOps(req.userId, map.id, sourcePro.proOps);
+      }
+    }
+  }
+  if (proOps && typeof proOps === 'object') {
+    await storage.saveMapProOps(req.userId, map.id, proOps);
+  }
   res.json({ map });
 }));
 
 app.put('/api/maps/:id', auth, asyncHandler(async (req, res) => {
-  const { name, lines, stations, sections, mapSettings } = req.body || {};
+  const { name, lines, stations, sections, mapSettings, proOps } = req.body || {};
   const map = await storage.updateMap(req.userId, req.params.id, { name, lines, stations, sections, mapSettings });
   if (!map) return res.status(404).json({ message: '地图不存在' });
+  if (proOps && typeof proOps === 'object') {
+    await storage.saveMapProOps(req.userId, map.id, proOps);
+  }
   res.json({ map });
 }));
 

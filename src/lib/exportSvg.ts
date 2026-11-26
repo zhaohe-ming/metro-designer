@@ -348,8 +348,12 @@ export function buildMetroSvg(params: {
       const ox = topo.isLoop ? -dy / len : dx / len;
       const oy = topo.isLoop ? dx / len : dy / len;
       const dist = stylePreset.interchangeRadius + 16;
-      const cx = terminal.x + ox * (dist + pw / 2);
-      const cy = terminal.y + oy * (dist + ph / 2);
+      const hasCustomPos =
+        line.labelPosition &&
+        Number.isFinite(line.labelPosition.x) &&
+        Number.isFinite(line.labelPosition.y);
+      const cx = hasCustomPos ? line.labelPosition!.x : terminal.x + ox * (dist + pw / 2);
+      const cy = hasCustomPos ? line.labelPosition!.y : terminal.y + oy * (dist + ph / 2);
       const rx = cx - pw / 2;
       const ry = cy - ph / 2;
 

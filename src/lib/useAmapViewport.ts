@@ -1,5 +1,6 @@
 import { RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { getAmapConfig, loadAmap } from '../amapLoader';
+import { CUSTOM_AMAP_CHANGED_EVENT } from './amapCustomConfig';
 import { AmapBaseMapSettings } from '../types';
 
 type Viewport = { center: [number, number]; zoom: number; style: string; width: number; height: number };
@@ -42,6 +43,13 @@ interface Options {
 export function useAmapViewport(options: Options) {
   const { enabled, containerRef, viewport, documentKey, width, height } = options;
   const [longitude, latitude] = viewport.center;
+  const [, setConfigVersion] = useState(0);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onCfgChange = () => setConfigVersion((v) => v + 1);
+    window.addEventListener(CUSTOM_AMAP_CHANGED_EVENT, onCfgChange);
+    return () => window.removeEventListener(CUSTOM_AMAP_CHANGED_EVENT, onCfgChange);
+  }, []);
   const { key } = getAmapConfig();
   const sceneKey = JSON.stringify([documentKey, viewport.style, width, height]);
   const latest = useRef({ ...options, sceneKey });

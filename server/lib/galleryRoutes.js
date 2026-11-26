@@ -23,17 +23,32 @@ module.exports = function registerGallery(app, ctx) {
   const version=(req,work)=>{if(req.body.version!==work.version)throw fail('作品已更新，请刷新后重试',409);};
   const author=user=>({name:user.username||'线网设计者',avatar:/^data:image\/(png|jpeg|webp);base64,/.test(user.avatar||'')?user.avatar:'',official:false});
   const previewCache=new Map();
+  function wgs84ToGcj02(lng,lat){
+    if(!(lng>=72.004&&lng<=137.8347&&lat>=0.8293&&lat<=55.8271))return [lng,lat];
+    const PI=Math.PI,A=6378245.0,EE=0.00669342162296594323,x=lng-105.0,y=lat-35.0;
+    let dLat=-100.0+2.0*x+3.0*y+0.2*y*y+0.1*x*y+0.2*Math.sqrt(Math.abs(x));
+    dLat+=(20.0*Math.sin(6.0*x*PI)+20.0*Math.sin(2.0*x*PI))*2.0/3.0+(20.0*Math.sin(y*PI)+40.0*Math.sin(y/3.0*PI))*2.0/3.0+(160.0*Math.sin(y/12.0*PI)+320*Math.sin(y*PI/30.0))*2.0/3.0;
+    let dLng=300.0+x+2.0*y+0.1*x*x+0.1*x*y+0.1*Math.sqrt(Math.abs(x));
+    dLng+=(20.0*Math.sin(6.0*x*PI)+20.0*Math.sin(2.0*x*PI))*2.0/3.0+(20.0*Math.sin(x*PI)+40.0*Math.sin(x/3.0*PI))*2.0/3.0+(150.0*Math.sin(x/12.0*PI)+300.0*Math.sin(x/30.0*PI))*2.0/3.0;
+    const radLat=lat/180.0*PI;let magic=Math.sin(radLat);magic=1-EE*magic*magic;const sqrtMagic=Math.sqrt(magic);
+    return [Number((lng+(dLng*180.0)/(A/sqrtMagic*Math.cos(radLat)*PI)).toFixed(6)),Number((lat+(dLat*180.0)/((A*(1-EE))/(magic*sqrtMagic)*PI)).toFixed(6))];
+  }
   async function cover(data,cacheKey) {
     if(previewCache.has(cacheKey))return previewCache.get(cacheKey);
     const drawing=artwork(data);let svg=drawing.svg;
-    if(drawing.staticMap){
-      if(!AMAP_WEB_SERVICE_KEY)throw fail('请先配置高德静态地图服务，再发布带底图作品');
+    if(drawing.staticMap&&AMAP_WEB_SERVICE_KEY){
       const {center,zoom,width,height}=drawing.staticMap;
-      const query=new URLSearchParams({location:center.join(','),zoom:String(zoom),size:`${width}*${height}`,scale:'1',key:AMAP_WEB_SERVICE_KEY});
-      let upstream;try{upstream=await fetch(`https://restapi.amap.com/v3/staticmap?${query}`,{signal:AbortSignal.timeout(15000)});}catch(e){throw fail('底图预览加载超时，请重试',502);}
-      if(!upstream.ok||!/^image\/(png|jpeg)/.test(upstream.headers.get('content-type')||''))throw fail('底图预览暂时不可用，请重试',502);
-      const bytes=Buffer.from(await upstream.arrayBuffer());if(bytes.length>3000000)throw fail('底图预览超出大小限制',502);
-      svg=artwork(data,`data:${upstream.headers.get('content-type').split(';')[0]};base64,${bytes.toString('base64')}`).svg;
+      const gcjCenter=wgs84ToGcj02(center[0],center[1]);
+      const query=new URLSearchParams({location:gcjCenter.join(','),zoom:String(zoom),size:`${width}*${height}`,scale:'1',key:AMAP_WEB_SERVICE_KEY});
+      try{
+        const upstream=await fetch(`https://restapi.amap.com/v3/staticmap?${query}`,{signal:AbortSignal.timeout(12000)});
+        if(upstream.ok&&/^image\/(png|jpeg)/.test(upstream.headers.get('content-type')||'')){
+          const bytes=Buffer.from(await upstream.arrayBuffer());
+          if(bytes.length<=3000000){
+            svg=artwork(data,`data:${upstream.headers.get('content-type').split(';')[0]};base64,${bytes.toString('base64')}`,'© 高德地图').svg;
+          }
+        }
+      }catch{ /* 未配置或静态底图超时时优雅回退至纯净线网矢量封面，绝不阻断作品发布 */ }
     }
     while(previewCache.size>=24)previewCache.delete(previewCache.keys().next().value);
     previewCache.set(cacheKey,svg);return svg;

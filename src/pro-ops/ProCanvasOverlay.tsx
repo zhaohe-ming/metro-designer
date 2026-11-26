@@ -23,6 +23,7 @@ export interface ProCanvasOverlayProps {
   selectedSectionId?: string | null;
   rulerPoints?: Station[];
   liveTrains?: LiveTrainSnapshot[];
+  amapZoom?: number;
 }
 
 function interpolateAlongPts(
@@ -83,10 +84,17 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
   selectedStationId,
   selectedSectionId,
   rulerPoints = [],
-  liveTrains = []
+  liveTrains = [],
+  amapZoom = 12
 }) => {
   const { scale, isAmapMode, isDarkCanvas, getStationDisplayPoint, getWaypointDisplayPoint } = ctx;
-  const invScale = isAmapMode ? 1 : 1 / Math.max(0.2, scale);
+  // 屏幕 1px 对应的画布世界单位；同时引入自适应阻尼系数 lodFactor，避免缩远到 20%~40% 时图标和药丸气泡遮满全图
+  const worldPerPx = isAmapMode ? 1 : 1 / Math.max(0.06, scale);
+  const effectiveZoomRatio = isAmapMode
+    ? Math.pow(2, (amapZoom - 12) * 0.65)
+    : scale;
+  const lodFactor = Math.max(0.46, Math.min(1.08, Math.pow(Math.max(0.12, effectiveZoomRatio), 0.36)));
+  const invScale = worldPerPx * lodFactor;
 
   const stationMap = React.useMemo(() => new Map(stations.map((s) => [s.id, s])), [stations]);
   const sectionMap = React.useMemo(() => new Map(sections.map((s) => [s.id, s])), [sections]);
@@ -371,7 +379,7 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
         );
       })()}
 
-      {/* 6. Phase 2 实时列车动态仿真回放层（双线靠右分边运行 + 越行站待避外移视觉演示） */}
+      {/* 6. Phase 2 实时列车动态仿真回放层（三级缩放自适应 LOD：远景灵动微光珠、中景仅显快车/待避签、近景完整车次签） */}
       {liveTrains.length > 0 && (
         <Group>
           {liveTrains.map((tr) => {
@@ -401,50 +409,75 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
             }
 
             const interp = interpolateAlongPts(pts, tr.status === 'running' ? tr.progress : 0);
-            // 待避慢车外移至副线（9.5px），让正线快车从内侧高速超越；正常上下行靠右微偏（3.6px）
-            const lateralOffset = (tr.status === 'yielding' ? 9.5 : 3.6) * invScale;
+            const isOverview = effectiveZoomRatio < 0.52;
+            const isMidZoom = effectiveZoomRatio >= 0.52 && effectiveZoomRatio < 0.86;
+            const isSpecialBadge = tr.status === 'yielding' || tr.badgeCode !== '普通';
+            const showBadgePill = !isOverview && (!isMidZoom || isSpecialBadge);
+
+            const dotScreenRadius = isOverview
+              ? Math.max(2.6, 4.4 * Math.sqrt(Math.max(0.18, effectiveZoomRatio) / 0.52))
+              : isMidZoom
+                ? 4.8
+                : 5.8;
+            const lateralScreenPx =
+              tr.status === 'yielding'
+                ? isOverview
+                  ? 5.2
+                  : 8.6
+                : isOverview
+                  ? 1.8
+                  : 3.2;
+
+            const lateralOffset = lateralScreenPx * worldPerPx;
             const cx = interp.x + interp.nx * lateralOffset;
             const cy = interp.y + interp.ny * lateralOffset;
+            const dotR = dotScreenRadius * worldPerPx;
+            const strokeW = (isOverview ? 1.15 : 1.9) * worldPerPx;
+            const pillScale = (isMidZoom ? 0.84 : 0.96) * worldPerPx;
 
             return (
               <Group key={tr.trainId} x={cx} y={cy}>
                 {tr.status === 'yielding' && (
                   <Circle
-                    radius={10.5 * invScale}
-                    fill="rgba(16, 185, 129, 0.22)"
+                    radius={dotR * 1.65}
+                    fill="rgba(16, 185, 129, 0.24)"
                     stroke="#10b981"
-                    strokeWidth={1.6 * invScale}
+                    strokeWidth={1.3 * worldPerPx}
                     perfectDrawEnabled={false}
                   />
                 )}
                 <Circle
-                  radius={6.8 * invScale}
+                  radius={dotR}
                   fill={tr.color}
                   stroke="#ffffff"
-                  strokeWidth={2.2 * invScale}
+                  strokeWidth={strokeW}
                   perfectDrawEnabled={false}
                 />
-                <Rect
-                  x={-18 * invScale}
-                  y={-21 * invScale}
-                  width={36 * invScale}
-                  height={12 * invScale}
-                  cornerRadius={6 * invScale}
-                  fill={tr.status === 'yielding' ? '#059669' : tr.color}
-                  opacity={0.94}
-                  perfectDrawEnabled={false}
-                />
-                <KonvaText
-                  x={-18 * invScale}
-                  y={-19 * invScale}
-                  width={36 * invScale}
-                  align="center"
-                  text={tr.status === 'yielding' ? '待避' : tr.badgeCode.slice(0, 2)}
-                  fontSize={8.5 * invScale}
-                  fontStyle="bold"
-                  fill="#ffffff"
-                  perfectDrawEnabled={false}
-                />
+                {showBadgePill && (
+                  <>
+                    <Rect
+                      x={-16 * pillScale}
+                      y={-(dotScreenRadius + 13.5) * pillScale}
+                      width={32 * pillScale}
+                      height={11.5 * pillScale}
+                      cornerRadius={5.75 * pillScale}
+                      fill={tr.status === 'yielding' ? '#059669' : tr.color}
+                      opacity={0.93}
+                      perfectDrawEnabled={false}
+                    />
+                    <KonvaText
+                      x={-16 * pillScale}
+                      y={-(dotScreenRadius + 11.7) * pillScale}
+                      width={32 * pillScale}
+                      align="center"
+                      text={tr.status === 'yielding' ? '待避' : tr.badgeCode.slice(0, 2)}
+                      fontSize={8 * pillScale}
+                      fontStyle="bold"
+                      fill="#ffffff"
+                      perfectDrawEnabled={false}
+                    />
+                  </>
+                )}
               </Group>
             );
           })}

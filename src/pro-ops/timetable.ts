@@ -4,7 +4,9 @@ import { measureSectionDistance } from './distance';
 import { ServiceKinematicsResult, solveServiceKinematics } from './kinematics';
 import { decomposeLineIntoSubCorridors, LineSubCorridor } from './reconcile';
 import {
+  cloneProOpsDocument,
   DEFAULT_PRO_TIMETABLE_CONFIG,
+  makeCanonicalLinePairKey,
   ProOpsDocument,
   ProRouteStep,
   ProServiceCategory,
@@ -89,12 +91,28 @@ export interface SectionCapacityStat {
   overSignalCapacity: boolean;
 }
 
+export interface ProConflictBottleneck {
+  key: string;
+  kind: 'missing_passing_track' | 'tight_headway';
+  lineId: string;
+  stationId: string;
+  stationName: string;
+  suggestedPassingStationId?: string;
+  suggestedPassingStationName?: string;
+  affectedTrainPairs: number;
+  sampleGapSec: number;
+  requiredGapSec: number;
+  summary: string;
+}
+
 export interface TimetableSolveResult {
   windowStartSec: number;
   windowEndSec: number;
   trains: ScheduledTrainRun[];
   overtakes: ProOvertakeEvent[];
   conflicts: ProHeadwayConflict[];
+  /** 将周期性重复的车次对冲突归并为直观的「结构性瓶颈点」（解释为什么只加一条快车会出现十几处红点） */
+  bottlenecks: ProConflictBottleneck[];
   sectionCapacity: SectionCapacityStat[];
   peakSectionTph: number;
   peakSectionPphpd: number;
@@ -116,6 +134,43 @@ export interface LiveTrainSnapshot {
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}::${b}` : `${b}::${a}`);
+
+export function createSharedTrackChecker(sharedTrackLinePairs?: string[]) {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let cur = x;
+    while (parent.has(cur) && parent.get(cur) !== cur) {
+      cur = parent.get(cur)!;
+    }
+    return cur;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a);
+    const rb = find(b);
+    if (ra === rb) return;
+    if (ra < rb) parent.set(rb, ra);
+    else parent.set(ra, rb);
+  };
+  (sharedTrackLinePairs || []).forEach((raw) => {
+    const [a, b] = raw.split('::');
+    if (a && b && a !== b) {
+      if (!parent.has(a)) parent.set(a, a);
+      if (!parent.has(b)) parent.set(b, b);
+      union(a, b);
+    }
+  });
+
+  return {
+    getRoot: (lineId: string) => find(lineId),
+    areShared: (lineAId: string, lineBId: string) => {
+      if (!lineAId || !lineBId) return false;
+      if (lineAId === lineBId) return true;
+      return find(lineAId) === find(lineBId);
+    },
+    hasDirectPair: (lineAId: string, lineBId: string) =>
+      Boolean(sharedTrackLinePairs?.includes(makeCanonicalLinePairKey(lineAId, lineBId)))
+  };
+}
 
 export function formatClockSec(totalSec: number, withSeconds = false): string {
   const safe = Math.max(0, Math.round(totalSec));
@@ -251,6 +306,29 @@ export function solveNetworkTimetable(params: {
   const defaultMinHeadwaySec = ttCfg.defaultMinHeadwaySec || 120;
 
   const stationMap = new Map(graph.stations.map((s) => [s.id, s]));
+  const sharedChecker = createSharedTrackChecker(proOps.sharedTrackLinePairs);
+
+  // 识别两站之间是否存在被显式声明为「共线共轨」的多条物理线路区间
+  const sectionsByStationPair = new Map<string, Section[]>();
+  graph.sections.forEach((sec) => {
+    const pk = pairKey(sec.startStationId, sec.endStationId);
+    const list = sectionsByStationPair.get(pk);
+    if (list) list.push(sec);
+    else sectionsByStationPair.set(pk, [sec]);
+  });
+
+  const getPhysicalTrackKey = (sectionId: string, lineId: string, fromStationId: string, toStationId: string): string => {
+    const pk = pairKey(fromStationId, toStationId);
+    const candidates = sectionsByStationPair.get(pk);
+    if (
+      candidates &&
+      candidates.length > 1 &&
+      candidates.some((other) => other.id !== sectionId && sharedChecker.areShared(lineId, other.lineId))
+    ) {
+      return `shared::${sharedChecker.getRoot(lineId)}::${fromStationId}->${toStationId}`;
+    }
+    return `sec::${sectionId}::${fromStationId}->${toStationId}`;
+  };
 
   const getLineMinHeadway = (lineId: string): number =>
     proOps.lineSpecs[lineId]?.minHeadwaySec || defaultMinHeadwaySec;
@@ -335,13 +413,13 @@ export function solveNetworkTimetable(params: {
     }
   };
 
-  // 构建同向物理区间遍历映射：`${sectionId}:${fromStationId}->${toStationId}`
+  // 构建同向物理轨道遍历映射（默认按 sectionId 隔离各自独立隧道；若声明共线共轨则合并检算）
   const buildDirectedEdgeMap = (): Map<string, DirectedStepTraversal[]> => {
     const map = new Map<string, DirectedStepTraversal[]>();
     trains.forEach((train) => {
       train.routeSteps.forEach((step, sIdx) => {
         if (step.kind !== 'section') return;
-        const key = `${step.sectionId}::${step.fromStationId}->${step.toStationId}`;
+        const key = getPhysicalTrackKey(step.sectionId, step.lineId, step.fromStationId, step.toStationId);
         const vMap = train.stepToVisitIndices[sIdx];
         const entry: DirectedStepTraversal = {
           train,
@@ -364,8 +442,8 @@ export function solveNetworkTimetable(params: {
   const overtakes: ProOvertakeEvent[] = [];
   const recordedOvertakePairs = new Set<string>();
 
-  // 2. 自动越行待避求解（最多迭代 3 轮以支持连续被两趟快车超越或连锁错避）
-  for (let iter = 0; iter < 3; iter += 1) {
+  // 2. 自动越行待避求解（迭代 6 轮，支持一趟快车连续超越多趟慢车或高频错避）
+  for (let iter = 0; iter < 6; iter += 1) {
     let anyAdjusted = false;
     const edgeMap = buildDirectedEdgeMap();
 
@@ -380,90 +458,95 @@ export function solveNetworkTimetable(params: {
 
       for (let i = 0; i < traversals.length - 1; i += 1) {
         const lead = traversals[i];
-        const trail = traversals[i + 1];
-        if (lead.train.trainId === trail.train.trainId) continue;
         if (!lead.train.autoOvertake) continue;
-        // 同交路同速车不互相越行
-        if (lead.train.patternId === trail.train.patternId) continue;
 
-        const minH = getLineMinHeadway(lead.lineId);
-        const leadFromV = lead.train.visits[lead.fromVisitIdx];
-        const trailFromV = trail.train.visits[trail.fromVisitIdx];
-        const leadToV = lead.train.visits[lead.toVisitIdx];
-        const trailToV = trail.train.visits[trail.toVisitIdx];
+        for (let j = i + 1; j <= Math.min(traversals.length - 1, i + 3); j += 1) {
+          const trail = traversals[j];
+          if (lead.train.trainId === trail.train.trainId) continue;
+          // 同交路同速车不互相越行
+          if (lead.train.patternId === trail.train.patternId) continue;
 
-        const leadDep = leadFromV.departureSec;
-        const trailDep = trailFromV.departureSec;
-        const leadArr = leadToV.arrivalSec;
-        const trailArr = trailToV.arrivalSec;
+          const minH = Math.max(getLineMinHeadway(lead.lineId), getLineMinHeadway(trail.lineId));
+          const leadFromV = lead.train.visits[lead.fromVisitIdx];
+          const trailFromV = trail.train.visits[trail.fromVisitIdx];
+          const leadToV = lead.train.visits[lead.toVisitIdx];
+          const trailToV = trail.train.visits[trail.toVisitIdx];
 
-        // 判断后方列车是否在本区间或到达站站台追近/超越前车
-        const toHasSiding = Boolean(proOps.stationProfiles[lead.toStationId]?.hasPassingTrack);
-        const leadPlatformClearSec =
-          !toHasSiding && lead.toVisitIdx < lead.train.visits.length - 1
-            ? leadToV.departureSec
-            : leadArr;
-        const catchesUp =
-          trailArr < leadPlatformClearSec + minH - 1 &&
-          trailArr - trailDep < leadPlatformClearSec - leadDep - 2;
-        if (!catchesUp) continue;
+          const leadDep = leadFromV.departureSec;
+          const trailDep = trailFromV.departureSec;
+          const leadArr = leadToV.arrivalSec;
+          const trailArr = trailToV.arrivalSec;
 
-        // 从本区间到达站（若前车先到且具备越行线）向前回溯至起点，寻找最近的越行待避站
-        let chosenSlowVisitIdx = -1;
-        let chosenFastVisitIdx = -1;
-        const turnoutClearSec = Math.min(60, Math.round(minH * 0.5));
+          // 判断后方列车是否在本区间或到达站站台追近/超越前车
+          const toHasSiding = Boolean(proOps.stationProfiles[lead.toStationId]?.hasPassingTrack);
+          const leadPlatformClearSec =
+            !toHasSiding && lead.toVisitIdx < lead.train.visits.length - 1
+              ? leadToV.departureSec
+              : leadArr;
+          const catchesUp =
+            trailArr < leadPlatformClearSec + minH - 1 &&
+            trailArr - trailDep < leadPlatformClearSec - leadDep - 2;
+          if (!catchesUp) continue;
 
-        for (let sv = lead.toVisitIdx; sv >= 1; sv -= 1) {
-          const slowVisit = lead.train.visits[sv];
-          if (!slowVisit.isStop || sv >= lead.train.visits.length - 1) continue;
-          if (!proOps.stationProfiles[slowVisit.stationId]?.hasPassingTrack) continue;
+          // 从本区间到达站（若前车先到且具备越行线）向前回溯至起点，寻找最近的越行待避站
+          let chosenSlowVisitIdx = -1;
+          let chosenFastVisitIdx = -1;
+          // 越行站咽喉道岔进副线出清仅需约 30s（CBTC 典型标准），避免 60s 过严导致明明设了越行站却漏判
+          const turnoutClearSec = Math.min(30, Math.round(minH * 0.25));
 
-          const fastVisit = trail.train.visits.find(
-            (fv) =>
-              fv.stationId === slowVisit.stationId &&
-              fv.arrivalSec >= slowVisit.arrivalSec + turnoutClearSec - 1 &&
-              fv.departureSec <= slowVisit.departureSec + 540
-          );
-          if (fastVisit) {
-            chosenSlowVisitIdx = sv;
-            chosenFastVisitIdx = fastVisit.visitIndex;
+          for (let sv = lead.toVisitIdx; sv >= 1; sv -= 1) {
+            const slowVisit = lead.train.visits[sv];
+            if (!slowVisit.isStop || sv >= lead.train.visits.length - 1) continue;
+            if (!proOps.stationProfiles[slowVisit.stationId]?.hasPassingTrack) continue;
+
+            const fastVisit = trail.train.visits.find(
+              (fv) =>
+                fv.stationId === slowVisit.stationId &&
+                fv.arrivalSec >= slowVisit.arrivalSec + turnoutClearSec - 1 &&
+                fv.departureSec <= slowVisit.departureSec + 600
+            );
+            if (fastVisit) {
+              chosenSlowVisitIdx = sv;
+              chosenFastVisitIdx = fastVisit.visitIndex;
+              break;
+            }
+          }
+
+          if (chosenSlowVisitIdx < 0 || chosenFastVisitIdx < 0) continue;
+
+          const slowPassVisit = lead.train.visits[chosenSlowVisitIdx];
+          const fastPassVisit = trail.train.visits[chosenFastVisitIdx];
+          const targetSlowDep = fastPassVisit.departureSec + minH;
+          const delta = targetSlowDep - slowPassVisit.departureSec;
+
+          if (delta > 1 && delta <= 660) {
+            applyOvertakeHoldAtVisit(lead.train, chosenSlowVisitIdx, delta);
+            anyAdjusted = true;
+
+            const pairId = `${lead.train.trainId}::${trail.train.trainId}::${slowPassVisit.stationId}`;
+            if (
+              !recordedOvertakePairs.has(pairId) &&
+              fastPassVisit.arrivalSec >= windowStartSec &&
+              fastPassVisit.arrivalSec <= windowEndSec
+            ) {
+              recordedOvertakePairs.add(pairId);
+              overtakes.push({
+                id: pairId,
+                stationId: slowPassVisit.stationId,
+                stationName: slowPassVisit.stationName,
+                lineId: slowPassVisit.lineId,
+                timeSec: Math.round(fastPassVisit.arrivalSec),
+                fastTrainId: trail.train.trainId,
+                fastTrainCode: trail.train.trainCode,
+                slowTrainId: lead.train.trainId,
+                slowTrainCode: lead.train.trainCode,
+                holdAddedSec: Math.round(delta)
+              });
+            }
             break;
           }
         }
-
-        if (chosenSlowVisitIdx < 0 || chosenFastVisitIdx < 0) continue;
-
-        const slowPassVisit = lead.train.visits[chosenSlowVisitIdx];
-        const fastPassVisit = trail.train.visits[chosenFastVisitIdx];
-        const targetSlowDep = fastPassVisit.departureSec + minH;
-        const delta = targetSlowDep - slowPassVisit.departureSec;
-
-        if (delta > 1 && delta <= 600) {
-          applyOvertakeHoldAtVisit(lead.train, chosenSlowVisitIdx, delta);
-          anyAdjusted = true;
-
-          const pairId = `${lead.train.trainId}::${trail.train.trainId}::${slowPassVisit.stationId}`;
-          if (
-            !recordedOvertakePairs.has(pairId) &&
-            fastPassVisit.arrivalSec >= windowStartSec &&
-            fastPassVisit.arrivalSec <= windowEndSec
-          ) {
-            recordedOvertakePairs.add(pairId);
-            overtakes.push({
-              id: pairId,
-              stationId: slowPassVisit.stationId,
-              stationName: slowPassVisit.stationName,
-              lineId: slowPassVisit.lineId,
-              timeSec: Math.round(fastPassVisit.arrivalSec),
-              fastTrainId: trail.train.trainId,
-              fastTrainCode: trail.train.trainCode,
-              slowTrainId: lead.train.trainId,
-              slowTrainCode: lead.train.trainCode,
-              holdAddedSec: Math.round(delta)
-            });
-          }
-          break;
-        }
+        if (anyAdjusted) break;
       }
     });
 
@@ -570,6 +653,52 @@ export function solveNetworkTimetable(params: {
     conflicts.push(c);
   });
 
+  // 3.5 将周期性车次对冲突聚类为直观的「结构性瓶颈原因」（避免用户疑惑为什么 1 条快车产生 20 处冲突）
+  const bottleneckMap = new Map<string, ProConflictBottleneck>();
+  conflicts.forEach((c) => {
+    const isMissingSiding = Boolean(c.suggestedPassingStationId) || c.isInSectionOvertake;
+    const bnKey = isMissingSiding
+      ? `pass::${sharedChecker.getRoot(c.lineId)}::${c.suggestedPassingStationId || c.stationId}`
+      : `headway::${sharedChecker.getRoot(c.lineId)}::${c.stationId}`;
+    const existing = bottleneckMap.get(bnKey);
+    if (existing) {
+      existing.affectedTrainPairs += 1;
+      if (c.actualGapSec < existing.sampleGapSec) existing.sampleGapSec = c.actualGapSec;
+      existing.summary =
+        existing.kind === 'missing_passing_track'
+          ? existing.suggestedPassingStationName
+            ? `快车在「${existing.stationName}」一带追上普通车（1小时内双向重复 ${existing.affectedTrainPairs} 车次），需在「${existing.suggestedPassingStationName}」设越行副线让行`
+            : `快车在「${existing.stationName}」追越前车（重复 ${existing.affectedTrainPairs} 车次），沿途缺少可停靠待避的越行站`
+          : `在「${existing.stationName}」相邻车次间隔仅 ${Math.max(0, existing.sampleGapSec)}s（要求 ≥${existing.requiredGapSec}s，重复 ${existing.affectedTrainPairs} 车次），需错峰发车相位`;
+      return;
+    }
+    const kind: ProConflictBottleneck['kind'] = isMissingSiding ? 'missing_passing_track' : 'tight_headway';
+    const summary =
+      kind === 'missing_passing_track'
+        ? c.suggestedPassingStationName
+          ? `快车在「${c.stationName}」一带追上普通车，需在「${c.suggestedPassingStationName}」启用越行副线让行`
+          : `快车在「${c.stationName}」追越前车，沿途缺少可停靠待避的越行站`
+        : `在「${c.stationName}」相邻车次间隔仅 ${Math.max(0, c.actualGapSec)}s（要求 ≥${c.requiredGapSec}s），需错峰发车相位`;
+
+    bottleneckMap.set(bnKey, {
+      key: bnKey,
+      kind,
+      lineId: c.lineId,
+      stationId: c.stationId,
+      stationName: c.stationName,
+      ...(c.suggestedPassingStationId ? { suggestedPassingStationId: c.suggestedPassingStationId } : {}),
+      ...(c.suggestedPassingStationName ? { suggestedPassingStationName: c.suggestedPassingStationName } : {}),
+      affectedTrainPairs: 1,
+      sampleGapSec: c.actualGapSec,
+      requiredGapSec: c.requiredGapSec,
+      summary
+    });
+  });
+
+  const bottlenecks = Array.from(bottleneckMap.values()).sort(
+    (a, b) => b.affectedTrainPairs - a.affectedTrainPairs
+  );
+
   // 4. 核算全网各物理区间的单向合并小时发车对数（tph）与断面额定小时运能（pphpd）
   const sectionStatsMap = new Map<string, { tph: number; pphpd: number; sec: Section }>();
   graph.sections.forEach((sec) => {
@@ -585,7 +714,15 @@ export function solveNetworkTimetable(params: {
 
     const visitedSectionIds = new Set<string>();
     pattern.routeSteps.forEach((step) => {
-      if (step.kind === 'section') visitedSectionIds.add(step.sectionId);
+      if (step.kind !== 'section') return;
+      visitedSectionIds.add(step.sectionId);
+      // 若与其他线路区间设为「共线共轨」，合并计入共轨区段发车密度与运能
+      const pk = pairKey(step.fromStationId, step.toStationId);
+      (sectionsByStationPair.get(pk) || []).forEach((otherSec) => {
+        if (otherSec.id !== step.sectionId && sharedChecker.areShared(step.lineId, otherSec.lineId)) {
+          visitedSectionIds.add(otherSec.id);
+        }
+      });
     });
     visitedSectionIds.forEach((secId) => {
       const cur = sectionStatsMap.get(secId);
@@ -625,6 +762,7 @@ export function solveNetworkTimetable(params: {
     trains,
     overtakes,
     conflicts,
+    bottlenecks,
     sectionCapacity,
     peakSectionTph,
     peakSectionPphpd
@@ -683,6 +821,120 @@ export function recommendOptimalPhaseOffset(params: {
     bestOffsetSec,
     conflictCount: bestConflicts,
     totalHoldSec: bestHold
+  };
+}
+
+/**
+ * 一键自动消解走廊冲突（按需自动启用推荐越行待避站 + 对快车/跨线/小交路执行最优发车错峰相位搜索）。
+ */
+export function autoResolveCorridorConflicts(params: {
+  graph: MapGraph;
+  proOps: ProOpsDocument;
+  validations: Readonly<Record<string, ProServiceValidation>>;
+  kinematicsMap: Readonly<Record<string, ServiceKinematicsResult>>;
+  targetLineId?: string | null;
+  isGeoMode: boolean;
+}): {
+  nextProOps: ProOpsDocument;
+  addedPassingStationNames: string[];
+  adjustedPatternNames: string[];
+  remainingConflicts: number;
+} {
+  const { graph, proOps, validations, kinematicsMap, targetLineId, isGeoMode } = params;
+  let working = cloneProOpsDocument(proOps);
+  const sharedChecker = createSharedTrackChecker(working.sharedTrackLinePairs);
+  const stationMap = new Map(graph.stations.map((s) => [s.id, s]));
+  const addedPassingStationNames: string[] = [];
+  const adjustedPatternSet = new Set<string>();
+
+  const filterRelevantConflicts = (res: TimetableSolveResult) =>
+    targetLineId
+      ? res.conflicts.filter((c) => sharedChecker.areShared(c.lineId, targetLineId))
+      : res.conflicts;
+
+  // 第一阶段：按结构性瓶颈最多自动启用 3 座关键越行配线站
+  for (let round = 0; round < 3; round += 1) {
+    const solved = solveNetworkTimetable({
+      graph,
+      proOps: working,
+      validations,
+      kinematicsMap,
+      isGeoMode
+    });
+    const relBns = targetLineId
+      ? solved.bottlenecks.filter((b) => sharedChecker.areShared(b.lineId, targetLineId))
+      : solved.bottlenecks;
+    const passCandidate = relBns.find(
+      (b) => b.suggestedPassingStationId && !working.stationProfiles[b.suggestedPassingStationId]?.hasPassingTrack
+    );
+    if (!passCandidate || !passCandidate.suggestedPassingStationId) break;
+    const sid = passCandidate.suggestedPassingStationId;
+    working = {
+      ...working,
+      stationProfiles: {
+        ...working.stationProfiles,
+        [sid]: {
+          ...working.stationProfiles[sid],
+          hasPassingTrack: true
+        }
+      }
+    };
+    addedPassingStationNames.push(stationMap.get(sid)?.name || passCandidate.suggestedPassingStationName || sid);
+  }
+
+  // 第二阶段：对涉及该走廊的非基准交路（快车/跨线/小交路或第2条起交路）自动搜索错峰相位
+  const relevantPatterns = working.servicePatterns.filter((p) => {
+    if (validations[p.id]?.status !== 'valid') return false;
+    if (!targetLineId) return true;
+    return p.routeSteps.some(
+      (s) => s.kind === 'section' && sharedChecker.areShared(s.lineId, targetLineId)
+    );
+  });
+
+  relevantPatterns.forEach((pat, idx) => {
+    // 保留第 1 条基准普通车作为相位 0 锚点，对其余交路逐一对齐最优错峰秒数
+    if (idx === 0 && pat.category === 'local') return;
+    const currentSolved = solveNetworkTimetable({
+      graph,
+      proOps: working,
+      validations,
+      kinematicsMap,
+      isGeoMode
+    });
+    if (filterRelevantConflicts(currentSolved).length === 0 && currentSolved.overtakes.length === 0) return;
+
+    const rec = recommendOptimalPhaseOffset({
+      graph,
+      proOps: working,
+      validations,
+      kinematicsMap,
+      targetPatternId: pat.id,
+      isGeoMode
+    });
+    if (rec.bestOffsetSec !== (pat.firstDepartureOffsetSec || 0)) {
+      working = {
+        ...working,
+        servicePatterns: working.servicePatterns.map((item) =>
+          item.id === pat.id ? { ...item, firstDepartureOffsetSec: rec.bestOffsetSec } : item
+        )
+      };
+      adjustedPatternSet.add(pat.name);
+    }
+  });
+
+  const finalRes = solveNetworkTimetable({
+    graph,
+    proOps: working,
+    validations,
+    kinematicsMap,
+    isGeoMode
+  });
+
+  return {
+    nextProOps: working,
+    addedPassingStationNames,
+    adjustedPatternNames: Array.from(adjustedPatternSet),
+    remainingConflicts: filterRelevantConflicts(finalRes).length
   };
 }
 
@@ -818,11 +1070,13 @@ export interface MareyDiagramModel {
   line: Line | null;
   subCorridors: LineSubCorridor[];
   activeSubCorridorId: string;
+  isClosedLoop: boolean;
   windowStartSec: number;
   windowEndSec: number;
   stations: MareyAxisStation[];
   threads: MareyTrainThread[];
   markers: MareyMarker[];
+  bottlenecks: ProConflictBottleneck[];
 }
 
 export function buildMareyDiagramModel(params: {
@@ -856,11 +1110,13 @@ export function buildMareyDiagramModel(params: {
       line: null,
       subCorridors: [],
       activeSubCorridorId: '',
+      isClosedLoop: false,
       windowStartSec: timetable.windowStartSec,
       windowEndSec: timetable.windowEndSec,
       stations: [],
       threads: [],
-      markers: []
+      markers: [],
+      bottlenecks: []
     };
   }
 
@@ -878,16 +1134,19 @@ export function buildMareyDiagramModel(params: {
       line,
       subCorridors,
       activeSubCorridorId: activeSub?.id || '',
+      isClosedLoop: false,
       windowStartSec: timetable.windowStartSec,
       windowEndSec: timetable.windowEndSec,
       stations: [],
       threads: [],
-      markers: []
+      markers: [],
+      bottlenecks: []
     };
   }
 
   const stationMap = new Map(graph.stations.map((s) => [s.id, s]));
   const sectionMap = new Map(graph.sections.map((s) => [s.id, s]));
+  const sharedChecker = createSharedTrackChecker(proOps.sharedTrackLinePairs);
 
   // 计算纵轴累计里程与混合可读归一化位置（70% 真实比例 + 30% 等距保底，防止极短区间站名重叠）
   const rawMeters: number[] = [0];
@@ -928,13 +1187,21 @@ export function buildMareyDiagramModel(params: {
     };
   });
 
-  // 相邻走廊边索引：pairKey(u, v) -> { topIdx, bottomIdx }
-  const corridorEdges = new Map<string, { topIdx: number; bottomIdx: number }>();
+  // 相邻走廊物理区间边索引：pairKey(u, v) -> Array<{ topIdx, bottomIdx, sectionId }>
+  const corridorEdges = new Map<string, Array<{ topIdx: number; bottomIdx: number; sectionId?: string }>>();
+  const corridorSectionIds = new Set<string>();
   for (let i = 0; i < axisStations.length - 1; i += 1) {
-    corridorEdges.set(pairKey(axisStations[i].stationId, axisStations[i + 1].stationId), {
+    const subStep = activeSub.steps[i];
+    const secId = subStep && subStep.kind === 'section' ? subStep.sectionId : undefined;
+    if (secId) corridorSectionIds.add(secId);
+    const pk = pairKey(axisStations[i].stationId, axisStations[i + 1].stationId);
+    const list = corridorEdges.get(pk) || [];
+    list.push({
       topIdx: i,
-      bottomIdx: i + 1
+      bottomIdx: i + 1,
+      sectionId: secId
     });
+    corridorEdges.set(pk, list);
   }
 
   const threads: MareyTrainThread[] = [];
@@ -942,7 +1209,7 @@ export function buildMareyDiagramModel(params: {
   timetable.trains.forEach((train) => {
     if (directionFilter !== 'both' && train.direction !== directionFilter) return;
 
-    // 扫描该车次在当前子走廊上的连续运行片段
+    // 扫描该车次在当前子走廊上的连续物理轨道运行片段（严格隔离独立双隧并行线！）
     let currentPts: MareyThreadPoint[] = [];
     let currentStartVisit = -1;
     let lastAxisIdx = -1;
@@ -969,7 +1236,6 @@ export function buildMareyDiagramModel(params: {
     const appendVisitToThread = (v: TrainVisitSchedule, axisIdx: number, isFirstInSeg: boolean) => {
       const yRatio = axisStations[axisIdx].yRatio;
       if (isFirstInSeg) {
-        // 片段首站：若在此站停靠且非全线始发，同时画到达与发车；始发站直接从发车时刻起笔
         if (v.visitIndex > 0 && v.isStop && v.departureSec > v.arrivalSec) {
           currentPts.push({ timeSec: v.arrivalSec, yRatio, stationId: v.stationId, isStop: true });
         }
@@ -1000,21 +1266,49 @@ export function buildMareyDiagramModel(params: {
       }
     };
 
-    for (let vIdx = 0; vIdx < train.visits.length - 1; vIdx += 1) {
-      const vA = train.visits[vIdx];
-      const vB = train.visits[vIdx + 1];
-      const edge = corridorEdges.get(pairKey(vA.stationId, vB.stationId));
-
-      if (!edge) {
-        if (currentPts.length > 0) flushSegment(vIdx);
+    for (let sIdx = 0; sIdx < train.routeSteps.length; sIdx += 1) {
+      const step = train.routeSteps[sIdx];
+      const vMap = train.stepToVisitIndices[sIdx];
+      if (!vMap || vMap.fromVisitIdx === vMap.toVisitIdx) continue;
+      if (step.kind !== 'section') {
+        if (currentPts.length > 0) flushSegment(vMap.fromVisitIdx);
         continue;
       }
 
-      const aIdx = axisStations[edge.topIdx].stationId === vA.stationId ? edge.topIdx : edge.bottomIdx;
-      const bIdx = aIdx === edge.topIdx ? edge.bottomIdx : edge.topIdx;
+      const vA = train.visits[vMap.fromVisitIdx];
+      const vB = train.visits[vMap.toVisitIdx];
+      const rawEdges = corridorEdges.get(pairKey(vA.stationId, vB.stationId));
+      // 关键过滤：只有本线物理区间（含经道岔跨入本线的直通车）或被显式标为「共线共轨」的区间才铺画到本运行图！
+      const matchedEdges = (rawEdges || []).filter(
+        (ce) =>
+          (ce.sectionId && ce.sectionId === step.sectionId) ||
+          sharedChecker.areShared(step.lineId, line.id)
+      );
+
+      if (matchedEdges.length === 0) {
+        if (currentPts.length > 0) flushSegment(vMap.fromVisitIdx);
+        continue;
+      }
+
+      // 闭合环线首末同站时，优先衔接 lastAxisIdx 相邻的纵轴索引，确保逆向（外环）运行线连续贯通！
+      const edge =
+        matchedEdges.find((ce) => {
+          const candA = axisStations[ce.topIdx].stationId === vA.stationId ? ce.topIdx : ce.bottomIdx;
+          return lastAxisIdx >= 0 && candA === lastAxisIdx;
+        }) || matchedEdges[0];
+
+      let aIdx: number;
+      let bIdx: number;
+      if (axisStations[edge.topIdx].stationId === vA.stationId && axisStations[edge.bottomIdx].stationId === vB.stationId) {
+        aIdx = edge.topIdx;
+        bIdx = edge.bottomIdx;
+      } else {
+        aIdx = edge.bottomIdx;
+        bIdx = edge.topIdx;
+      }
 
       if (currentPts.length === 0) {
-        currentStartVisit = vIdx;
+        currentStartVisit = vMap.fromVisitIdx;
         appendVisitToThread(vA, aIdx, true);
         appendVisitToThread(vB, bIdx, false);
         lastAxisIdx = bIdx;
@@ -1022,8 +1316,8 @@ export function buildMareyDiagramModel(params: {
         appendVisitToThread(vB, bIdx, false);
         lastAxisIdx = bIdx;
       } else {
-        flushSegment(vIdx);
-        currentStartVisit = vIdx;
+        flushSegment(vMap.fromVisitIdx);
+        currentStartVisit = vMap.fromVisitIdx;
         appendVisitToThread(vA, aIdx, true);
         appendVisitToThread(vB, bIdx, false);
         lastAxisIdx = bIdx;
@@ -1035,7 +1329,7 @@ export function buildMareyDiagramModel(params: {
     }
   });
 
-  // 投影越行与冲突标记到纵轴车站
+  // 投影越行与冲突标记到纵轴车站（同样严格过滤掉独立双隧并行线的事件）
   const stationToAxis = new Map<string, MareyAxisStation>();
   axisStations.forEach((as) => {
     if (!stationToAxis.has(as.stationId)) stationToAxis.set(as.stationId, as);
@@ -1044,6 +1338,7 @@ export function buildMareyDiagramModel(params: {
   const markers: MareyMarker[] = [];
 
   timetable.overtakes.forEach((ov) => {
+    if (!sharedChecker.areShared(ov.lineId, line.id)) return;
     const ax = stationToAxis.get(ov.stationId);
     if (!ax) return;
     markers.push({
@@ -1058,6 +1353,7 @@ export function buildMareyDiagramModel(params: {
   });
 
   timetable.conflicts.forEach((cf) => {
+    if (!corridorSectionIds.has(cf.sectionId) && !sharedChecker.areShared(cf.lineId, line.id)) return;
     const ax = stationToAxis.get(cf.stationId);
     if (!ax) return;
     markers.push({
@@ -1068,7 +1364,7 @@ export function buildMareyDiagramModel(params: {
       stationId: cf.stationId,
       stationName: cf.stationName,
       label: cf.isInSectionOvertake
-        ? `${formatClockSec(cf.timeSec)} 区间追尾冲突：${cf.trailingTrainCode} 在无越行线区段追越 ${cf.leadingTrainCode}`
+        ? `${formatClockSec(cf.timeSec)} 区间追越冲突：${cf.trailingTrainCode} 在无越行线区段追上 ${cf.leadingTrainCode}`
         : `${formatClockSec(cf.timeSec)} 追踪间隔不足：${cf.trailingTrainCode} 距 ${cf.leadingTrainCode} 仅 ${cf.actualGapSec}s（要求 ≥${cf.requiredGapSec}s）`,
       ...(cf.suggestedPassingStationId
         ? {
@@ -1078,6 +1374,10 @@ export function buildMareyDiagramModel(params: {
         : {})
     });
   });
+
+  const corridorBottlenecks = timetable.bottlenecks.filter(
+    (b) => sharedChecker.areShared(b.lineId, line.id) && stationToAxis.has(b.stationId)
+  );
 
   const totalKm = axisStations[axisStations.length - 1]?.cumulativeKm || 0;
   const title = `${line.name}${subCorridors.length > 1 ? ` · ${activeSub.label}` : ''} · 铺画斜线运行图`;
@@ -1091,11 +1391,13 @@ export function buildMareyDiagramModel(params: {
     line,
     subCorridors,
     activeSubCorridorId: activeSub.id,
+    isClosedLoop: Boolean(activeSub.isClosedLoop || activeSub.kind === 'loop'),
     windowStartSec: timetable.windowStartSec,
     windowEndSec: timetable.windowEndSec,
     stations: axisStations,
     threads,
-    markers
+    markers,
+    bottlenecks: corridorBottlenecks
   };
 }
 

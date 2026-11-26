@@ -130,6 +130,12 @@ export function reconcileProOps(graph: MapGraph, doc: ProOpsDocument): Reconcile
   Object.keys(next.sectionOverrides).forEach((sectionId) => {
     if (!sectionMap.has(sectionId)) delete next.sectionOverrides[sectionId];
   });
+  if (Array.isArray(next.sharedTrackLinePairs)) {
+    next.sharedTrackLinePairs = next.sharedTrackLinePairs.filter((pairKeyStr) => {
+      const [a, b] = pairKeyStr.split('::');
+      return Boolean(a && b && lineMap.has(a) && lineMap.has(b) && a !== b);
+    });
+  }
 
   const lineStationSets = new Map<string, Set<string>>();
   graph.lines.forEach((line) => {
@@ -910,7 +916,9 @@ export function createLineAllStopPattern(
   const suffix =
     variants.length > 1 && chosen
       ? ` ${chosen.label.split('（')[0]}`
-      : ' 全程普通车';
+      : chosen?.isLoop
+        ? ' 双向环行普通车'
+        : ' 全程普通车';
 
   return {
     id: createId(),
@@ -921,7 +929,7 @@ export function createLineAllStopPattern(
     stopAtStart: true,
     routeSteps,
     headwaySec: 240,
-    bidirectional: !chosen?.isLoop
+    bidirectional: true
   };
 }
 
@@ -1004,6 +1012,7 @@ export function createLineExpressPattern(
     stopAtStart: true,
     routeSteps: expressSteps,
     headwaySec: 360,
-    bidirectional: !chosen?.isLoop
+    firstDepartureOffsetSec: 120,
+    bidirectional: true
   };
 }

@@ -214,6 +214,19 @@ function normalizeProOpsDocument(raw) {
     });
   }
 
+  const sharedTrackSet = new Set();
+  if (Array.isArray(raw.sharedTrackLinePairs)) {
+    raw.sharedTrackLinePairs.slice(0, 300).forEach((rawPair) => {
+      if (typeof rawPair !== 'string') return;
+      const parts = rawPair.split('::').map((s) => cleanStr(s, 96));
+      if (parts.length === 2 && parts[0] && parts[1] && parts[0] !== parts[1]) {
+        const key = parts[0] < parts[1] ? `${parts[0]}::${parts[1]}` : `${parts[1]}::${parts[0]}`;
+        sharedTrackSet.add(key);
+      }
+    });
+  }
+  const sharedTrackLinePairs = Array.from(sharedTrackSet);
+
   const rawTt = raw.timetableConfig && typeof raw.timetableConfig === 'object' ? raw.timetableConfig : {};
   const timetableConfig = {
     windowStartMin: Math.round(clampNum(rawTt.windowStartMin, 420, 0, 1380)),
@@ -228,6 +241,7 @@ function normalizeProOpsDocument(raw) {
     stationProfiles,
     sectionOverrides,
     trackConnections,
+    sharedTrackLinePairs,
     servicePatterns,
     timetableConfig
   };

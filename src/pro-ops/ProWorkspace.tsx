@@ -31,9 +31,11 @@ import {
   rasterizeSvgToPngBlob
 } from './corridorDiagram';
 import {
+  autoResolveCorridorConflicts,
   buildMareyDiagramModel,
   buildMareyDiagramSvg,
   computeLiveTrainSnapshots,
+  createSharedTrackChecker,
   formatClockSec,
   recommendOptimalPhaseOffset,
   solveNetworkTimetable
@@ -43,6 +45,7 @@ import {
   createDefaultLineSpec,
   createEmptyProOpsDocument,
   DEFAULT_PRO_TIMETABLE_CONFIG,
+  makeCanonicalLinePairKey,
   normalizeProOpsDocument,
   ProOpsDocument,
   ProRollingStockCode,
@@ -519,6 +522,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
         selectedSectionId={selectedSectionId}
         rulerPoints={rulerStations}
         liveTrains={liveTrainSnapshots}
+        amapZoom={mapSettings.baseMap.amap?.zoom ?? 12}
       />
     ),
     [
@@ -532,7 +536,8 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       selectedStationId,
       selectedSectionId,
       rulerStations,
-      liveTrainSnapshots
+      liveTrainSnapshots,
+      mapSettings.baseMap.amap?.zoom
     ]
   );
 
@@ -626,15 +631,69 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
 
   const handleAddExpressPattern = () => {
     if (!targetLineId) return;
-    const p = createLineExpressPattern(graph, targetLineId, targetVariantKey || undefined);
-    if (!p) {
+    const rawExpress = createLineExpressPattern(graph, targetLineId, targetVariantKey || undefined);
+    if (!rawExpress) {
       message.warning('该线路尚无有效连接区间');
       return;
     }
+    // 新建快车时自动结合本线既有交路计算最优错峰发车秒数，避免与普通车 0 秒同发撞车
+    const trialDoc: ProOpsDocument = {
+      ...reconciledState.proOps,
+      servicePatterns: [...reconciledState.proOps.servicePatterns, rawExpress]
+    };
+    const trialRec = reconcileProOps(graph, trialDoc);
+    const trialKinMap: Record<string, ServiceKinematicsResult> = {
+      ...kinematicsMap,
+      [rawExpress.id]: solveServiceKinematics(
+        graph,
+        trialRec.proOps,
+        rawExpress,
+        trialRec.validations[rawExpress.id],
+        isGeoMode
+      )
+    };
+    const opt = recommendOptimalPhaseOffset({
+      graph,
+      proOps: trialRec.proOps,
+      validations: trialRec.validations,
+      kinematicsMap: trialKinMap,
+      targetPatternId: rawExpress.id,
+      isGeoMode
+    });
+    const p: ProServicePattern = {
+      ...rawExpress,
+      firstDepartureOffsetSec: opt.bestOffsetSec
+    };
     commitDoc((prev) => ({ ...prev, servicePatterns: [...prev.servicePatterns, p] }));
     setSelectedPatternId(p.id);
     setCorridorLineId(targetLineId);
-    message.success(`已创建「${p.name}」`);
+    message.success(`已创建「${p.name}」（自动错峰 +${opt.bestOffsetSec}s）`);
+  };
+
+  const handleAutoResolveCorridor = (lineIdOverride?: string) => {
+    const res = autoResolveCorridorConflicts({
+      graph,
+      proOps: reconciledState.proOps,
+      validations,
+      kinematicsMap,
+      targetLineId: lineIdOverride || corridorLineId || null,
+      isGeoMode
+    });
+    commitDoc(res.nextProOps);
+    const actions: string[] = [];
+    if (res.addedPassingStationNames.length > 0) {
+      actions.push(`已在「${res.addedPassingStationNames.join('、')}」启用越行配线`);
+    }
+    if (res.adjustedPatternNames.length > 0) {
+      actions.push(`已优化快慢车错峰相位`);
+    }
+    if (res.remainingConflicts === 0) {
+      message.success(`${actions.length ? actions.join('，') + ' · ' : ''}走廊运行图冲突已全部消除！`);
+    } else {
+      message.info(
+        `${actions.length ? actions.join('，') + ' · ' : ''}剩余 ${res.remainingConflicts} 处冲突（可能已超出信号最小追踪容量上限，建议适当拉大发车间隔）`
+      );
+    }
   };
 
   const handleAutoOptimizeOffset = (pattern: ProServicePattern) => {
@@ -709,7 +768,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       id: createId(),
       name:
         stStartId === stEndId
-          ? `${line.name} 环线 (${sName}始发)`
+          ? `${line.name} 双向环行 (${sName}始发)`
           : `${line.name} 区间 (${sName}-${eName})`,
       code: stStartId === stEndId ? '环行' : '区间',
       color: line.color,
@@ -719,7 +778,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       headwaySec: 300,
       firstDepartureOffsetSec: 120,
       autoOvertake: true,
-      bidirectional: stStartId !== stEndId
+      bidirectional: true
     };
     commitDoc((prev) => ({
       ...prev,
@@ -734,6 +793,84 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     setCorridorLineId(line.id);
     setShortTurnModalOpen(false);
     message.success(`已创建交路「${pattern.name}」`);
+  };
+
+  // 识别两线路在相邻车站间并行重叠的区间走廊（用于让用户清晰切换「各自独立双隧」vs「共线共轨运行」）
+  const parallelOverlapCorridors = useMemo(() => {
+    const pairnorm = (a: string, b: string) => (a < b ? `${a}::${b}` : `${b}::${a}`);
+    const stationMapLocal = new Map(stations.map((s) => [s.id, s]));
+    const lineEdgeSets = new Map<string, Map<string, [string, string]>>();
+    sections.forEach((sec) => {
+      let m = lineEdgeSets.get(sec.lineId);
+      if (!m) {
+        m = new Map();
+        lineEdgeSets.set(sec.lineId, m);
+      }
+      m.set(pairnorm(sec.startStationId, sec.endStationId), [sec.startStationId, sec.endStationId]);
+    });
+
+    const items: Array<{
+      pairKey: string;
+      lineA: Line;
+      lineB: Line;
+      sharedSectionCount: number;
+      sampleRangeText: string;
+      isSharedTrack: boolean;
+    }> = [];
+    const activeSharedSet = new Set(reconciledState.proOps.sharedTrackLinePairs || []);
+
+    for (let i = 0; i < lines.length; i += 1) {
+      for (let j = i + 1; j < lines.length; j += 1) {
+        const edgesA = lineEdgeSets.get(lines[i].id);
+        const edgesB = lineEdgeSets.get(lines[j].id);
+        if (!edgesA || !edgesB) continue;
+        const commonStations = new Set<string>();
+        let overlapCount = 0;
+        edgesA.forEach(([u, v], ek) => {
+          if (edgesB.has(ek)) {
+            overlapCount += 1;
+            commonStations.add(u);
+            commonStations.add(v);
+          }
+        });
+        if (overlapCount === 0) continue;
+        const stNames = Array.from(commonStations)
+          .map((sid) => stationMapLocal.get(sid)?.name || sid)
+          .filter(Boolean);
+        const sampleRangeText =
+          stNames.length >= 2
+            ? `${stNames[0]} — ${stNames[stNames.length - 1]}（重叠 ${overlapCount} 区间）`
+            : `重叠 ${overlapCount} 区间`;
+        const pk = makeCanonicalLinePairKey(lines[i].id, lines[j].id);
+        items.push({
+          pairKey: pk,
+          lineA: lines[i],
+          lineB: lines[j],
+          sharedSectionCount: overlapCount,
+          sampleRangeText,
+          isSharedTrack: activeSharedSet.has(pk)
+        });
+      }
+    }
+    return items;
+  }, [lines, sections, stations, reconciledState.proOps.sharedTrackLinePairs]);
+
+  const handleToggleSharedTrackPair = (pairKeyStr: string, lineAName: string, lineBName: string) => {
+    const currentlyShared = Boolean(reconciledState.proOps.sharedTrackLinePairs?.includes(pairKeyStr));
+    commitDoc((prev) => {
+      const set = new Set(prev.sharedTrackLinePairs || []);
+      if (set.has(pairKeyStr)) set.delete(pairKeyStr);
+      else set.add(pairKeyStr);
+      return {
+        ...prev,
+        sharedTrackLinePairs: Array.from(set)
+      };
+    });
+    message.success(
+      currentlyShared
+        ? `已将「${lineAName} ∥ ${lineBName}」恢复为各自独立双隧（运行图互不混入）`
+        : `已将「${lineAName} ∥ ${lineBName}」设为共线共轨运行（合并运行图与追踪检算）`
+    );
   };
 
   const sharedJunctionCandidates = useMemo(() => {
@@ -1176,9 +1313,10 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     ? sections.find((s) => s.id === selectedSectionId)
     : undefined;
 
-  // 当前选定线路走廊的最大合并发车密度统计
+  // 当前选定线路走廊的最大合并发车密度统计（含与本线显式共线共轨的区段）
   const corridorCapacitySummary = useMemo(() => {
-    const secs = timetableResult.sectionCapacity.filter((s) => s.lineId === corridorLineId);
+    const checker = createSharedTrackChecker(reconciledState.proOps.sharedTrackLinePairs);
+    const secs = timetableResult.sectionCapacity.filter((s) => checker.areShared(s.lineId, corridorLineId));
     if (secs.length === 0) return null;
     let maxTph = 0;
     let maxPphpd = 0;
@@ -1476,14 +1614,29 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                           </div>
                         </div>
 
-                        <div className="pro-quick-grid">
+                        <div className="pro-quick-grid" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
+                          <button
+                            type="button"
+                            className={`pro-btn pro-btn--sm${activePattern.bidirectional ? ' pro-btn--primary' : ''}`}
+                            onClick={() =>
+                              commitDoc((prev) => ({
+                                ...prev,
+                                servicePatterns: prev.servicePatterns.map((p) =>
+                                  p.id === activePattern.id ? { ...p, bidirectional: !p.bidirectional } : p
+                                )
+                              }))
+                            }
+                            title="开启后同时铺画上下行（环线同时铺画顺时针内环与逆时针外环）；关闭则为单向环行或单向车"
+                          >
+                            {activePattern.bidirectional ? '⇄ 双向对开' : '→ 单向开行'}
+                          </button>
                           <button
                             type="button"
                             className="pro-btn pro-btn--sm"
                             onClick={() => handleAutoOptimizeOffset(activePattern)}
                             title="自动搜索最小化运行图追踪冲突与待避延时的首班发车错峰秒数"
                           >
-                            智能错峰相位
+                            智能错峰
                           </button>
                           <button
                             type="button"
@@ -1498,7 +1651,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                             }
                             title="开启后，该交路列车在设有越行配线的车站被后方快车追近时会自动延长停站让行"
                           >
-                            {autoOvertakeOn ? '✓ 越行自动让行' : '越行不让行'}
+                            {autoOvertakeOn ? '✓ 自动让行' : '不让行'}
                           </button>
                         </div>
 
@@ -1910,6 +2063,52 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                 <>
                   <div className="pro-card">
                     <div className="pro-card__title">
+                      <span>并行重叠区间：独立双隧 vs 共线共轨</span>
+                    </div>
+                    <div className="pro-card__hint">
+                      两条线路经过相同相邻车站时，默认按<strong>「各自独立双隧」</strong>隔离铺画（互不混入对方运行图）；若现实中共用同一对轨道（如上海3/4号线），可切换为<strong>「共线共轨」</strong>合并检算。
+                    </div>
+                    {parallelOverlapCorridors.length === 0 ? (
+                      <div className="pro-card__hint" style={{ opacity: 0.78 }}>
+                        当前线网暂无两线并行重叠区间。
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {parallelOverlapCorridors.map((item) => (
+                          <div key={item.pairKey} className="pro-visit-row" style={{ gap: 8 }}>
+                            <div
+                              className="pro-visit-row__left"
+                              style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 1 }}
+                            >
+                              <span className="pro-visit-row__name">
+                                {item.lineA.name} ∥ {item.lineB.name}
+                              </span>
+                              <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+                                {item.sampleRangeText}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              className={`pro-btn pro-btn--sm${item.isSharedTrack ? ' pro-btn--primary' : ''}`}
+                              style={{ flexShrink: 0 }}
+                              onClick={() =>
+                                handleToggleSharedTrackPair(
+                                  item.pairKey,
+                                  item.lineA.name,
+                                  item.lineB.name
+                                )
+                              }
+                            >
+                              {item.isSharedTrack ? '✓ 共线共轨' : '独立双隧'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pro-card">
+                    <div className="pro-card__title">
                       <span>跨线物理轨行连接</span>
                     </div>
                     <div className="pro-card__hint">
@@ -2252,8 +2451,8 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                       onChange={setMareyDirection}
                       options={[
                         { value: 'both', label: '双向' },
-                        { value: 'up', label: '上行' },
-                        { value: 'down', label: '下行' }
+                        { value: 'up', label: mareyModel.isClosedLoop ? '顺向(内环)' : '上行' },
+                        { value: 'down', label: mareyModel.isClosedLoop ? '逆向(外环)' : '下行' }
                       ]}
                     />
                   )}
@@ -2277,24 +2476,20 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                     </span>
                   )}
 
-                  {timetableResult.conflicts.length > 0 ? (
+                  {mareyModel.bottlenecks.length > 0 ? (
                     <span
                       className="pro-kpi-chip pro-kpi-chip--conflict"
-                      title="点击使用第一处冲突推荐车站设为越行站，或为快车智能错峰"
-                      onClick={() => {
-                        const firstCf = timetableResult.conflicts[0];
-                        if (firstCf?.suggestedPassingStationId) {
-                          handleToggleStationPassingTrack(firstCf.suggestedPassingStationId, true);
-                        } else if (activePattern) {
-                          handleAutoOptimizeOffset(activePattern);
-                        }
-                      }}
+                      title={mareyModel.bottlenecks.map((b) => b.summary).join('\n')}
+                      onClick={() => handleAutoResolveCorridor(corridorLineId)}
                     >
-                      冲突 {timetableResult.conflicts.length} 处 · 点此一键消解
+                      瓶颈 {mareyModel.bottlenecks.length} 站（涉 {mareyModel.markers.filter((m) => m.kind === 'conflict').length} 车次）· 一键配越行错峰
                     </span>
-                  ) : timetableResult.trains.length > 0 ? (
+                  ) : mareyModel.threads.length > 0 ? (
                     <span className="pro-kpi-chip pro-kpi-chip--ok">
-                      零冲突{timetableResult.overtakes.length > 0 ? ` · 自动待避 ${timetableResult.overtakes.length} 次` : ''}
+                      本线零冲突
+                      {mareyModel.markers.filter((m) => m.kind === 'overtake').length > 0
+                        ? ` · 自动待避 ${mareyModel.markers.filter((m) => m.kind === 'overtake').length} 次`
+                        : ''}
                     </span>
                   ) : null}
                 </>
@@ -2384,6 +2579,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                   }}
                   onToggleStationPassingTrack={(sid) => handleToggleStationPassingTrack(sid)}
                   onResolveConflictPassingStation={(sid) => handleToggleStationPassingTrack(sid, true)}
+                  onAutoResolveAllCorridorConflicts={() => handleAutoResolveCorridor(corridorLineId)}
                 />
               ) : diagramModel.columns.length === 0 ? (
                 <div className="pro-card__hint" style={{ padding: '12px 4px' }}>

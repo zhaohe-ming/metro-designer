@@ -4,6 +4,7 @@ import { measureSectionDistance } from './distance';
 import { ServiceKinematicsResult } from './kinematics';
 import { decomposeLineIntoSubCorridors } from './reconcile';
 import {
+  makeCanonicalLinePairKey,
   ProOpsDocument,
   ProServicePattern,
   ProServiceValidation
@@ -19,6 +20,8 @@ export interface CorridorColumn {
   cumulativeKm: number;
   /** 是否与左侧前一列在物理轨道上直接相连（false 表示此处是新支线起点、第二段独立不连通区间起点或孤立站） */
   connectToPrev: boolean;
+  /** 连接 colIndex-1 与 colIndex 的基准物理区间 ID（用于严格区分独立双隧并行 vs 共线共轨） */
+  prevSectionId?: string;
   /** 子走廊分段标签（如 "主线" / "支线（自科技园）" / "独立区段 2" / "环线全程"） */
   subCorridorId: string;
   subCorridorLabel?: string;
@@ -117,7 +120,21 @@ export function buildCorridorDiagramModel(params: {
     : undefined;
   const focusKin = focusPattern ? kinematicsMap[focusPattern.id] : undefined;
 
+  const sharedPairSet = new Set(proOps.sharedTrackLinePairs || []);
+  const isTrackSharedBetweenLines = (lineAId: string, lineBId: string): boolean => {
+    if (!lineAId || !lineBId) return false;
+    if (lineAId === lineBId) return true;
+    return sharedPairSet.has(makeCanonicalLinePairKey(lineAId, lineBId));
+  };
+
   if (axisMode === 'pattern' && focusPattern && focusKin && focusKin.status === 'valid' && focusKin.visits.length >= 2) {
+    const visitStepSecMap = new Map<number, string>();
+    focusKin.segments.forEach((seg) => {
+      const stp = focusPattern.routeSteps[seg.stepIndex];
+      if (stp && stp.kind === 'section' && seg.toVisitIndex > seg.fromVisitIndex) {
+        visitStepSecMap.set(seg.toVisitIndex, stp.sectionId);
+      }
+    });
     focusKin.visits.forEach((v, idx) => {
       const displayLineId = v.switchedToLineId || v.lineId;
       const displayLine = lineMap.get(displayLineId);
@@ -130,6 +147,7 @@ export function buildCorridorDiagramModel(params: {
         lineColor: displayLine?.color || v.lineColor,
         cumulativeKm: Math.round((v.cumulativeMeters / 1000) * 100) / 100,
         connectToPrev: idx > 0,
+        ...(idx > 0 && visitStepSecMap.has(idx) ? { prevSectionId: visitStepSecMap.get(idx) } : {}),
         subCorridorId: 'pattern_full',
         ...(idx === 0 ? { subCorridorLabel: '全程走廊' } : {}),
         transferLines: collectTransferLinesForStation(graph, v.stationId, displayLineId),
@@ -240,6 +258,7 @@ export function buildCorridorDiagramModel(params: {
           lineColor: line.color,
           cumulativeKm: Math.round((cumMeters / 1000) * 100) / 100,
           connectToPrev: true,
+          prevSectionId: step.sectionId,
           subCorridorId: sc.id,
           ...(isClosureCol ? { isLoopClosure: true } : {}),
           transferLines: collectTransferLinesForStation(graph, step.toStationId, line.id),
@@ -260,18 +279,27 @@ export function buildCorridorDiagramModel(params: {
     };
   }
 
-  // 构建相邻物理连接列对索引：pairKey(u, v) -> Array<{ leftCol, rightCol }>
-  const adjacentColPairs = new Map<string, Array<{ leftCol: number; rightCol: number }>>();
+  // 构建相邻物理连接列对索引：pairKey(u, v) -> Array<{ leftCol, rightCol, sectionId, lineId }>
+  const adjacentColPairs = new Map<
+    string,
+    Array<{ leftCol: number; rightCol: number; sectionId?: string; lineId: string }>
+  >();
   for (let c = 1; c < columns.length; c += 1) {
     if (!columns[c].connectToPrev) continue;
     const pk = pairKey(columns[c - 1].stationId, columns[c].stationId);
     const list = adjacentColPairs.get(pk) || [];
-    list.push({ leftCol: c - 1, rightCol: c });
+    list.push({
+      leftCol: c - 1,
+      rightCol: c,
+      sectionId: columns[c].prevSectionId,
+      lineId: columns[c].lineId
+    });
     adjacentColPairs.set(pk, list);
   }
 
-  // 将交路的物理运行边精确投影到走廊的所有子区段（天然支持 Y 型主支贯通分段点亮、独立区段点亮、环线任意站始发绕圈点亮！）
+  // 将交路的物理运行边精确投影到走廊的所有子区段（严格按物理区间 sectionId 或显式共线共轨匹配，彻底隔离独立双隧并行线！）
   const projectPatternOntoColumns = (
+    pattern: ProServicePattern,
     kin: ServiceKinematicsResult
   ): {
     spans: CorridorBandSpan[];
@@ -316,7 +344,6 @@ export function buildCorridorDiagramModel(params: {
       const v = kin.visits[visitIdx];
       if (!v) return;
       const existing = colVisitMap.get(colIdx);
-      // 若同一列在环闭合端被始发和终到共同命中，优先保留端点/停靠语义
       if (
         !existing ||
         visitIdx === 0 ||
@@ -334,14 +361,27 @@ export function buildCorridorDiagramModel(params: {
       if (visitIdx > lastMatchedVisitIdx) lastMatchedVisitIdx = visitIdx;
     };
 
-    for (let vIdx = 0; vIdx < kin.visits.length - 1; vIdx += 1) {
-      const u = kin.visits[vIdx].stationId;
-      const w = kin.visits[vIdx + 1].stationId;
-      if (u === w) continue;
-      const matches = adjacentColPairs.get(pairKey(u, w));
-      if (!matches || matches.length === 0) continue;
+    for (let segIdx = 0; segIdx < kin.segments.length; segIdx += 1) {
+      const seg = kin.segments[segIdx];
+      const step = pattern.routeSteps[seg.stepIndex];
+      if (!step || step.kind !== 'section') continue;
+      if (seg.fromVisitIndex === seg.toVisitIndex) continue;
 
-      // 优先选择与上一匹配列相连的相邻列对
+      const u = kin.visits[seg.fromVisitIndex]?.stationId;
+      const w = kin.visits[seg.toVisitIndex]?.stationId;
+      if (!u || !w || u === w) continue;
+
+      const rawMatches = adjacentColPairs.get(pairKey(u, w));
+      if (!rawMatches || rawMatches.length === 0) continue;
+
+      // 关键过滤：仅当同一物理区间（如本线列车或经跨线道岔驶入本线的跨线车），或两线被显式标记为「共线共轨」时才投影！
+      const matches = rawMatches.filter(
+        (m) =>
+          (m.sectionId && m.sectionId === step.sectionId) ||
+          isTrackSharedBetweenLines(m.lineId, step.lineId)
+      );
+      if (matches.length === 0) continue;
+
       const chosen =
         matches.find(
           (m) =>
@@ -351,11 +391,11 @@ export function buildCorridorDiagramModel(params: {
 
       activeUnitEdges.add(chosen.leftCol);
       if (columns[chosen.leftCol].stationId === u) {
-        recordColVisit(chosen.leftCol, vIdx);
-        recordColVisit(chosen.rightCol, vIdx + 1);
+        recordColVisit(chosen.leftCol, seg.fromVisitIndex);
+        recordColVisit(chosen.rightCol, seg.toVisitIndex);
       } else {
-        recordColVisit(chosen.rightCol, vIdx);
-        recordColVisit(chosen.leftCol, vIdx + 1);
+        recordColVisit(chosen.rightCol, seg.fromVisitIndex);
+        recordColVisit(chosen.leftCol, seg.toVisitIndex);
       }
     }
 
@@ -407,8 +447,11 @@ export function buildCorridorDiagramModel(params: {
     if (!kin) return;
 
     if (validation.status === 'broken') {
+      const corridorLineIds = new Set(columns.map((c) => c.lineId));
       const touchesCorridor = pattern.routeSteps.some((s) =>
-        columns.some((c) => c.stationId === s.fromStationId || c.stationId === s.toStationId)
+        s.kind === 'section'
+          ? Array.from(corridorLineIds).some((cid) => isTrackSharedBetweenLines(cid, s.lineId))
+          : corridorLineIds.has(s.fromLineId) || corridorLineIds.has(s.toLineId)
       );
       if (touchesCorridor || pattern.id === targetPatternId) {
         rows.push({
@@ -424,7 +467,7 @@ export function buildCorridorDiagramModel(params: {
       return;
     }
 
-    const projected = projectPatternOntoColumns(kin);
+    const projected = projectPatternOntoColumns(pattern, kin);
     if (!projected) return;
 
     const startCol = projected.spans[0].startCol;

@@ -21,9 +21,43 @@ import { api, AIStatusInfo } from '../api';
 interface AIApiSettingsModalProps {
   open: boolean;
   onClose: () => void;
+  onOpenAmapSettings?: () => void;
 }
 
-const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }) => {
+const PROVIDER_GUIDE_LINKS: Record<AIProviderId, { name: string; url: string; tip: string }> = {
+  deepseek: {
+    name: 'DeepSeek 开放平台',
+    url: 'https://platform.deepseek.com/api_keys',
+    tip: '注册后进入左侧「API keys」→ 点击「创建 API key」，充值 10 元即可规划上千次线网'
+  },
+  siliconflow: {
+    name: '硅基流动 SiliconCloud',
+    url: 'https://cloud.siliconflow.cn/account/ak',
+    tip: '新用户实名注册常赠免费体验金，进入「API 密钥」→「新建 API 密钥」复制 sk- 开头密钥'
+  },
+  dashscope: {
+    name: '阿里云百炼平台',
+    url: 'https://bailian.console.aliyun.com/',
+    tip: '支付宝扫码登录 → 右上角「API-KEY」→ 创建密钥（新开通赠送百万免费 Token）'
+  },
+  moonshot: {
+    name: '月之暗面 Kimi 开放平台',
+    url: 'https://platform.moonshot.cn/console/api-keys',
+    tip: '登录后点击「API Key 管理 → 新建」，复制生成的 sk- 密钥'
+  },
+  openai: {
+    name: 'OpenAI Platform',
+    url: 'https://platform.openai.com/api-keys',
+    tip: 'Create new secret key and ensure network/proxy reachability'
+  },
+  custom: {
+    name: 'OpenAI 兼容接口服务商',
+    url: '',
+    tip: '填写任意兼容 /v1/chat/completions 协议的服务端地址、模型名与密钥'
+  }
+};
+
+const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose, onOpenAmapSettings }) => {
   const [draft, setDraft] = useState<CustomAIConfig>(() => loadCustomAIConfig());
   const [statusInfo, setStatusInfo] = useState<AIStatusInfo | null>(null);
   const [testing, setTesting] = useState(false);
@@ -85,14 +119,24 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
   };
 
   const handleSave = () => {
-    if (draft.enabled && draft.apiKey.trim().length < 8) {
-      message.warning('启用自有密钥模式前，请填写完整的 API Key');
+    const hasValidKey = draft.apiKey.trim().length >= 8;
+    // 若用户刚在输入框填好了新密钥，点保存自动激活启用，确保“填完即刻切换生效”
+    const nextEnabled = draft.enabled ? true : false;
+    if (nextEnabled && !hasValidKey) {
+      message.warning('启用自有密钥模式前，请先按上方引导粘贴有效的 API Key');
       return;
     }
-    saveCustomAIConfig(draft);
-    message.success(draft.enabled ? '已启用本地自有 API Key' : '已切换为平台免费 AI 通道');
+    saveCustomAIConfig({ ...draft, enabled: nextEnabled });
+    message.success(
+      nextEnabled
+        ? `已立即切换为自有密钥（${currentPreset.label}）`
+        : '已切换回平台免费 AI 通道'
+    );
     onClose();
   };
+
+  const hasSavedCustomKey = draft.apiKey.trim().length >= 8;
+  const guideInfo = PROVIDER_GUIDE_LINKS[draft.providerId] || PROVIDER_GUIDE_LINKS.deepseek;
 
   return (
     <DraggableModal
@@ -112,26 +156,66 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
           <div style={{ display: 'flex', gap: 8 }}>
             <Button onClick={onClose}>取消</Button>
             <Button type="primary" onClick={handleSave}>
-              保存设置
+              {draft.enabled ? '保存并启用自有 Key' : '保存并切回免费通道'}
             </Button>
           </div>
         </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <ElasticCapsuleTabs<'official' | 'custom'>
           block
           ariaLabel="AI 通道模式"
           value={draft.enabled ? 'custom' : 'official'}
           onChange={(mode) => {
             setTestResult(null);
-            setDraft((prev) => ({ ...prev, enabled: mode === 'custom' }));
+            const nextEnabled = mode === 'custom';
+            setDraft((prev) => {
+              const updated = { ...prev, enabled: nextEnabled };
+              // 若本地已填过有效 Key，点击顶部胶囊即刻实时切换生效！
+              if (!nextEnabled || prev.apiKey.trim().length >= 8) {
+                saveCustomAIConfig(updated);
+                message.success(
+                  nextEnabled ? `已一键切换至自有 API Key（${currentPreset.label}）` : '已一键切回平台免费通道'
+                );
+              }
+              return updated;
+            });
           }}
           options={[
             { value: 'official', label: '平台免费通道' },
-            { value: 'custom', label: '自有 API Key' }
+            { value: 'custom', label: hasSavedCustomKey ? '自有 API Key（已就绪）' : '自有 API Key' }
           ]}
         />
+
+        {onOpenAmapSettings ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+              padding: '7px 12px',
+              borderRadius: 10,
+              background: 'rgba(37, 99, 235, 0.07)',
+              border: '1px solid rgba(37, 99, 235, 0.2)',
+              fontSize: 12.5
+            }}
+          >
+            <span>想把地理底图升级为丝滑锐利的原版<strong>高德矢量地图</strong>？</span>
+            <Button
+              size="small"
+              type="link"
+              style={{ padding: 0, height: 'auto', fontWeight: 600 }}
+              onClick={() => {
+                onClose();
+                onOpenAmapSettings();
+              }}
+            >
+              配置高德底图 Key →
+            </Button>
+          </div>
+        ) : null}
 
         {!draft.enabled ? (
           <div
@@ -186,6 +270,39 @@ const AIApiSettingsModal: React.FC<AIApiSettingsModalProps> = ({ open, onClose }
                     </button>
                   );
                 })}
+              </div>
+            </div>
+
+            <div
+              style={{
+                padding: '10px 12px',
+                borderRadius: 12,
+                background: 'var(--color-surface-subtle, #f8fafc)',
+                border: '1px solid var(--color-border, #e2e8f0)',
+                fontSize: 12,
+                lineHeight: 1.65,
+                color: 'var(--color-text-soft, #475569)'
+              }}
+            >
+              <div style={{ fontWeight: 700, color: 'var(--color-text, #0f172a)', marginBottom: 3 }}>
+                新手 3 步获取密钥引导（约 1 分钟）：
+              </div>
+              <div>
+                <strong>1. 打开控制台：</strong>
+                {guideInfo.url ? (
+                  <a href={guideInfo.url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 600 }}>
+                    前往 {guideInfo.name} 获取密钥 ↗
+                  </a>
+                ) : (
+                  <span>登录你使用的 {guideInfo.name}</span>
+                )}
+              </div>
+              <div>
+                <strong>2. 创建并复制：</strong>
+                {guideInfo.tip}。
+              </div>
+              <div>
+                <strong>3. 粘贴即生效：</strong>粘贴至下方输入框，点「测试连接」验证后保存，之后点击顶部胶囊即可一键来回切换。
               </div>
             </div>
 

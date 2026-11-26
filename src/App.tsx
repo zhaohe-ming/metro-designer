@@ -46,6 +46,13 @@ import Toolbar from './components/Toolbar';
 import VideoExportModal, { VideoExportConfig } from './components/VideoExportModal';
 import AIAssistantModal from './components/AIAssistantModal';
 import AIApiSettingsModal from './components/AIApiSettingsModal';
+import AmapApiSettingsModal from './components/AmapApiSettingsModal';
+import {
+  CUSTOM_AMAP_CHANGED_EVENT,
+  hasConfiguredCustomAmapKey,
+  isCustomAmapActive,
+  setCustomAmapEngineEnabled
+} from './lib/amapCustomConfig';
 import {
   AI_CONFIG_CHANGED_EVENT,
   getActiveAiBadgeLabel,
@@ -141,7 +148,12 @@ type DocSnapshot = {
   mapSettings: MapSettings;
 };
 const cloneDoc = (doc: DocSnapshot): DocSnapshot => ({
-  lines: doc.lines.map(line => ({ ...line, stationIds: [...line.stationIds], sectionIds: [...line.sectionIds] })),
+  lines: doc.lines.map(line => ({
+    ...line,
+    stationIds: [...line.stationIds],
+    sectionIds: [...line.sectionIds],
+    ...(line.labelPosition ? { labelPosition: { ...line.labelPosition } } : {})
+  })),
   sections: doc.sections.map(section => ({
     ...section,
     waypoints: section.waypoints ? section.waypoints.map(point => ({ ...point })) : undefined,
@@ -503,6 +515,17 @@ const App: React.FC = () => {
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [externalAiPrompt, setExternalAiPrompt] = useState<{ seq: number; prompt: string } | null>(null);
   const [aiApiSettingsOpen, setAiApiSettingsOpen] = useState(false);
+  const [amapApiSettingsOpen, setAmapApiSettingsOpen] = useState(false);
+  const [customAmapActive, setCustomAmapActive] = useState<boolean>(() => isCustomAmapActive());
+  const [customAmapHasKey, setCustomAmapHasKey] = useState<boolean>(() => hasConfiguredCustomAmapKey());
+  useEffect(() => {
+    const syncAmap = () => {
+      setCustomAmapActive(isCustomAmapActive());
+      setCustomAmapHasKey(hasConfiguredCustomAmapKey());
+    };
+    window.addEventListener(CUSTOM_AMAP_CHANGED_EVENT, syncAmap);
+    return () => window.removeEventListener(CUSTOM_AMAP_CHANGED_EVENT, syncAmap);
+  }, []);
   const [customAiBadge, setCustomAiBadge] = useState<string | null>(() => getActiveAiBadgeLabel());
   useEffect(() => {
     const syncAiCfg = () => setCustomAiBadge(getActiveAiBadgeLabel());
@@ -1725,6 +1748,30 @@ const App: React.FC = () => {
       currentMapRef.current?.name ||
       text.unnamedMap;
     const cleanTitle = stripProjectExtension(rawTitle) || text.unnamedMap;
+
+    // 修复：若当前打开的是云端地图且停留在普通绘制模式尚未懒加载 map_pro_ops，
+    // 另存 .metro 前按需补拉一次云端运营配置，保证导出的备份工程 100% 包含交路与运行图数据。
+    let resolvedProOps = proOpsRef.current;
+    const activeCloudId = currentMapRef.current?.id;
+    if (
+      activeCloudId &&
+      userProfile &&
+      proOpsLoadedMapIdRef.current !== activeCloudId &&
+      !proOpsDirtyRef.current
+    ) {
+      try {
+        const fetched = await api.getMapProOps(activeCloudId);
+        proOpsLoadedMapIdRef.current = activeCloudId;
+        if (fetched.proOps) {
+          proOpsRef.current = fetched.proOps;
+          setProOps(fetched.proOps);
+          resolvedProOps = fetched.proOps;
+        }
+      } catch {
+        /* 离线时使用内存当前状态兜底 */
+      }
+    }
+
     const content = serializeMetroProject({
       name: cleanTitle,
       lines: linesRef.current,
@@ -1733,7 +1780,7 @@ const App: React.FC = () => {
       mapSettings: mapSettingsRef.current,
       currentLineId: currentLineIdRef.current,
       viewport: guestViewport,
-      proOps: proOpsRef.current
+      proOps: resolvedProOps
     });
 
     if (hasDesktopBridge() && window.metroDesktop) {
@@ -1865,11 +1912,23 @@ const App: React.FC = () => {
       sectionCount: sections.length
     };
     try {
+      const atomicProOps =
+        (proOpsDirtyRef.current || !targetMapId) && proOpsRef.current ? proOpsRef.current : undefined;
       const { map } = targetMapId
-        ? await api.updateMap(targetMapId, { name, ...snapshot })
-        : await api.createMap({ name, ...snapshot, clientDraftId: savingGuestId || undefined, gallerySourceToken: gallerySourceRef.current });
-      if ((proOpsDirtyRef.current || !targetMapId) && proOpsRef.current) {
-        await api.saveMapProOps(map.id, proOpsRef.current);
+        ? await api.updateMap(targetMapId, {
+            name,
+            ...snapshot,
+            ...(atomicProOps ? { proOps: atomicProOps } : {})
+          })
+        : await api.createMap({
+            name,
+            ...snapshot,
+            clientDraftId: savingGuestId || undefined,
+            gallerySourceToken: gallerySourceRef.current,
+            ...(currentMapRef.current?.id ? { sourcePrivateMapId: currentMapRef.current.id } : {}),
+            ...(atomicProOps ? { proOps: atomicProOps } : {})
+          });
+      if (atomicProOps) {
         proOpsDirtyRef.current = false;
         proOpsLoadedMapIdRef.current = map.id;
       }
@@ -2661,7 +2720,35 @@ const App: React.FC = () => {
           outCtx.drawImage(mapCanvas, 0, 0, outCanvas.width, outCanvas.height);
         }
         outCtx.drawImage(stageCanvas, 0, 0, outCanvas.width, outCanvas.height);
-        dataUrl = outCanvas.toDataURL('image/png', 1);
+        try {
+          dataUrl = outCanvas.toDataURL('image/png', 1);
+        } catch {
+          // 若用户启用了自有高德 WebGL 底图且浏览器跨域策略限制直接读取 WebGL 帧缓冲，自动用高清免跨域底图与线网合成兜底
+          const fallbackCanvas = document.createElement('canvas');
+          fallbackCanvas.width = stageCanvas.width;
+          fallbackCanvas.height = stageCanvas.height;
+          const fCtx = fallbackCanvas.getContext('2d')!;
+          fCtx.fillStyle = mapSettingsRef.current.baseMap.amap?.style === 'dark' ? '#0f172a' : '#f1f5f9';
+          fCtx.fillRect(0, 0, fallbackCanvas.width, fallbackCanvas.height);
+          try {
+            const amapCfg = mapSettingsRef.current.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!;
+            const tileBlob = await api.getAmapStaticMap({
+              center: amapCfg.center,
+              zoom: amapCfg.zoom,
+              width: Math.round(stage.width()),
+              height: Math.round(stage.height()),
+              style: amapCfg.style,
+              scale: pr > 1 ? 2 : 1
+            });
+            const bmp = await createImageBitmap(tileBlob);
+            fCtx.drawImage(bmp, 0, 0, fallbackCanvas.width, fallbackCanvas.height);
+            bmp.close?.();
+          } catch {
+            /* 断网时仍保留纯色底与完整高清线网导出 */
+          }
+          fCtx.drawImage(stageCanvas, 0, 0, fallbackCanvas.width, fallbackCanvas.height);
+          dataUrl = fallbackCanvas.toDataURL('image/png', 1);
+        }
       } else {
         stage.scale({ x: 1, y: 1 });
         stage.position({ x: 0, y: 0 });
@@ -3667,6 +3754,7 @@ const App: React.FC = () => {
         </DraggableModal>
 
         {baseMapPickerStyle !== null && <BaseMapPicker initialStyle={baseMapPickerStyle} language={language} hasContent={stations.length > 0 || sections.length > 0}
+          onOpenAmapSettings={() => setAmapApiSettingsOpen(true)}
           onCancel={() => setBaseMapPickerStyle(null)} onConfirm={(style) => {
             pushHistory();
             setCurrentLineId(null);
@@ -3825,6 +3913,44 @@ const App: React.FC = () => {
                           { value: 'hide', label: text.lineNameLabelsOff }
                         ]}
                       />
+                      {mapSettings.showLineNameLabels && (
+                        <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                            <span style={{ fontSize: 12.5, color: 'var(--color-text-muted, #64748b)' }}>
+                              {language === 'en-US' ? 'Label Dragging (in Select tool)' : '标签位置调整（「选择」模式下可直接拖动）'}
+                            </span>
+                            {lines.some((l) => Boolean(l.labelPosition)) ? (
+                              <Button
+                                size="small"
+                                onClick={() => {
+                                  pushHistory();
+                                  setLines((prev) => prev.map(({ labelPosition: _lp, ...rest }) => rest));
+                                  message.success(language === 'en-US' ? 'Reset all line label positions' : '已将全部线路标签恢复为自动跟随位置');
+                                }}
+                              >
+                                {language === 'en-US' ? 'Reset All' : '一键归位'}
+                              </Button>
+                            ) : null}
+                          </div>
+                          <ElasticCapsuleTabs<'free' | 'locked'>
+                            ariaLabel="线路名称标签位置调整"
+                            value={mapSettings.lockLineNameLabels ? 'locked' : 'free'}
+                            onChange={(mode) => {
+                              pushHistory();
+                              setMapSettings((prev) =>
+                                normalizeMapSettings({
+                                  ...prev,
+                                  lockLineNameLabels: mode === 'locked'
+                                })
+                              );
+                            }}
+                            options={[
+                              { value: 'free', label: language === 'en-US' ? 'Draggable' : '允许自由拖动（双击归位）' },
+                              { value: 'locked', label: language === 'en-US' ? 'Locked' : '锁定位置' }
+                            ]}
+                          />
+                        </div>
+                      )}
                     </section>
 
                     <section className="metro-settings-section">
@@ -4074,6 +4200,53 @@ const App: React.FC = () => {
 
                     {mapSettings.baseMap.mode === 'amap' && (
                       <section className="metro-settings-section">
+                        <div
+                          style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: 8,
+                            gap: 8
+                          }}
+                        >
+                          <div className="metro-settings-label" style={{ marginBottom: 0 }}>
+                            {language === 'en-US' ? 'Basemap Engine' : '地理底图引擎（一键切换）'}
+                          </div>
+                          <Button size="small" type="primary" ghost onClick={() => setAmapApiSettingsOpen(true)}>
+                            {customAmapHasKey
+                              ? language === 'en-US'
+                                ? 'Amap Key…'
+                                : '管理高德 Key'
+                              : language === 'en-US'
+                                ? 'Setup Amap Key…'
+                                : '配置高德 Key（附引导）'}
+                          </Button>
+                        </div>
+                        <ElasticCapsuleTabs<'tile' | 'amap'>
+                          ariaLabel="地理底图引擎切换"
+                          value={customAmapActive ? 'amap' : 'tile'}
+                          onChange={(nextEngine) => {
+                            if (nextEngine === 'amap' && !customAmapHasKey) {
+                              setAmapApiSettingsOpen(true);
+                              return;
+                            }
+                            setCustomAmapEngineEnabled(nextEngine === 'amap');
+                            message.success(
+                              nextEngine === 'amap'
+                                ? '已一键切换为高德矢量底图引擎'
+                                : '已一键切换为内置免配置瓦片底图'
+                            );
+                          }}
+                          options={[
+                            { value: 'tile', label: language === 'en-US' ? 'Built-in Tiles' : '内置免配瓦片' },
+                            { value: 'amap', label: language === 'en-US' ? 'Amap Vector (BYOK)' : '高德矢量底图' }
+                          ]}
+                        />
+                      </section>
+                    )}
+
+                    {mapSettings.baseMap.mode === 'amap' && (
+                      <section className="metro-settings-section">
                         <div className="metro-settings-label">{text.amapStyle}</div>
                         <ElasticCapsuleTabs
                           ariaLabel={text.amapStyle}
@@ -4196,7 +4369,31 @@ const App: React.FC = () => {
             <Button onClick={() => setSettingsVisible(false)}>{text.close}</Button>
           </div>
         </DraggableModal>
-        <AIApiSettingsModal open={aiApiSettingsOpen} onClose={() => setAiApiSettingsOpen(false)} />
+        <AIApiSettingsModal
+          open={aiApiSettingsOpen}
+          onClose={() => setAiApiSettingsOpen(false)}
+          onOpenAmapSettings={() => setAmapApiSettingsOpen(true)}
+        />
+        <AmapApiSettingsModal
+          open={amapApiSettingsOpen}
+          onClose={() => setAmapApiSettingsOpen(false)}
+          isCurrentlyGeoMode={mapSettings.baseMap.mode === 'amap'}
+          onActivateGeoMode={() => {
+            if (mapSettings.baseMap.mode !== 'amap') {
+              pushHistory();
+              setMapSettings((prev) =>
+                normalizeMapSettings({
+                  ...prev,
+                  baseMap: {
+                    ...prev.baseMap,
+                    mode: 'amap',
+                    amap: prev.baseMap.amap || DEFAULT_MAP_SETTINGS.baseMap.amap!
+                  }
+                })
+              );
+            }
+          }}
+        />
 
         <DraggableModal
           title={text.profile}

@@ -11,6 +11,7 @@ export interface MareyChartViewProps {
   onScrubTime: (nextSec: number) => void;
   onToggleStationPassingTrack: (stationId: string) => void;
   onResolveConflictPassingStation: (stationId: string, stationName: string) => void;
+  onAutoResolveAllCorridorConflicts?: () => void;
 }
 
 const MareyChartView: React.FC<MareyChartViewProps> = ({
@@ -22,7 +23,8 @@ const MareyChartView: React.FC<MareyChartViewProps> = ({
   onSelectPattern,
   onScrubTime,
   onToggleStationPassingTrack,
-  onResolveConflictPassingStation
+  onResolveConflictPassingStation,
+  onAutoResolveAllCorridorConflicts
 }) => {
   const plotSvgRef = useRef<SVGSVGElement | null>(null);
   const draggingPlayheadRef = useRef(false);
@@ -77,8 +79,30 @@ const MareyChartView: React.FC<MareyChartViewProps> = ({
     Math.max(model.windowStartSec, Math.min(model.windowEndSec, simTimeSec))
   );
 
+  const topBottleneck = model.bottlenecks?.[0];
+
   return (
-    <div className="pro-marey-wrap">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      {topBottleneck && (
+        <div className="pro-marey-diagnosis">
+          <div className="pro-marey-diagnosis__text">
+            <strong>冲突原因说明：</strong>
+            {topBottleneck.summary}
+            {model.bottlenecks.length > 1 ? `（另有 ${model.bottlenecks.length - 1} 处同类瓶颈）` : ''}
+          </div>
+          {onAutoResolveAllCorridorConflicts && (
+            <button
+              type="button"
+              className="pro-btn pro-btn--primary pro-btn--sm"
+              style={{ flexShrink: 0 }}
+              onClick={onAutoResolveAllCorridorConflicts}
+            >
+              一键配越行并错峰消解
+            </button>
+          )}
+        </div>
+      )}
+      <div className="pro-marey-wrap">
       {/* 左侧固定纵轴车站与里程标尺（可直接点选切换 [越] 越行配线！） */}
       <div className="pro-marey-yaxis" style={{ height: topRulerH + plotH }}>
         <div className="pro-marey-yaxis__head" style={{ height: topRulerH }}>
@@ -334,6 +358,7 @@ const MareyChartView: React.FC<MareyChartViewProps> = ({
             {formatClockSec(simTimeSec, true).slice(0, 8)}
           </text>
         </svg>
+      </div>
       </div>
     </div>
   );

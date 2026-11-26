@@ -400,9 +400,9 @@ export const api = {
     request<{ user: UserDto }>('/api/me', { method: 'PUT', body: JSON.stringify(payload) }, 'login'),
   listMaps: () => request<{ maps: MapSummary[] }>('/api/maps', {}, 'login'),
   getMap: (id: string) => request<{ map: FullMap }>(`/api/maps/${id}`, {}, 'login'),
-  createMap: (payload: { gallerySourceToken?: string; sourcePrivateMapId?: string; clientDraftId?: string; name: string; lines: Line[]; stations: Station[]; sections: Section[]; mapSettings?: MapSettings }) =>
+  createMap: (payload: { gallerySourceToken?: string; sourcePrivateMapId?: string; clientDraftId?: string; name: string; lines: Line[]; stations: Station[]; sections: Section[]; mapSettings?: MapSettings; proOps?: ProOpsDocument | null }) =>
     request<{ map: MapSummary }>('/api/maps', { method: 'POST', body: JSON.stringify(payload) }, 'login'),
-  updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[]; mapSettings?: MapSettings }) =>
+  updateMap: (id: string, payload: { name?: string; lines?: Line[]; stations?: Station[]; sections?: Section[]; mapSettings?: MapSettings; proOps?: ProOpsDocument | null }) =>
     request<{ map: MapSummary }>(`/api/maps/${id}`, { method: 'PUT', body: JSON.stringify(payload) }, 'login'),
   deleteMap: (id: string) => request<{ ok: boolean }>(`/api/maps/${id}`, { method: 'DELETE' }, 'login'),
   getMapProOps: (id: string) =>

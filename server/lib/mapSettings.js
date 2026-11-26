@@ -198,6 +198,7 @@ function normalizeMapSettings(settings) {
     labelDensity: settings && ['adaptive', 'key'].includes(settings.labelDensity) ? settings.labelDensity : 'paper',
     cornerRadius: normalizeNumber(settings && settings.cornerRadius, DEFAULT_MAP_SETTINGS.cornerRadius, 0, 40),
     hideWaypoints: Boolean(settings && settings.hideWaypoints === true),
+    ...(settings && settings.lockLineNameLabels === true ? { lockLineNameLabels: true } : {}),
     ...(settings && settings.videoExport ? { videoExport: normalizeVideoExportConfig(settings.videoExport) } : {})
   };
 }
