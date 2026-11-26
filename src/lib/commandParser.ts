@@ -35,6 +35,8 @@ export type AppAction =
   | { type: 'set_corner'; cornerRadius: number }
   | { type: 'set_basemap_plain' }
   | { type: 'select_line'; lineId: string }
+  | { type: 'toggle_search' }
+  | { type: 'open_guide' }
   | { type: 'undo' }
   | { type: 'redo' }
   | { type: 'save' }

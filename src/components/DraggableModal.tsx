@@ -36,6 +36,7 @@ const DraggableModal: React.FC<ModalProps> = ({ title, open, modalRender, classN
   }, [open]);
 
   const handleTitleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (typeof window !== 'undefined' && window.innerWidth <= 768) return;
     draggingRef.current = true;
     startRef.current = { x: e.clientX, y: e.clientY };
     originRef.current = { ...offset };

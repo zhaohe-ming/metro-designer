@@ -6,6 +6,7 @@ import {
   DownOutlined,
   FileImageOutlined,
   PictureOutlined,
+  QuestionCircleOutlined,
   RedoOutlined,
   UndoOutlined,
   VideoCameraOutlined
@@ -18,10 +19,12 @@ interface ToolbarProps {
   onExportSvg?: () => void;
   onOpenVideoModal?: () => void;
   onOpenGallery?: () => void;
+  onOpenGuide?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   canUndo?: boolean;
   canRedo?: boolean;
+  mobileToolDockRef?: React.Ref<HTMLDivElement>;
   mobileViewControlsRef?: React.Ref<HTMLDivElement>;
 }
 
@@ -31,10 +34,12 @@ const Toolbar: React.FC<ToolbarProps> = ({
   onExportSvg,
   onOpenVideoModal,
   onOpenGallery,
+  onOpenGuide,
   onUndo,
   onRedo,
   canUndo,
   canRedo,
+  mobileToolDockRef,
   mobileViewControlsRef
 }) => {
   const text = language === 'en-US'
@@ -79,12 +84,22 @@ const Toolbar: React.FC<ToolbarProps> = ({
           label: text.exportVideo,
           onClick: onOpenVideoModal
         }
+      : null,
+    onOpenGuide
+      ? {
+          key: 'guide',
+          className: 'metro-user-menu__mobile-only',
+          icon: <QuestionCircleOutlined />,
+          label: language === 'en-US' ? 'Touch & Shortcut Guide' : '手势与操作指南',
+          onClick: onOpenGuide
+        }
       : null
-  ].filter(Boolean) as Array<{ key: string; icon: React.ReactNode; label: string; onClick: () => void }>;
+  ].filter(Boolean) as Array<{ key: string; className?: string; icon: React.ReactNode; label: string; onClick: () => void }>;
 
   return (
     <div className="metro-toolbar">
       <div className="metro-toolbar__right">
+        <div className="metro-toolbar__mobile-tools-slot" ref={mobileToolDockRef} />
         {onUndo ? (
           <Tooltip title={undoText}>
             <Button

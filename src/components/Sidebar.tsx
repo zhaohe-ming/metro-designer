@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, ColorPicker, Dropdown, Modal, Space, Tooltip, Typography, message } from 'antd';
 import Input from 'antd/es/input';
-import { DeleteOutlined, DragOutlined, MoreOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
+import { CloseOutlined, DeleteOutlined, DragOutlined, EnvironmentOutlined, MoreOutlined, PlusOutlined, SwapOutlined } from '@ant-design/icons';
 import { LINE_COLORS, Line, Station } from '../types';
 import DraggableModal from './DraggableModal';
+import ElasticCapsuleTabs from './ElasticCapsuleTabs';
+import { reorderIdsByDrag, triggerLightHaptic } from '../lib/mobileTouchAim';
 
 const { Text } = Typography;
 
@@ -22,6 +24,8 @@ interface SidebarProps {
   onRemoveStationFromLine: (lineId: string, stationId: string) => void;
   onReorderStations: (lineId: string, stationIds: string[]) => void;
   onReorderLines: (newOrder: string[]) => void;
+  onCloseMobile?: () => void;
+  onFocusStation?: (stationId: string) => void;
 }
 
 const Sidebar: React.FC<SidebarProps> = ({
@@ -36,7 +40,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   onDeleteLine,
   onChangeLineColor,
   onChangeLineName,
-  onReorderLines
+  onReorderLines,
+  onCloseMobile,
+  onFocusStation
 }) => {
   const text = language === 'en-US'
     ? {
@@ -125,6 +131,19 @@ const Sidebar: React.FC<SidebarProps> = ({
   const [isReorderingLines, setIsReorderingLines] = useState(false);
   const [draggedLineId, setDraggedLineId] = useState<string | null>(null);
   const [dragOverLineId, setDragOverLineId] = useState<string | null>(null);
+  const pointerReorderRef = useRef<{ pointerId: number; draggedId: string; overId: string | null } | null>(null);
+  const [isMobileDrawer, setIsMobileDrawer] = useState(() =>
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(max-width: 768px), (max-width: 1024px) and (max-height: 500px)').matches
+  );
+  const [mobilePane, setMobilePane] = useState<'lines' | 'stations'>('lines');
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(max-width: 768px), (max-width: 1024px) and (max-height: 500px)');
+    const sync = () => setIsMobileDrawer(mq.matches);
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
   const [nameChangeModal, setNameChangeModal] = useState({
     visible: false,
     lineId: null as string | null,
@@ -395,17 +414,59 @@ const Sidebar: React.FC<SidebarProps> = ({
     const draggedId = event.dataTransfer.getData('text/plain');
 
     if (draggedId && draggedId !== targetLineId) {
-      const nextOrder = lines.map((line) => line.id);
-      const draggedIndex = nextOrder.indexOf(draggedId);
-      const targetIndex = nextOrder.indexOf(targetLineId);
-
-      if (draggedIndex !== -1 && targetIndex !== -1) {
-        nextOrder.splice(draggedIndex, 1);
-        nextOrder.splice(targetIndex, 0, draggedId);
-        onReorderLines(nextOrder);
-      }
+      const nextOrder = reorderIdsByDrag(
+        lines.map((line) => line.id),
+        draggedId,
+        targetLineId
+      );
+      onReorderLines(nextOrder);
     }
 
+    setDraggedLineId(null);
+    setDragOverLineId(null);
+  };
+
+  // Pointer Events 统一触控/鼠标卡片拖拽重排（解决 iOS / Android WebView 原生 HTML5 Drag 不触发的问题）
+  const handleLineReorderPointerDown = (event: React.PointerEvent<HTMLDivElement>, lineId: string) => {
+    if (event.button !== 0 && event.pointerType === 'mouse') return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    pointerReorderRef.current = { pointerId: event.pointerId, draggedId: lineId, overId: lineId };
+    setDraggedLineId(lineId);
+    setDragOverLineId(lineId);
+    triggerLightHaptic(8);
+  };
+
+  const handleLineReorderPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const active = pointerReorderRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const targetEl = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-line-id]');
+    const overId = targetEl?.dataset.lineId || null;
+    if (overId && overId !== active.overId) {
+      active.overId = overId;
+      setDragOverLineId(overId);
+      if (overId !== active.draggedId) {
+        onReorderLines(
+          reorderIdsByDrag(
+            lines.map((line) => line.id),
+            active.draggedId,
+            overId
+          )
+        );
+        triggerLightHaptic(6);
+      }
+    }
+  };
+
+  const finishLineReorderPointer = (event: React.PointerEvent<HTMLDivElement>) => {
+    const active = pointerReorderRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    pointerReorderRef.current = null;
     setDraggedLineId(null);
     setDragOverLineId(null);
   };
@@ -441,15 +502,47 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="metro-sidebar">
-      <div className="metro-sidebar__title">{text.title}</div>
+      <div className="metro-sidebar__header-row">
+        <div className="metro-sidebar__title">{text.title}</div>
+        {isMobileDrawer && onCloseMobile ? (
+          <button
+            type="button"
+            className="metro-sidebar__mobile-close"
+            onClick={onCloseMobile}
+            aria-label={language === 'en-US' ? 'Close drawer' : '关闭侧栏'}
+          >
+            <CloseOutlined />
+          </button>
+        ) : null}
+      </div>
       <div className="metro-sidebar__subtitle">
         {text.subtitle}
       </div>
 
+      {isMobileDrawer ? (
+        <div className="metro-sidebar__mobile-tabs">
+          <ElasticCapsuleTabs<'lines' | 'stations'>
+            block
+            size="sm"
+            ariaLabel={language === 'en-US' ? 'Sidebar view' : '侧栏视图切换'}
+            value={mobilePane}
+            onChange={setMobilePane}
+            options={[
+              { value: 'lines', label: `${text.lineList} (${lines.length})` },
+              { value: 'stations', label: `${text.allStations} (${stations.length})` }
+            ]}
+          />
+        </div>
+      ) : null}
+
       <div
         className="metro-sidebar__section metro-sidebar__section--lines"
         ref={linesSectionRef}
-        style={{ flex: `${linesFlex} 1 0px` }}
+        style={
+          isMobileDrawer
+            ? { flex: '1 1 0px', display: mobilePane === 'lines' ? 'flex' : 'none' }
+            : { flex: `${linesFlex} 1 0px` }
+        }
       >
         <div className="metro-sidebar__section-head">
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
@@ -520,9 +613,10 @@ const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <article
                   key={line.id}
+                  data-line-id={line.id}
                   // --accent-color 一份传给 article，accent bar + active 状态的 border/glow 都用同一个变量
                   style={{ ['--accent-color' as any]: line.color }}
-                  className={`metro-line-card ${active ? 'is-active' : ''} ${isReorderingLines ? 'is-reordering' : ''}`}
+                  className={`metro-line-card ${active ? 'is-active' : ''} ${isReorderingLines ? 'is-reordering' : ''} ${draggedLineId === line.id ? 'is-dragging-card' : ''}`}
                   onClick={() => {
                     if (isReorderingLines) return;
                     // 已选中再次单击 = 取消选中（取代之前独立的"取消选中"按钮）
@@ -597,7 +691,12 @@ const Sidebar: React.FC<SidebarProps> = ({
 
                     {isReorderingLines ? (
                       <div
-                        draggable
+                        role="button"
+                        aria-label={`${text.reorder} ${line.name}`}
+                        onPointerDown={(event) => handleLineReorderPointerDown(event, line.id)}
+                        onPointerMove={handleLineReorderPointerMove}
+                        onPointerUp={finishLineReorderPointer}
+                        onPointerCancel={finishLineReorderPointer}
                         onDragStart={(event) => handleLineDragStart(event, line.id)}
                         onDragEnd={() => {
                           setDraggedLineId(null);
@@ -606,9 +705,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                         style={{
                           position: 'absolute',
                           inset: 0,
-                          // 跟 .metro-line-card 的 --radius-md (8px) 对齐
+                          touchAction: 'none',
+                          cursor: draggedLineId === line.id ? 'grabbing' : 'grab',
                           borderRadius: 8,
-                          background: dragOverLineId === line.id ? 'rgba(74, 107, 140, 0.12)' : 'transparent'
+                          background:
+                            dragOverLineId === line.id && draggedLineId !== line.id
+                              ? 'rgba(59, 130, 246, 0.14)'
+                              : 'transparent'
                         }}
                       />
                     ) : null}
@@ -620,22 +723,28 @@ const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* 可拖拽分界条：在线路 list 和站点 list 之间。双击复位 50/50。 */}
-      <div
-        className={`metro-sidebar__splitter ${isSplitterDragging ? 'is-dragging' : ''}`}
-        role="separator"
-        aria-orientation="horizontal"
-        aria-label="调整线路列表与站点列表的高度"
-        onPointerDown={handleSplitterPointerDown}
-        onDoubleClick={handleSplitterDoubleClick}
-      >
-        <div className="metro-sidebar__splitter-grip" aria-hidden="true" />
-      </div>
+      {/* 可拖拽分界条：桌面端在线路 list 和站点 list 之间。移动端已升级为顶部 Tab 切换。 */}
+      {!isMobileDrawer ? (
+        <div
+          className={`metro-sidebar__splitter ${isSplitterDragging ? 'is-dragging' : ''}`}
+          role="separator"
+          aria-orientation="horizontal"
+          aria-label="调整线路列表与站点列表的高度"
+          onPointerDown={handleSplitterPointerDown}
+          onDoubleClick={handleSplitterDoubleClick}
+        >
+          <div className="metro-sidebar__splitter-grip" aria-hidden="true" />
+        </div>
+      ) : null}
 
       <div
         className="metro-sidebar__section metro-sidebar__section--stations"
         ref={stationsSectionRef}
-        style={{ flex: `${1 - linesFlex} 1 0px` }}
+        style={
+          isMobileDrawer
+            ? { flex: '1 1 0px', display: mobilePane === 'stations' ? 'flex' : 'none' }
+            : { flex: `${1 - linesFlex} 1 0px` }
+        }
       >
         <div className="metro-sidebar__section-head">
           <div className="metro-sidebar__section-title">{text.allStations}</div>
@@ -671,10 +780,14 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
           ) : stations.length <= VIRTUALIZE_THRESHOLD ? (
             stations.map((station) => (
-              <div key={station.id} className="metro-station-item">
+              <div
+                key={station.id}
+                className={`metro-station-item${onFocusStation ? ' is-clickable' : ''}`}
+                onClick={() => onFocusStation?.(station.id)}
+              >
                 <div className="metro-station-item__name" title={station.name}>{station.name}</div>
                 <div className="metro-station-item__coords">
-                  {station.x.toFixed(0)}, {station.y.toFixed(0)}
+                  {onFocusStation && isMobileDrawer ? <EnvironmentOutlined /> : `${station.x.toFixed(0)}, ${station.y.toFixed(0)}`}
                 </div>
               </div>
             ))
@@ -690,12 +803,13 @@ const Sidebar: React.FC<SidebarProps> = ({
                   {stations.slice(startIndex, endIndex).map((station, idx) => (
                     <div
                       key={station.id}
-                      className="metro-station-item metro-station-item--virtual"
+                      className={`metro-station-item metro-station-item--virtual${onFocusStation ? ' is-clickable' : ''}`}
                       style={{ top: (startIndex + idx) * STATION_ITEM_STRIDE }}
+                      onClick={() => onFocusStation?.(station.id)}
                     >
                       <div className="metro-station-item__name" title={station.name}>{station.name}</div>
                       <div className="metro-station-item__coords">
-                        {station.x.toFixed(0)}, {station.y.toFixed(0)}
+                        {onFocusStation && isMobileDrawer ? <EnvironmentOutlined /> : `${station.x.toFixed(0)}, ${station.y.toFixed(0)}`}
                       </div>
                     </div>
                   ))}

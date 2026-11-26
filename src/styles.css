@@ -3867,187 +3867,247 @@ body[data-interface-theme="dark"] .metro-profile-actions,
   }
 }
 
-/* Phone workbench: labelled tools above the canvas, document actions within thumb reach. */
-.metro-toolbar__mobile-view-slot { display: none; }
+/* Phone workbench: unified bottom thumb dock + clean top context strip + non-blocking selection sheet. */
+.metro-toolbar__mobile-tools-slot,
+.metro-toolbar__mobile-view-slot,
+.metro-mobile-search-btn { display: none; }
 .metro-touch-hint, .metro-context-backdrop { display: none; }
 @media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
   .metro-app-shell { height: 100vh; height: 100dvh; min-height: 0; padding: 0; overflow: hidden; }
   .metro-workbench { height: 100%; min-height: 0; }
-  .metro-header { flex: 0 0 56px; height: 56px !important; min-height: 56px; padding: 0 12px !important; }
+  .metro-header {
+    flex: 0 0 auto;
+    height: calc(52px + env(safe-area-inset-top, 0px)) !important;
+    min-height: calc(52px + env(safe-area-inset-top, 0px));
+    padding: env(safe-area-inset-top, 0px) 10px 0 !important;
+  }
   .metro-header, .app-header { transform: none !important; }
-  .app-header { height: 100%; }
+  .app-header { height: 52px; }
   .metro-body { flex: 1; min-height: 0; flex-wrap: nowrap; gap: 0; padding: 0; }
   .metro-content, .metro-canvas-stage { height: 100%; min-height: 0; }
-  .metro-mobile-toggle, .metro-header-save-btn, .user-chip--trigger { min-width: 44px; min-height: 44px; }
+  .metro-mobile-toggle, .metro-header-save-btn, .user-chip--trigger { min-width: 40px; min-height: 40px; }
+  .metro-mobile-search-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text-soft);
+    font-size: 15px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .metro-app-shell[data-interface-theme="dark"] .metro-mobile-search-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(148, 163, 184, 0.28);
+    color: #cbd5e1;
+  }
   .metro-brand-panel { gap: 4px; }
   .metro-brand-mark { display: none; }
-  .metro-header-mapchip { max-width: 34vw; }
-  .metro-user-panel { gap: 4px !important; }
-  .metro-sider.ant-layout-sider { top: 56px; width: min(88vw, 340px) !important; max-width: 340px !important;
-    min-width: 0 !important; flex: 0 0 auto !important; background: var(--color-surface) !important; }
+  .metro-header-mapchip { max-width: 31vw; }
+  .metro-user-panel { gap: 5px !important; }
+  .metro-sider.ant-layout-sider {
+    top: calc(52px + env(safe-area-inset-top, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    width: min(88vw, 340px) !important;
+    max-width: 340px !important;
+    min-width: 0 !important;
+    flex: 0 0 auto !important;
+    background: var(--color-surface) !important;
+  }
   .metro-sider:not(.is-mobile-open) { visibility: hidden; }
   .metro-sider.is-mobile-open ~ .metro-content .metro-canvas-hud { display: none; }
-  .metro-mobile-overlay { inset: 56px 0 0; }
-  .metro-canvas-tools { position: absolute !important; top: 10px !important; max-width: calc(100% - 24px) !important; }
-  .metro-canvas-start { inset: 112px 16px 146px; }
+  .metro-mobile-overlay { inset: calc(52px + env(safe-area-inset-top, 0px)) 0 0; }
+  /* 顶部仅保留单行横滑上下文子栏（连笔态 / 轻城市造景态 / 多选栏），平时全出血零遮挡 */
+  .metro-canvas-tools {
+    position: absolute !important;
+    top: 8px !important;
+    left: 10px !important;
+    right: 10px !important;
+    bottom: auto !important;
+    transform: none !important;
+    max-width: none !important;
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  .metro-canvas-tools::-webkit-scrollbar { display: none; }
+  .metro-canvas-tools:empty { display: none; }
+  .metro-canvas-start { inset: 48px 16px 116px; }
   .metro-canvas-start__content { max-width: 100%; }
   .metro-canvas-start__art { width: 168px; height: 88px; margin-bottom: 18px; }
   .metro-canvas-start h1 { font-size: 24px; }
   .metro-canvas-start p { max-width: 320px; margin: 10px auto 0; font-size: 15px; }
   .metro-canvas-start__actions { gap: 12px; margin-top: 22px; }
   .metro-canvas-start__actions .ant-btn { padding: 0 14px; font-size: 14px; }
-  .metro-app-shell .metro-canvas-tools .metro-tool-group {
-    --phone-tool-size: 56px;
+  .metro-app-shell .metro-tool-group {
+    --phone-tool-size: 50px;
     position: relative; isolation: isolate; overflow: hidden;
-    gap: 2px; padding: 4px !important; border-radius: 26px;
-    background: var(--phone-tools-solid, #f8fbff) !important;
-    border-color: var(--phone-tools-edge, rgba(203, 220, 241, 0.7)) !important;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 10px 26px rgba(31, 57, 98, 0.12) !important;
+    gap: 2px; padding: 3px !important; border-radius: 22px;
+    background: var(--phone-tools-solid, #eef3fa) !important;
+    border: 1px solid var(--phone-tools-edge, rgba(203, 220, 241, 0.65)) !important;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85) !important;
   }
   .metro-tool-group[data-active-tool="select"] { --phone-tool-index: 0; }
   .metro-tool-group[data-active-tool="draw"] { --phone-tool-index: 1; }
   .metro-tool-group[data-active-tool="pan"] { --phone-tool-index: 2; }
-  .metro-canvas-tools .metro-tool-group[data-active-tool="none"]:not([data-dragging])::before { opacity: 0; }
-  .metro-canvas-tools .metro-tool-group::before {
-    content: ''; position: absolute; top: 4px; left: 4px; z-index: 0;
-    width: var(--phone-tool-size); height: 52px; border-radius: 20px;
+  .metro-tool-group[data-active-tool="none"]:not([data-dragging])::before { opacity: 0; }
+  .metro-tool-group::before {
+    content: ''; position: absolute; top: 3px; left: 3px; z-index: 0;
+    width: var(--phone-tool-size); height: 40px; border-radius: 18px;
     background: linear-gradient(145deg, #3688ff, #0862f0);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 2px 7px rgba(18, 93, 223, 0.22);
     transform: translateX(var(--phone-tool-position, calc(var(--phone-tool-index, 1) * (var(--phone-tool-size) + 2px))))
       scale(var(--phone-lens-sx, 1), var(--phone-lens-sy, 1));
     pointer-events: none;
   }
-  .metro-app-shell .metro-canvas-tools .metro-tool-button {
-    position: relative; z-index: 1; border-radius: 20px;
+  .metro-app-shell .metro-tool-button {
+    position: relative; z-index: 1; border-radius: 18px;
+    width: var(--phone-tool-size); min-width: 0; height: 40px;
+    flex-direction: column; gap: 2px; padding: 3px 2px !important;
     background: transparent !important; box-shadow: none; color: var(--color-text-soft);
   }
-  .metro-app-shell .metro-canvas-tools .metro-tool-button.is-active { background: transparent !important; color: #fff !important; }
-  .metro-canvas-tools .metro-tool-button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
-  .metro-canvas-tools .metro-tool-button.is-active:focus-visible { outline-color: #fff; }
-  .metro-canvas-tools .metro-tool-group[data-elastic-ready] {
+  .metro-app-shell .metro-tool-button.is-active { background: transparent !important; color: #fff !important; }
+  .metro-tool-button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
+  .metro-tool-button.is-active:focus-visible { outline-color: #fff; }
+  .metro-tool-group[data-elastic-ready] {
     touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
     transform: translateX(var(--phone-shell-x, 0px)) scale(var(--phone-shell-sx, 1), var(--phone-shell-sy, 1));
   }
-  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index] .metro-tool-button { color: var(--color-text-soft) !important; }
-  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
-  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
-  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"],
-  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="3"] .metro-tool-button[data-tool-index="3"],
-  .metro-app-shell .metro-canvas-tools .metro-tool-group[data-preview-index="4"] .metro-tool-button[data-tool-index="4"] { color: #fff !important; }
-  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-tools .metro-tool-group,
-  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-group {
-    --phone-tools-solid: #172033; --phone-tools-surface: rgba(17, 24, 39, 0.9);
-    --phone-tools-edge: rgba(153, 182, 222, 0.28);
-    box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.13), 0 10px 26px rgba(0, 0, 0, 0.22) !important;
+  .metro-app-shell .metro-tool-group[data-preview-index] .metro-tool-button { color: var(--color-text-soft) !important; }
+  .metro-app-shell .metro-tool-group[data-preview-index="0"] .metro-tool-button[data-tool-index="0"],
+  .metro-app-shell .metro-tool-group[data-preview-index="1"] .metro-tool-button[data-tool-index="1"],
+  .metro-app-shell .metro-tool-group[data-preview-index="2"] .metro-tool-button[data-tool-index="2"] { color: #fff !important; }
+  .metro-app-shell[data-interface-theme="dark"] .metro-tool-group,
+  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-tool-group {
+    --phone-tools-solid: #1e293b; --phone-tools-surface: rgba(30, 41, 59, 0.92);
+    --phone-tools-edge: rgba(148, 163, 184, 0.24);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08) !important;
   }
-  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-canvas-tools .metro-tool-button:not(.is-active) {
+  .metro-app-shell[data-interface-theme="dark"] .metro-tool-button:not(.is-active),
+  .metro-app-shell .metro-canvas-surface.is-canvas-dark .metro-tool-button:not(.is-active) {
     color: #cbd5e1;
   }
-  .metro-canvas-surface.is-canvas-dark .metro-touch-hint span,
-  .metro-canvas-surface.is-canvas-dark .metro-touch-hint button {
-    background: rgba(15, 23, 42, 0.92);
-    border-color: rgba(148, 163, 184, 0.28);
-    color: #e2e8f0;
-  }
-  .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(248, 251, 255, 0.93); }
-  .metro-app-shell[data-interface-theme="dark"] .metro-canvas-surface[data-map-mode="amap"] .metro-tool-group { --phone-tools-surface: rgba(17, 24, 39, 0.95); }
-  @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .metro-app-shell .metro-canvas-tools .metro-tool-group {
-      background: var(--phone-tools-surface, rgba(248, 251, 255, 0.82)) !important;
-      -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%);
-    }
-  }
   @media (prefers-reduced-motion: no-preference) {
-    .metro-canvas-tools .metro-tool-group::before { transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1); }
-    .metro-canvas-tools .metro-tool-group[data-elastic-ready]::before { transition: none; }
-    .metro-canvas-tools .metro-tool-button { transition: color 140ms ease, transform 90ms ease; }
-    .metro-canvas-tools .metro-tool-button:active { transform: scale(0.96); }
+    .metro-tool-group::before { transition: transform 180ms cubic-bezier(0.22, 0.61, 0.36, 1); }
+    .metro-tool-group[data-elastic-ready]::before { transition: none; }
+    .metro-tool-button { transition: color 140ms ease, transform 90ms ease; }
+    .metro-tool-button:active { transform: scale(0.96); }
   }
-  .metro-tool-button { width: 56px; min-width: 0; height: 52px; flex-direction: column; gap: 5px; padding: 5px 4px !important; }
-  .metro-tool-button__label { display: block !important; font-size: 13px; line-height: 16px; }
-  .metro-tool-button__icon { font-size: 18px !important; }
-  .metro-touch-hint { display: flex; position: absolute; top: 82px; left: 12px; right: 12px; z-index: 19;
-    align-items: center; justify-content: center; gap: 8px; color: var(--color-text-soft); font-size: 13px;
-    line-height: 20px; pointer-events: none; text-align: center; }
-  .metro-touch-hint span { padding: 5px 9px; border-radius: 8px; background: var(--color-surface); }
-  .metro-touch-hint button { min-height: 44px; flex-shrink: 0; padding: 6px 10px; border: 1px solid var(--color-border);
-    border-radius: 8px; background: var(--color-surface); color: var(--color-primary-700); font: inherit; pointer-events: auto; }
-  .metro-toolbar-panel { display: block !important; position: fixed; left: 12px; right: 12px;
+  .metro-tool-button__label { display: block !important; font-size: 10.5px; line-height: 12px; font-weight: 600; }
+  .metro-tool-button__icon { font-size: 14px !important; }
+  /* 底部一体化拇指主控坞：[选择/绘制/移动] + 撤销/重做 + 视图缩放 + 导出/指南 */
+  .metro-toolbar-panel {
+    display: block !important;
+    position: fixed;
+    left: 10px;
+    right: 10px;
     top: auto;
-    bottom: calc(12px + env(safe-area-inset-bottom)); z-index: 85; padding: 5px 6px;
-    border: 1px solid var(--color-border); border-radius: 30px; background: var(--color-surface);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 8px 24px rgba(31, 57, 98, 0.1); }
+    bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+    z-index: 85;
+    padding: 4px 6px;
+    border: 1px solid var(--color-border);
+    border-radius: 28px;
+    background: var(--color-surface);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 10px 28px rgba(15, 23, 42, 0.14);
+  }
   .metro-toolbar-panel.is-mobile-obscured { display: none !important; }
-  .metro-toolbar, .metro-toolbar__right { width: 100%; }
-  .metro-toolbar, .metro-toolbar__right { height: 44px; line-height: 1; }
-  .metro-toolbar__right { display: flex; flex-wrap: nowrap; align-items: center; gap: 0; }
-  .metro-toolbar__secondary.ant-btn { flex: 0 0 38px; width: 38px; min-width: 38px; min-height: 44px; height: 44px; padding: 0; border-radius: 18px; font-size: 18px; }
+  .metro-toolbar, .metro-toolbar__right { width: 100%; height: 46px; line-height: 1; }
+  .metro-toolbar__right { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 2px; }
+  .metro-toolbar__mobile-tools-slot { display: inline-flex; align-items: center; flex-shrink: 0; margin-right: auto; }
+  .metro-toolbar__secondary.ant-btn { flex: 0 0 34px; width: 34px; min-width: 34px; min-height: 42px; height: 42px; padding: 0; border-radius: 16px; font-size: 16px; }
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn {
     border: 0 !important; background: transparent !important; box-shadow: none;
   }
   .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn:not(:disabled):hover {
     background: var(--color-primary-50) !important;
   }
-  .metro-app-shell .metro-toolbar-panel .metro-toolbar__secondary.ant-btn:focus-visible {
-    outline: 2px solid var(--color-primary-600); outline-offset: -2px;
+  .metro-toolbar__mobile-view-slot { display: inline-flex; align-items: center; flex: 0 0 auto; min-width: 0; }
+  .metro-mobile-view-controls { display: inline-flex; align-items: center; }
+  .metro-mobile-view-controls__trigger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 40px;
+    padding: 0 7px;
+    border: 0;
+    border-radius: 14px;
+    background: transparent;
+    color: var(--color-text);
+    font-family: inherit;
+    font-size: 12.5px;
+    font-weight: 600;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
   }
-  .metro-toolbar__mobile-view-slot { display: flex; flex: 1; min-width: 0; margin-left: 4px; padding-left: 4px; }
-  .metro-mobile-view-controls { display: flex; align-items: center; width: 100%; min-width: 0; }
-  .metro-toolbar__mobile-view-slot, .metro-mobile-view-controls__view { position: relative; }
-  .metro-toolbar__mobile-view-slot::before, .metro-mobile-view-controls__view::before,
-  .metro-toolbar__export::before { content: ''; position: absolute; top: 12px; bottom: 12px; left: 0;
-    width: 1px; background: var(--color-border); pointer-events: none; }
-  .metro-mobile-view-controls__zoom { display: flex; flex: 1; align-items: center; min-width: 0; }
-  .metro-mobile-view-controls__button, .metro-mobile-view-controls__value { display: inline-flex; align-items: center; justify-content: center;
-    flex: 0 0 34px; width: 34px; min-width: 0; height: 44px; padding: 0; gap: 5px; border: 0; border-radius: 16px;
-    background: transparent; color: var(--color-text); font-family: inherit; font-size: 17px; cursor: pointer; touch-action: manipulation; }
-  .metro-mobile-view-controls__value { flex: 1; width: auto; min-width: 48px; font-size: 14px; font-weight: 600; white-space: nowrap; }
-  .metro-mobile-view-controls__caret { font-size: 9px; }
-  .metro-mobile-view-controls__view { display: flex; align-items: center; height: 44px; flex: 0 0 44px; padding-left: 4px; margin-left: 4px; }
-  .metro-mobile-view-controls__view-button { width: 40px; }
-  .metro-mobile-view-controls button:hover { background: var(--color-primary-50); }
-  .metro-mobile-view-controls button:focus-visible { outline: 2px solid var(--color-primary-600); outline-offset: -2px; }
-  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { position: relative; flex: 0 0 auto; width: auto; min-width: 76px;
-    margin-left: 4px; padding: 0 4px 0 8px; gap: 5px; border-radius: 0 22px 22px 0; color: var(--color-primary-600); font-size: 14px; }
+  .metro-mobile-view-controls__icon { font-size: 14px; opacity: 0.78; }
+  .metro-mobile-view-controls__caret { font-size: 9px; opacity: 0.65; }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn {
+    position: relative;
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 58px;
+    padding: 0 6px;
+    gap: 3px;
+    border-radius: 16px;
+    color: var(--color-primary-600);
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .metro-toolbar__gallery, .metro-toolbar__sep { display: none !important; }
   @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-    .metro-toolbar-panel { background: rgba(248, 251, 255, 0.9); -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%); }
-    .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { background: rgba(17, 24, 39, 0.94); }
+    .metro-toolbar-panel { background: rgba(248, 251, 255, 0.92); -webkit-backdrop-filter: blur(18px) saturate(130%); backdrop-filter: blur(18px) saturate(130%); }
+    .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { background: rgba(15, 23, 42, 0.94); }
   }
-  .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.22); }
+  .metro-app-shell[data-interface-theme="dark"] .metro-toolbar-panel { box-shadow: inset 0 1px 0 rgba(225, 237, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.34); }
   .metro-command-bar { display: none; }
-  .metro-context-backdrop { display: block; position: fixed; inset: 56px 0 0; z-index: 999; border: 0;
-    background: rgba(15, 23, 42, 0.2); }
+  .metro-context-backdrop { display: block; position: fixed; inset: 52px 0 0; z-index: 999; border: 0;
+    background: rgba(15, 23, 42, 0.22); }
   .station-context-menu, .section-context-menu, .canvas-context-menu { position: fixed !important;
-    top: auto !important; left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important;
-    max-height: calc(100vh - 90px); max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain;
-    padding: 16px !important; border: 1px solid var(--color-border); border-radius: 16px !important;
+    top: auto !important; left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+    width: auto !important; max-height: calc(100dvh - 90px); overflow-y: auto; overscroll-behavior: contain;
+    padding: 14px !important; border: 1px solid var(--color-border); border-radius: 18px !important;
     color: var(--color-text) !important; background: var(--color-surface) !important; font-size: 15px !important; }
   .station-context-menu .ant-btn, .section-context-menu .ant-btn, .canvas-context-menu .ant-btn { min-height: 44px; font-size: 14px; }
+  /* 弹窗移动端统一升级为底部圆角抽屉（Bottom Sheet） */
+  .metro-modal-root .ant-modal-wrap { display: flex; align-items: flex-end; }
+  .metro-modal-root .ant-modal {
+    top: auto !important;
+    margin: 0 !important;
+    padding-bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100vw !important;
+  }
+  .metro-modal-root .ant-modal-content {
+    border-radius: 20px 20px 0 0 !important;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px)) !important;
+  }
   .metro-modal-root .ant-input, .metro-modal-root .ant-input-affix-wrapper { font-size: 16px; }
-  .metro-modal-root .ant-modal-body { max-height: calc(100dvh - 180px); overflow-y: auto; overscroll-behavior: contain; }
+  .metro-modal-root .ant-modal-body { max-height: calc(100dvh - 168px); overflow-y: auto; overscroll-behavior: contain; }
   .metro-modal-root .ant-modal-footer .ant-btn { min-height: 44px; }
   .metro-basemap-wrap { display: flex; align-items: flex-end; }
   .metro-basemap-wrap .metro-basemap-picker { top: auto; margin: 0; padding-bottom: 0; width: 100% !important; max-width: 100%; }
   .metro-basemap-picker .ant-modal-content { border-radius: 20px 20px 0 0; padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
   .metro-basemap-picker .ant-modal-body { max-height: calc(100dvh - 164px); }
-  .metro-about { top: 20px; padding-bottom: 20px; }
+  .metro-about { top: auto; padding-bottom: 0; }
   .metro-about .ant-modal-content { max-height: calc(100dvh - 40px); }
-  .metro-about .ant-modal-body { max-height: none; }
+  .metro-about .ant-modal-body { max-height: calc(100dvh - 160px); }
   .metro-basemap-options { gap: 12px; }
 }
-@media (max-width: 360px) {
-  .metro-toolbar__secondary.ant-btn { flex-basis: 32px; width: 32px; min-width: 32px; }
-  .metro-toolbar__mobile-view-slot { margin-left: 2px; padding-left: 2px; }
-  .metro-mobile-view-controls__button { flex-basis: 28px; width: 28px; }
-  .metro-mobile-view-controls__value { min-width: 44px; gap: 3px; font-size: 13px; }
-  .metro-mobile-view-controls__view { flex-basis: 36px; margin-left: 2px; padding-left: 2px; }
-  .metro-mobile-view-controls__view-button { width: 34px; gap: 3px; }
-  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { min-width: 70px; margin-left: 2px; padding-left: 5px; gap: 3px; font-size: 13px; }
-  .metro-app-shell .metro-canvas-tools .metro-tool-group { --phone-tool-size: 51px; }
+@media (max-width: 375px) {
+  .metro-app-shell .metro-tool-group { --phone-tool-size: 45px; }
+  .metro-toolbar__secondary.ant-btn { flex-basis: 30px; width: 30px; min-width: 30px; }
+  .metro-mobile-view-controls__label { display: none; }
+  .metro-app-shell .metro-toolbar-panel .metro-toolbar__export.ant-btn { min-width: 48px; padding: 0 4px; font-size: 12.5px; }
   .metro-canvas-start__actions { flex-direction: column; align-items: center; }
   .metro-canvas-start__actions .ant-btn { width: 206px; }
-  .metro-tool-button { width: 51px; }
-  .metro-header-ai-btn { width: 36px; height: 36px; }
+  .metro-header-ai-btn, .metro-mobile-search-btn { width: 34px; height: 34px; }
 }
 
 @media (max-width: 1024px) and (max-height: 500px) {
@@ -8327,9 +8387,332 @@ input.metro-secret-token-masked,
     display: none;
   }
   .metro-draw-subbar {
-    margin-top: 6px;
+    margin-top: 0;
   }
-  .metro-canvas-tools {
-    flex-wrap: wrap;
+}
+
+/* ── 移动端 P0 + P1 触控交互与组件样式 ─────────────────────────────────── */
+.metro-draw-subbar__line-btn {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 999px;
+  font: inherit;
+  transition: background 120ms ease;
+}
+
+.metro-draw-subbar__line-btn:hover {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* 触屏按住 52px 偏移十字准星与连接虚线杆 */
+.metro-touch-aim-stem {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 26;
+  width: 0;
+  border-left: 1.5px dashed #2563eb;
+  pointer-events: none;
+  will-change: transform, height;
+  transform: translate3d(-9999px, -9999px, 0);
+}
+
+.metro-touch-aim-reticle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 27;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid #2563eb;
+  background: rgba(59, 130, 246, 0.12);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.2);
+  pointer-events: none;
+  will-change: transform;
+  transform: translate3d(-9999px, -9999px, 0);
+}
+
+.metro-touch-aim-reticle::before,
+.metro-touch-aim-reticle::after {
+  content: '';
+  position: absolute;
+  background: currentColor;
+  opacity: 0.72;
+}
+
+.metro-touch-aim-reticle::before {
+  left: 50%;
+  top: -5px;
+  bottom: -5px;
+  width: 1.5px;
+  transform: translateX(-50%);
+  background: inherit;
+  border-left: 1.5px solid;
+  border-color: inherit;
+}
+
+.metro-touch-aim-reticle::after {
+  top: 50%;
+  left: -5px;
+  right: -5px;
+  height: 1.5px;
+  transform: translateY(-50%);
+  border-top: 1.5px solid;
+  border-color: inherit;
+}
+
+/* 侧栏移动端顶栏、分段切换与点击定位样式 */
+.metro-sidebar__header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.metro-sidebar__mobile-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin-top: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.metro-sidebar__mobile-tabs {
+  margin: 10px 0 8px;
+  flex-shrink: 0;
+}
+
+.metro-line-card.is-dragging-card {
+  opacity: 0.85;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.18) !important;
+}
+
+.metro-station-item.is-clickable {
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.metro-station-item.is-clickable:hover,
+.metro-station-item.is-clickable:active {
+  border-color: var(--color-primary-500) !important;
+}
+
+/* 移动端非阻塞底部选中动作卡 + 软键盘贴合输入框 */
+.metro-mobile-sel-bar {
+  position: fixed;
+  left: 10px;
+  right: 10px;
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px));
+  z-index: 84;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+  color: #0f172a;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-mobile-sel-bar,
+.metro-app-shell[data-interface-theme="dark"] .metro-mobile-sel-bar {
+  background: rgba(15, 23, 42, 0.94);
+  border-color: rgba(148, 163, 184, 0.26);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.42);
+  color: #f8fafc;
+}
+
+.metro-mobile-sel-bar__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.metro-mobile-sel-bar__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  max-width: 108px;
+  flex-shrink: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metro-mobile-sel-bar__title > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.metro-mobile-sel-bar__actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.metro-mobile-sel-bar__actions::-webkit-scrollbar {
+  display: none;
+}
+
+.metro-mobile-sel-bar__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(241, 245, 249, 0.9);
+  color: #1e293b;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-mobile-sel-bar__chip,
+.metro-app-shell[data-interface-theme="dark"] .metro-mobile-sel-bar__chip {
+  background: rgba(30, 41, 59, 0.92);
+  border-color: rgba(148, 163, 184, 0.24);
+  color: #e2e8f0;
+}
+
+.metro-mobile-sel-bar__chip.is-primary,
+.metro-mobile-sel-bar__chip.is-active {
+  background: rgba(37, 99, 235, 0.14);
+  border-color: rgba(59, 130, 246, 0.48);
+  color: #2563eb;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-mobile-sel-bar__chip.is-primary,
+.metro-canvas-surface.is-canvas-dark .metro-mobile-sel-bar__chip.is-active,
+.metro-app-shell[data-interface-theme="dark"] .metro-mobile-sel-bar__chip.is-primary,
+.metro-app-shell[data-interface-theme="dark"] .metro-mobile-sel-bar__chip.is-active {
+  background: rgba(59, 130, 246, 0.24);
+  border-color: #60a5fa;
+  color: #93c5fd;
+}
+
+.metro-mobile-sel-bar__chip.is-danger {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #dc2626;
+}
+
+.metro-canvas-surface.is-canvas-dark .metro-mobile-sel-bar__chip.is-danger,
+.metro-app-shell[data-interface-theme="dark"] .metro-mobile-sel-bar__chip.is-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.metro-mobile-sel-bar__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #64748b;
+  font-size: 12px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.metro-mobile-sel-bar__subrow {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(148, 163, 184, 0.18);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.metro-mobile-sel-bar__subrow::-webkit-scrollbar {
+  display: none;
+}
+
+.metro-inline-rename.is-mobile-docked {
+  position: fixed !important;
+  left: 10px !important;
+  right: 10px !important;
+  top: auto !important;
+  bottom: calc(12px + var(--metro-kb-inset, 0px) + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 1050;
+  transform: none !important;
+  padding: 6px 8px 6px 14px;
+  border-radius: 16px;
+}
+
+.metro-inline-rename.is-mobile-docked .metro-inline-rename__input {
+  flex: 1;
+  width: auto;
+  height: 34px;
+  font-size: 16px;
+}
+
+.metro-inline-rename.is-mobile-docked .metro-inline-rename__btn {
+  height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+}
+
+.metro-wp-arc-bar.is-mobile-docked {
+  position: fixed !important;
+  left: 10px !important;
+  right: 10px !important;
+  top: auto !important;
+  bottom: calc(70px + env(safe-area-inset-bottom, 0px)) !important;
+  z-index: 86;
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+
+.metro-wp-arc-bar.is-mobile-docked .metro-wp-arc-bar__chip {
+  height: 30px;
+  font-size: 12px;
+}
+
+@media (max-width: 768px), (max-width: 1024px) and (max-height: 500px) {
+  .metro-canvas-search {
+    position: fixed;
+    top: calc(60px + env(safe-area-inset-top, 0px));
+    left: 10px;
+    right: 10px;
+    width: auto;
+    z-index: 120;
+  }
+  .metro-canvas-search__input {
+    height: 34px;
+    font-size: 16px;
+  }
+  .metro-canvas-search__list {
+    max-height: min(240px, calc(100dvh - 180px - var(--metro-kb-inset, 0px)));
   }
 }

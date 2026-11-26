@@ -30,6 +30,7 @@ import {
   NodeIndexOutlined,
   PictureOutlined,
   PlusCircleOutlined,
+  PlusOutlined,
   QuestionCircleOutlined,
   ReloadOutlined,
   SearchOutlined,
@@ -101,6 +102,12 @@ import CanvasOnboardingModal, {
 import { TouchViewportGesture, TouchPoint } from '../lib/touchViewport';
 import { useElasticToolbar } from '../lib/useElasticToolbar';
 import MobileViewControls from './MobileViewControls';
+import { useVisualViewport } from '../hooks/useVisualViewport';
+import {
+  computeTouchAimScreenPoint,
+  shouldActivateTouchAim,
+  triggerLightHaptic
+} from '../lib/mobileTouchAim';
 
 const __perfEnabled = (() => {
   try {
@@ -253,6 +260,7 @@ interface CanvasProps {
   onStartWithAmap?: () => void;
   externalOpenTerrainSculptSeq?: number;
   viewCommand?: { seq: number; action: AppAction } | null;
+  mobileToolDockHost?: HTMLDivElement | null;
   mobileViewControlsHost?: HTMLDivElement | null;
   isGuest?: boolean;
   onRequireAuth?: () => void;
@@ -290,6 +298,7 @@ const Canvas: React.FC<CanvasProps> = ({
   onStartWithAmap,
   externalOpenTerrainSculptSeq,
   viewCommand,
+  mobileToolDockHost,
   mobileViewControlsHost,
   initialViewport,
   fitOnMount,
@@ -463,10 +472,27 @@ const Canvas: React.FC<CanvasProps> = ({
   const longPressTimerRef = useRef<number | null>(null);
   const [mouseDownPosition, setMouseDownPosition] = useState<{ x: number; y: number } | null>(null);
 
+  useVisualViewport();
+  const [mobileLabelPosOpen, setMobileLabelPosOpen] = useState(false);
+
   // 直接节点引用表（彻底消灭 stage.findOne 递归全树查找导致的跟随延迟）
   const containerRef = useRef<HTMLDivElement | null>(null);
   const amapContainerRef = useRef<HTMLDivElement | null>(null);
   const cursorDotDomRef = useRef<HTMLDivElement | null>(null);
+  const touchAimDomRef = useRef<HTMLDivElement | null>(null);
+  const touchAimStemDomRef = useRef<HTMLDivElement | null>(null);
+  const touchAimStateRef = useRef<{
+    active: boolean;
+    originScreen: { x: number; y: number };
+    aimedScreen: { x: number; y: number };
+    aimedWorld: { x: number; y: number };
+    snapStationId: string | null;
+  } | null>(null);
+  const lastSectionTapRef = useRef<{
+    sectionId: string;
+    world: { x: number; y: number };
+    screen: { x: number; y: number };
+  } | null>(null);
   const stageRef = useRef<any>(null);
   const overlayLayerRef = useRef<any>(null);
   const drawingPreviewLineRef = useRef<any>(null);
@@ -747,15 +773,30 @@ const Canvas: React.FC<CanvasProps> = ({
   } | null>(null);
   const sectionParallelOffsetRef = useRef<Map<string, number>>(new Map());
 
+  const hideTouchAim = useCallback(() => {
+    touchAimStateRef.current = null;
+    if (touchAimDomRef.current) {
+      touchAimDomRef.current.style.opacity = '0';
+    }
+    if (touchAimStemDomRef.current) {
+      touchAimStemDomRef.current.style.opacity = '0';
+    }
+  }, []);
+
+  useEffect(() => {
+    setMobileLabelPosOpen(false);
+  }, [selectedStationIds]);
+
   const hideCursorDot = useCallback(() => {
     if (cursorDotDomRef.current) {
       cursorDotDomRef.current.style.opacity = '0';
     }
+    hideTouchAim();
     if (drawSnapStationIdRef.current !== null) {
       drawSnapStationIdRef.current = null;
       setDrawSnapStationId(null);
     }
-  }, []);
+  }, [hideTouchAim]);
 
   const clearImperativeGuides = useCallback(() => {
     for (let i = 0; i < 4; i += 1) {
@@ -907,12 +948,26 @@ const Canvas: React.FC<CanvasProps> = ({
 
   useEffect(() => {
     if (!inlineRename) return;
+    if (isCompact && !isAmapMode) {
+      const st = stationById.get(inlineRename.stationId);
+      const stage = stageRef.current;
+      if (st && stage && stageSize.width > 0 && stageSize.height > 0) {
+        const curScale = stage.scaleX() || scale;
+        const nextPos = {
+          x: stageSize.width / 2 - st.x * curScale,
+          y: Math.max(96, stageSize.height * 0.3) - st.y * curScale
+        };
+        stage.position(nextPos);
+        stage.batchDraw();
+        setPosition(nextPos);
+      }
+    }
     const raf = window.requestAnimationFrame(() => {
       inlineRenameInputRef.current?.focus();
       inlineRenameInputRef.current?.select();
     });
     return () => window.cancelAnimationFrame(raf);
-  }, [inlineRename]);
+  }, [inlineRename?.stationId]);
 
   useEffect(() => {
     if (!searchOpen) return;
@@ -2484,6 +2539,7 @@ const Canvas: React.FC<CanvasProps> = ({
     touchTapAllowedRef.current = false;
     clearLongPress();
     closeAllFloatingMenus();
+    hideTouchAim();
     if (points.length > 1) {
       stageRef.current?.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
       pendingSectionDragRef.current = null;
@@ -2496,13 +2552,27 @@ const Canvas: React.FC<CanvasProps> = ({
     if (activeTool === 'pan') startCanvasInteraction();
     if (points.length !== 1) return;
     const point = points[0];
+
+    const canTouchAimInTerrain =
+      !readOnly && terrainEditMode && terrainTool !== 'select' && terrainTool !== 'label';
+    const canTouchAimInDraw = !readOnly && !terrainEditMode && activeTool === 'draw';
+    if ((canTouchAimInDraw || canTouchAimInTerrain) && stageRef.current) {
+      touchAimStateRef.current = {
+        active: false,
+        originScreen: point,
+        aimedScreen: point,
+        aimedWorld: getPointerWorldPosition(stageRef.current, point),
+        snapStationId: null
+      };
+    }
+
     const stationNode = e.target.findAncestor('.touch-station', true);
     const station = stationNode ? stations.find((s) => s.id === stationNode.id()) : null;
     const sectionId = e.target.getAttr('sectionId');
     const waypointIndex = e.target.getAttr('waypointIndex');
     longPressTimerRef.current = window.setTimeout(() => {
       longPressTimerRef.current = null;
-      if (readOnly || !gesture.canLongPress || activeTool === 'draw') return;
+      if (readOnly || !gesture.canLongPress || activeTool === 'draw' || terrainEditMode) return;
       gesture.consume();
       stationNode?.stopDrag();
       pendingSectionDragRef.current = null;
@@ -2523,17 +2593,161 @@ const Canvas: React.FC<CanvasProps> = ({
     }, 550);
   };
 
+  const renderTouchAimDom = (
+    finger: { x: number; y: number },
+    aimed: { x: number; y: number },
+    accentColor: string,
+    snappedToTarget: boolean
+  ) => {
+    const reticle = touchAimDomRef.current;
+    const stem = touchAimStemDomRef.current;
+    if (reticle) {
+      reticle.style.borderColor = accentColor;
+      reticle.style.opacity = '1';
+      reticle.dataset.snapped = snappedToTarget ? 'true' : 'false';
+      reticle.style.transform = `translate3d(${aimed.x - 15}px, ${aimed.y - 15}px, 0)`;
+    }
+    if (stem) {
+      const dy = Math.max(0, finger.y - aimed.y);
+      if (dy >= 12) {
+        stem.style.height = `${dy}px`;
+        stem.style.borderColor = accentColor;
+        stem.style.opacity = '0.72';
+        stem.style.transform = `translate3d(${aimed.x}px, ${aimed.y}px, 0)`;
+      } else {
+        stem.style.opacity = '0';
+      }
+    }
+  };
+
   const handleTouchMove = (e: any) => {
     e.evt.preventDefault();
     const stage = stageRef.current;
     if (!stage) return;
     const points = readTouchPoints(e);
     const gesture = touchGestureRef.current;
-    if (points.length > 1 && !gesture.isNavigating) {
-      stage.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
-      pendingSectionDragRef.current = null;
+    if (points.length > 1) {
+      hideTouchAim();
+      clearImperativeGuides();
+      if (drawSnapStationIdRef.current !== null) {
+        drawSnapStationIdRef.current = null;
+        setDrawSnapStationId(null);
+      }
+      if (!gesture.isNavigating) {
+        stage.find('.touch-edit-node').forEach((node: any) => node.stopDrag());
+        pendingSectionDragRef.current = null;
+      }
     }
     if (!gesture.canLongPress) clearLongPress();
+
+    // 触屏按住偏移准星瞄准（上移 52px 完全避开指腹遮挡，支持实时 45° 参考线与换乘磁吸震动）
+    if (points.length === 1 && touchAimStateRef.current && !readOnly && !gesture.isNavigating) {
+      const aim = touchAimStateRef.current;
+      const finger = points[0];
+      if (!aim.active && shouldActivateTouchAim(aim.originScreen, finger)) {
+        aim.active = true;
+        gesture.consume();
+        clearLongPress();
+      }
+      if (aim.active) {
+        const aimedScreen = computeTouchAimScreenPoint(finger, stageSize);
+        const rawWorld = getPointerWorldPosition(stage, aimedScreen);
+
+        if (terrainEditMode && terrainTool !== 'select' && terrainTool !== 'label') {
+          if (
+            (terrainTool === 'waterArea' || terrainTool === 'zone' || terrainTool === 'road') &&
+            terrainDraftPoints.length >= 3
+          ) {
+            const first = terrainDraftPoints[0];
+            const closeDistWorld = 18 / Math.max(0.25, scale);
+            if (Math.hypot(rawWorld.x - first.x, rawWorld.y - first.y) <= closeDistWorld) {
+              aim.aimedScreen = aimedScreen;
+              aim.aimedWorld = { x: first.x, y: first.y };
+              setTerrainHoverWorld({ x: first.x, y: first.y });
+              setTerrainSnap(null);
+              renderTouchAimDom(finger, worldToScreenPoint(first), '#10b981', true);
+              return;
+            }
+          }
+          const snapped = snapTerrainDrawPoint({
+            rawPoint: rawWorld,
+            lightCity,
+            tool: terrainTool,
+            viewportScale: scale,
+            altKey: false
+          });
+          aim.aimedScreen = aimedScreen;
+          aim.aimedWorld = { x: snapped.x, y: snapped.y };
+          setTerrainHoverWorld({ x: snapped.x, y: snapped.y });
+          setTerrainSnap((prev) => {
+            if (snapped.snapped && !prev?.snapped) triggerLightHaptic(6);
+            return snapped.snapped ? snapped : null;
+          });
+          renderTouchAimDom(
+            finger,
+            snapped.snapped ? worldToScreenPoint(snapped) : aimedScreen,
+            '#2563eb',
+            snapped.snapped
+          );
+          return;
+        }
+
+        if (activeTool === 'draw') {
+          const placingWaypoint = Boolean(drawAnchorStationId && drawWaypointSubmode);
+          const snapStation = placingWaypoint ? null : findNearestStationInDrawCapture(rawWorld, false);
+          if ((snapStation?.id || null) !== drawSnapStationIdRef.current) {
+            drawSnapStationIdRef.current = snapStation?.id || null;
+            setDrawSnapStationId(snapStation?.id || null);
+            if (snapStation) triggerLightHaptic(8);
+          }
+
+          const anchorSt = drawAnchorStationId ? stationById.get(drawAnchorStationId) : null;
+          const lastRefPoint =
+            drawPendingWaypoints.length > 0
+              ? getWaypointDisplayPoint(drawPendingWaypoints[drawPendingWaypoints.length - 1])
+              : anchorSt
+                ? getDisplayPoint(anchorSt)
+                : null;
+
+          let finalWorldX = rawWorld.x;
+          let finalWorldY = rawWorld.y;
+          let guides: number[][] = [];
+
+          if (snapStation) {
+            const sp = getDisplayPoint(snapStation);
+            finalWorldX = sp.x;
+            finalWorldY = sp.y;
+          } else if (lastRefPoint) {
+            const snapped = snapWorldPointRelativeTo(rawWorld, [lastRefPoint], false);
+            finalWorldX = snapped.x;
+            finalWorldY = snapped.y;
+            guides = snapped.guides;
+          }
+
+          aim.aimedScreen = aimedScreen;
+          aim.aimedWorld = { x: finalWorldX, y: finalWorldY };
+          aim.snapStationId = snapStation?.id || null;
+
+          if (anchorSt && drawingPreviewLineRef.current) {
+            const anchorPt = getDisplayPoint(anchorSt);
+            const wpCoords = drawPendingWaypoints.flatMap((wp) => {
+              const p = getWaypointDisplayPoint(wp);
+              return [p.x, p.y];
+            });
+            const nextPts = [anchorPt.x, anchorPt.y, ...wpCoords, finalWorldX, finalWorldY];
+            drawingPointsRef.current = nextPts;
+            drawingPreviewLineRef.current.points(nextPts);
+            drawingPreviewLineRef.current.visible(true);
+          }
+          updateImperativeGuides(guides);
+
+          const lineColor = (currentLineId && lineById.get(currentLineId)?.color) || LINE_COLORS[0];
+          const displayScreen = worldToScreenPoint({ x: finalWorldX, y: finalWorldY });
+          renderTouchAimDom(finger, displayScreen, lineColor, Boolean(snapStation));
+          return;
+        }
+      }
+    }
 
     if (points.length === 1 && pendingSectionDragRef.current && activeTool === 'select' && !readOnly) {
       const pending = pendingSectionDragRef.current;
@@ -2582,8 +2796,59 @@ const Canvas: React.FC<CanvasProps> = ({
     e.evt.preventDefault();
     clearLongPress();
     const remaining = readTouchPoints(e);
+    const activeAim = !remaining.length && touchAimStateRef.current?.active ? { ...touchAimStateRef.current } : null;
+    if (!remaining.length) {
+      hideTouchAim();
+      clearImperativeGuides();
+      if (drawSnapStationIdRef.current !== null) {
+        drawSnapStationIdRef.current = null;
+        setDrawSnapStationId(null);
+      }
+    }
     touchTapAllowedRef.current = touchGestureRef.current.end(remaining);
     if (remaining.length) return;
+
+    if (activeAim && !readOnly) {
+      if (terrainEditMode && terrainTool !== 'select' && terrainTool !== 'label') {
+        if (
+          (terrainTool === 'waterArea' || terrainTool === 'zone' || terrainTool === 'road') &&
+          terrainDraftPoints.length >= 3
+        ) {
+          const first = terrainDraftPoints[0];
+          const closeDistWorld = 18 / Math.max(0.25, scale);
+          if (Math.hypot(activeAim.aimedWorld.x - first.x, activeAim.aimedWorld.y - first.y) <= closeDistWorld) {
+            finishTerrainDraft(true);
+            setTerrainSnap(null);
+            setIsDragging(false);
+            scheduleCanvasInteractionEnd(80);
+            return;
+          }
+        }
+        const pt = {
+          x: Math.round(activeAim.aimedWorld.x * 10) / 10,
+          y: Math.round(activeAim.aimedWorld.y * 10) / 10
+        };
+        setTerrainDraftPoints((prev) => [...prev, pt]);
+        setTerrainSnap(null);
+      } else if (activeTool === 'draw') {
+        if (activeAim.snapStationId) {
+          const st = stationById.get(activeAim.snapStationId);
+          if (st) handleStationClickInDrawMode(st);
+        } else if (drawAnchorStationId && drawWaypointSubmode) {
+          const lngLat = getLngLatFromContainerPoint(activeAim.aimedScreen) || {};
+          setDrawPendingWaypoints((prev) => [
+            ...prev,
+            { x: activeAim.aimedWorld.x, y: activeAim.aimedWorld.y, ...lngLat }
+          ]);
+        } else {
+          placeNewStationInDrawMode(activeAim.aimedWorld, activeAim.aimedScreen);
+        }
+      }
+      setIsDragging(false);
+      scheduleCanvasInteractionEnd(80);
+      return;
+    }
+
     if (pendingSectionDragRef.current) {
       if (pendingSectionDragRef.current.insertedWaypointIndex !== null) {
         const secId = pendingSectionDragRef.current.sectionId;
@@ -2602,6 +2867,7 @@ const Canvas: React.FC<CanvasProps> = ({
 
   const handleTouchCancel = () => {
     clearLongPress();
+    hideTouchAim();
     touchGestureRef.current.cancel();
     touchTapAllowedRef.current = false;
     pendingSectionDragRef.current = null;
@@ -3064,6 +3330,12 @@ const Canvas: React.FC<CanvasProps> = ({
       case 'center':
         centerOnStation(a.stationId, true);
         break;
+      case 'toggle_search':
+        setSearchOpen((v) => !v);
+        break;
+      case 'open_guide':
+        setOnboardingState({ open: true, view: 'cheatsheet' });
+        break;
       default:
         break;
     }
@@ -3146,6 +3418,15 @@ const Canvas: React.FC<CanvasProps> = ({
       return;
     }
     if (activeTool === 'pan') return;
+    if (isCompact) {
+      commitInlineRenameIfNeeded();
+      closeAllFloatingMenus();
+      setArcEditorWaypoint(null);
+      setSelectedWaypoint(null);
+      setSelectedSectionId(null);
+      setSelectedStationIds(new Set([station.id]));
+      return;
+    }
     const pointer = e.target.getStage()?.getPointerPosition();
     if (pointer) {
       setArcEditorWaypoint(null);
@@ -3987,15 +4268,18 @@ const Canvas: React.FC<CanvasProps> = ({
 
         if (isCompact && activeTool === 'select') {
           e.cancelBubble = true;
+          commitInlineRenameIfNeeded();
+          closeAllFloatingMenus();
+          lastSectionTapRef.current = {
+            sectionId: seg.section.id,
+            world: getPointerWorldPosition(stage, pointer),
+            screen: { x: pointer.x, y: pointer.y }
+          };
           setArcEditorWaypoint(null);
-          setSectionContextMenu({
-            visible: true,
-            x: pointer.x,
-            y: pointer.y,
-            sectionKey: seg.section.id,
-            waypointIndex: null,
-            waypointOnly: false
-          });
+          setSelectedWaypoint(null);
+          setSelectedStationIds(new Set());
+          setSelectedSectionId(seg.section.id);
+          onSelectLine?.(seg.line.id);
         }
       };
 
@@ -4090,15 +4374,6 @@ const Canvas: React.FC<CanvasProps> = ({
   const anchorStation = drawAnchorStationId ? stationById.get(drawAnchorStationId) || null : null;
   const drawSnapStation = drawSnapStationId ? stationById.get(drawSnapStationId) || null : null;
 
-  const mobileTouchHintText =
-    activeTool === 'draw'
-      ? anchorStation
-        ? text.touchHints.drawActive(anchorStation.name)
-        : text.touchHints.drawIdle
-      : activeTool === 'pan'
-        ? text.touchHints.pan
-        : text.touchHints.select;
-
   const activeCanvasCursor =
     isSpaceHeld || activeTool === 'pan'
       ? isDragging
@@ -4139,6 +4414,9 @@ const Canvas: React.FC<CanvasProps> = ({
     >
       {/* 0ms GPU 硬件直连跟随小圆点（仅在绘制模式空白区激活，重合既有站时自动隐身让位） */}
       <div ref={cursorDotDomRef} className="metro-draw-cursor-dot" style={{ opacity: 0 }} aria-hidden="true" />
+      {/* 移动端按住偏移 52px 瞄准连接杆与十字准星靶环（零重绘 GPU 跟随） */}
+      <div ref={touchAimStemDomRef} className="metro-touch-aim-stem" style={{ opacity: 0 }} aria-hidden="true" />
+      <div ref={touchAimDomRef} className="metro-touch-aim-reticle" style={{ opacity: 0 }} aria-hidden="true" />
 
       {/* 绘制模式下靠近既有站点的重合动作提示标 */}
       {!readOnly && activeTool === 'draw' && drawSnapStation && (() => {
@@ -4224,202 +4502,248 @@ const Canvas: React.FC<CanvasProps> = ({
         );
       })()}
 
-      {/* 左上角三态主工具栏 + 绘制子控制栏 + 多选批量栏（彻底移除冗长常驻灰字提示） */}
-      <div className="metro-canvas-tools">
-        <div
-          ref={toolGroupRef}
-          className="metro-tool-group"
-          data-active-tool={terrainEditMode && activeTool !== 'pan' ? 'none' : activeTool}
-          role="toolbar"
-          aria-label="Canvas tools"
-        >
-          {[
-            { key: 'select' as CanvasTool, shortcut: 'V', label: text.tools.select, icon: <SelectOutlined /> },
-            { key: 'draw' as CanvasTool, shortcut: 'D', label: text.tools.draw, icon: <NodeIndexOutlined /> },
-            { key: 'pan' as CanvasTool, shortcut: 'H', label: text.tools.pan, icon: <DragOutlined /> }
-          ].map((tool, index) => {
-            const active = activeTool === tool.key;
-            return (
-              <Tooltip
-                key={tool.key}
-                title={isCompact ? null : `${tool.label} (${tool.shortcut})`}
-                placement="bottom"
-                mouseEnterDelay={0.25}
-              >
-                <button
-                  type="button"
-                  className={`metro-tool-button ${active && !terrainEditMode ? 'is-active' : ''}`}
-                  data-tool-index={index}
-                  onClick={() => {
-                    if (terrainEditMode && tool.key !== 'pan') {
-                      setTerrainEditMode(false);
-                      setTerrainDraftPoints([]);
-                      setTerrainSnap(null);
-                    }
-                    setCanvasTool(tool.key);
-                  }}
-                  aria-label={tool.label}
-                  aria-pressed={active && !terrainEditMode}
-                >
-                  <span className="metro-tool-button__icon">{tool.icon}</span>
-                  <span className="metro-tool-button__label">{tool.label}</span>
-                </button>
-              </Tooltip>
-            );
-          })}
-        </div>
-
-        {!readOnly && isLightCityMode && !terrainEditMode && (
-          <button
-            type="button"
-            className="metro-draw-subbar__pill metro-lightcity-entry-btn"
-            onClick={() => {
-              liftDrawingPen();
-              setSelectedStationIds(new Set());
-              setSelectedSectionId(null);
-              setSelectedWaypoint(null);
-              setArcEditorWaypoint(null);
-              setTerrainEditMode(true);
-            }}
+      {/* 主模式三态胶囊：桌面端位于画布左上角；移动端通过 Portal 沉入底部拇指主控坞左侧 */}
+      {(() => {
+        const toolGroupElement = (
+          <div
+            ref={toolGroupRef}
+            className="metro-tool-group"
+            data-active-tool={terrainEditMode && activeTool !== 'pan' ? 'none' : activeTool}
+            role="toolbar"
+            aria-label="Canvas tools"
           >
-            <CompassOutlined />
-            <span>{isEn ? 'Edit Basemap' : '编辑底图'}</span>
-          </button>
-        )}
+            {[
+              { key: 'select' as CanvasTool, shortcut: 'V', label: text.tools.select, icon: <SelectOutlined /> },
+              { key: 'draw' as CanvasTool, shortcut: 'D', label: text.tools.draw, icon: <NodeIndexOutlined /> },
+              { key: 'pan' as CanvasTool, shortcut: 'H', label: text.tools.pan, icon: <DragOutlined /> }
+            ].map((tool, index) => {
+              const active = activeTool === tool.key;
+              return (
+                <Tooltip
+                  key={tool.key}
+                  title={isCompact ? null : `${tool.label} (${tool.shortcut})`}
+                  placement="bottom"
+                  mouseEnterDelay={0.25}
+                >
+                  <button
+                    type="button"
+                    className={`metro-tool-button ${active && !terrainEditMode ? 'is-active' : ''}`}
+                    data-tool-index={index}
+                    onClick={() => {
+                      if (terrainEditMode && tool.key !== 'pan') {
+                        setTerrainEditMode(false);
+                        setTerrainDraftPoints([]);
+                        setTerrainSnap(null);
+                      }
+                      setCanvasTool(tool.key);
+                    }}
+                    aria-label={tool.label}
+                    aria-pressed={active && !terrainEditMode}
+                  >
+                    <span className="metro-tool-button__icon">{tool.icon}</span>
+                    <span className="metro-tool-button__label">{tool.label}</span>
+                  </button>
+                </Tooltip>
+              );
+            })}
+          </div>
+        );
 
-        {!readOnly && isLightCityMode && terrainEditMode && (
-          <LightCitySculptBar
-            tool={terrainTool}
-            onChangeTool={(next) => {
-              setTerrainDraftPoints([]);
-              setTerrainSnap(null);
-              setTerrainLabelDraft(null);
-              setTerrainTool(next);
-            }}
-            riverWidth={terrainRiverWidth}
-            onChangeRiverWidth={setTerrainRiverWidth}
-            waterSubKind={terrainWaterSubKind}
-            onChangeWaterSubKind={setTerrainWaterSubKind}
-            zoneSubKind={terrainZoneSubKind}
-            onChangeZoneSubKind={setTerrainZoneSubKind}
-            roadSubKind={terrainRoadSubKind}
-            onChangeRoadSubKind={setTerrainRoadSubKind}
-            labelSubKind={terrainLabelSubKind}
-            onChangeLabelSubKind={setTerrainLabelSubKind}
-            draftPointCount={terrainDraftPoints.length}
-            onFinishDraft={(closeLoop) => {
-              finishTerrainDraft(closeLoop);
-              setTerrainSnap(null);
-            }}
-            onCancelDraft={() => {
-              setTerrainDraftPoints([]);
-              setTerrainSnap(null);
-            }}
-            selectedFeature={selectedTerrainFeature}
-            onUpdateSelectedFeature={(patch) => {
-              if (!selectedTerrainFeatureId) return;
-              commitLightCityUpdate((cur) => ({
-                ...cur,
-                features: cur.features.map((f) =>
-                  f.id === selectedTerrainFeatureId ? ({ ...f, ...patch } as LightCityFeature) : f
-                )
-              }));
-            }}
-            onDeleteSelectedFeature={deleteSelectedTerrainFeature}
-            onRerollCity={handleRerollLightCity}
-            onOpenTemplatePicker={() => onStartWithLightCity?.()}
-            onExitSculpt={() => {
-              setTerrainDraftPoints([]);
-              setTerrainSnap(null);
-              setSelectedTerrainFeatureId(null);
-              setTerrainLabelDraft(null);
-              setTerrainEditMode(false);
-            }}
-            language={language}
-          />
-        )}
+        const portalToolsToBottomDock = Boolean(isCompact && mobileToolDockHost && !readOnly);
 
-        {!readOnly && !terrainEditMode && activeTool === 'draw' && (currentLine || lines.length > 0) && (
-          <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
-            {currentLine ? (
-              <span className="metro-draw-subbar__line" title={currentLine.name}>
-                <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
-                {currentLine.name}
-              </span>
-            ) : (
-              <button
-                type="button"
-                className="metro-draw-subbar__pill"
-                onClick={() => onSelectLine?.(lines[0].id)}
-              >
-                {isEn ? 'Select a line on left' : '请在左侧选择线路'}
-              </button>
-            )}
-            {anchorStation ? (
-              <>
-                <span className="metro-draw-subbar__sep" />
-                <ElasticCapsuleTabs<'station' | 'bend'>
-                  size="sm"
-                  ariaLabel="落点模式切换"
-                  value={drawWaypointSubmode ? 'bend' : 'station'}
-                  onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
-                  options={[
-                    { value: 'station', label: isEn ? 'Station' : '落站点' },
-                    {
-                      value: 'bend',
-                      label: `${isEn ? 'Bend' : '打拐点'}${
-                        drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
-                      }`
-                    }
-                  ]}
-                />
+        return (
+          <>
+            {portalToolsToBottomDock ? createPortal(toolGroupElement, mobileToolDockHost!) : null}
+            <div className="metro-canvas-tools">
+              {!portalToolsToBottomDock ? toolGroupElement : null}
+
+              {!readOnly && isLightCityMode && !terrainEditMode && (
                 <button
                   type="button"
-                  className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
-                  onClick={liftDrawingPen}
-                  title="收起虚线，随后可点任意站点从另一端延伸或拉支线 (右键 / Esc)"
+                  className="metro-draw-subbar__pill metro-lightcity-entry-btn"
+                  onClick={() => {
+                    liftDrawingPen();
+                    setSelectedStationIds(new Set());
+                    setSelectedSectionId(null);
+                    setSelectedWaypoint(null);
+                    setArcEditorWaypoint(null);
+                    setTerrainEditMode(true);
+                  }}
                 >
-                  {isEn ? 'Lift Pen' : '抬笔'}
+                  <CompassOutlined />
+                  <span>{isEn ? 'Edit Basemap' : '编辑底图'}</span>
                 </button>
-              </>
-            ) : null}
-          </div>
-        )}
+              )}
 
-        {!readOnly && selectedStationIds.size > 1 && (
-          <div className="metro-multiselect-bar" onMouseDown={(e) => e.stopPropagation()}>
-            <span>
-              {isEn
-                ? `${selectedStationIds.size} selected`
-                : `已选 ${selectedStationIds.size} 站`}
-            </span>
-            <button
-              type="button"
-              className="metro-multiselect-bar__btn metro-multiselect-bar__btn--danger"
-              onClick={deleteSelectedItems}
-            >
-              {isEn ? 'Delete' : '删除'}
-            </button>
-            <button
-              type="button"
-              className="metro-multiselect-bar__btn"
-              onClick={() => setSelectedStationIds(new Set())}
-            >
-              {isEn ? 'Clear' : '取消'}
-            </button>
-          </div>
-        )}
-      </div>
+              {!readOnly && isLightCityMode && terrainEditMode && (
+                <LightCitySculptBar
+                  tool={terrainTool}
+                  onChangeTool={(next) => {
+                    setTerrainDraftPoints([]);
+                    setTerrainSnap(null);
+                    setTerrainLabelDraft(null);
+                    setTerrainTool(next);
+                  }}
+                  riverWidth={terrainRiverWidth}
+                  onChangeRiverWidth={setTerrainRiverWidth}
+                  waterSubKind={terrainWaterSubKind}
+                  onChangeWaterSubKind={setTerrainWaterSubKind}
+                  zoneSubKind={terrainZoneSubKind}
+                  onChangeZoneSubKind={setTerrainZoneSubKind}
+                  roadSubKind={terrainRoadSubKind}
+                  onChangeRoadSubKind={setTerrainRoadSubKind}
+                  labelSubKind={terrainLabelSubKind}
+                  onChangeLabelSubKind={setTerrainLabelSubKind}
+                  draftPointCount={terrainDraftPoints.length}
+                  onFinishDraft={(closeLoop) => {
+                    finishTerrainDraft(closeLoop);
+                    setTerrainSnap(null);
+                  }}
+                  onCancelDraft={() => {
+                    setTerrainDraftPoints([]);
+                    setTerrainSnap(null);
+                  }}
+                  selectedFeature={selectedTerrainFeature}
+                  onUpdateSelectedFeature={(patch) => {
+                    if (!selectedTerrainFeatureId) return;
+                    commitLightCityUpdate((cur) => ({
+                      ...cur,
+                      features: cur.features.map((f) =>
+                        f.id === selectedTerrainFeatureId ? ({ ...f, ...patch } as LightCityFeature) : f
+                      )
+                    }));
+                  }}
+                  onDeleteSelectedFeature={deleteSelectedTerrainFeature}
+                  onRerollCity={handleRerollLightCity}
+                  onOpenTemplatePicker={() => onStartWithLightCity?.()}
+                  onExitSculpt={() => {
+                    setTerrainDraftPoints([]);
+                    setTerrainSnap(null);
+                    setSelectedTerrainFeatureId(null);
+                    setTerrainLabelDraft(null);
+                    setTerrainEditMode(false);
+                  }}
+                  language={language}
+                />
+              )}
 
-      {/* 移动端顶部轻提示条 */}
-      <div className="metro-touch-hint" aria-live="polite">
-        <span>{mobileTouchHintText}</span>
-        {anchorStation ? (
-          <button type="button" onClick={liftDrawingPen}>
-            {isEn ? 'Lift Pen' : '抬笔'}
-          </button>
-        ) : null}
-      </div>
+              {!readOnly && !terrainEditMode && activeTool === 'draw' && (
+                <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
+                  <Dropdown
+                    trigger={['click']}
+                    placement="bottomLeft"
+                    menu={{
+                      items: [
+                        ...lines.map((line) => ({
+                          key: line.id,
+                          label: (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: line.id === currentLineId ? 700 : 500 }}>
+                              <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
+                              <span>{line.name}</span>
+                            </span>
+                          ),
+                          onClick: () => onSelectLine?.(line.id)
+                        })),
+                        ...(onCreateLine
+                          ? [
+                              ...(lines.length > 0 ? [{ type: 'divider' as const }] : []),
+                              {
+                                key: '__create_line__',
+                                icon: <PlusOutlined />,
+                                label: isEn ? 'New line…' : '新建线路…',
+                                onClick: () => onCreateLine()
+                              }
+                            ]
+                          : [])
+                      ]
+                    }}
+                  >
+                    {currentLine ? (
+                      <button
+                        type="button"
+                        className="metro-draw-subbar__line metro-draw-subbar__line-btn"
+                        title={isEn ? 'Switch line' : '点击切换绘制线路'}
+                      >
+                        <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
+                        <span>{currentLine.name}</span>
+                        <DownOutlined style={{ fontSize: 9, opacity: 0.65 }} />
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="metro-draw-subbar__pill"
+                        onClick={() => {
+                          if (lines.length === 0 && onCreateLine) onCreateLine();
+                        }}
+                      >
+                        {lines.length > 0
+                          ? isEn
+                            ? 'Select line ▾'
+                            : '选择绘制线路 ▾'
+                          : isEn
+                            ? '+ Create first line'
+                            : '+ 新建第一条线路'}
+                      </button>
+                    )}
+                  </Dropdown>
+                  {anchorStation ? (
+                    <>
+                      <span className="metro-draw-subbar__sep" />
+                      <ElasticCapsuleTabs<'station' | 'bend'>
+                        size="sm"
+                        ariaLabel="落点模式切换"
+                        value={drawWaypointSubmode ? 'bend' : 'station'}
+                        onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
+                        options={[
+                          { value: 'station', label: isEn ? 'Station' : '落站点' },
+                          {
+                            value: 'bend',
+                            label: `${isEn ? 'Bend' : '打拐点'}${
+                              drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
+                            }`
+                          }
+                        ]}
+                      />
+                      <button
+                        type="button"
+                        className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
+                        onClick={liftDrawingPen}
+                        title="收起虚线，随后可点任意站点从另一端延伸或拉支线 (右键 / Esc)"
+                      >
+                        {isEn ? 'Lift Pen' : '抬笔'}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              )}
+
+              {!readOnly && selectedStationIds.size > 1 && (
+                <div className="metro-multiselect-bar" onMouseDown={(e) => e.stopPropagation()}>
+                  <span>
+                    {isEn
+                      ? `${selectedStationIds.size} selected`
+                      : `已选 ${selectedStationIds.size} 站`}
+                  </span>
+                  <button
+                    type="button"
+                    className="metro-multiselect-bar__btn metro-multiselect-bar__btn--danger"
+                    onClick={deleteSelectedItems}
+                  >
+                    {isEn ? 'Delete' : '删除'}
+                  </button>
+                  <button
+                    type="button"
+                    className="metro-multiselect-bar__btn"
+                    onClick={() => setSelectedStationIds(new Set())}
+                  >
+                    {isEn ? 'Clear' : '取消'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </>
+        );
+      })()}
 
       {/* Ctrl+F 快速搜站浮层 */}
       {searchOpen && (
@@ -4863,7 +5187,16 @@ const Canvas: React.FC<CanvasProps> = ({
                           onTap={(e) => {
                             if (!terrainEditMode || terrainTool !== 'select') return;
                             e.cancelBubble = true;
-                            setSelectedTerrainFeatureId(f.id);
+                            if (selectedTerrainFeatureId === f.id) {
+                              setTerrainLabelDraft({
+                                x: f.x,
+                                y: f.y,
+                                value: f.text,
+                                editingFeatureId: f.id
+                              });
+                            } else {
+                              setSelectedTerrainFeatureId(f.id);
+                            }
                           }}
                           onDblClick={(e) => {
                             if (!terrainEditMode) return;
@@ -5239,6 +5572,15 @@ const Canvas: React.FC<CanvasProps> = ({
                       onTap={(e) => {
                         if (readOnly) return;
                         e.cancelBubble = true;
+                        if (isCompact) {
+                          commitInlineRenameIfNeeded();
+                          closeAllFloatingMenus();
+                          setSelectedStationIds(new Set());
+                          setSelectedSectionId(section.id);
+                          setSelectedWaypoint({ sectionId: section.id, waypointIndex: idx });
+                          setArcEditorWaypoint({ sectionId: section.id, waypointIndex: idx });
+                          return;
+                        }
                         const pointer = e.target.getStage()?.getPointerPosition?.();
                         if (pointer) {
                           setArcEditorWaypoint(null);
@@ -5729,15 +6071,15 @@ const Canvas: React.FC<CanvasProps> = ({
         </Layer>
       </Stage>
 
-      {/* 底图造景态：行内片区/水系地名输入框 */}
+      {/* 底图造景态：行内片区/水系地名输入框（移动端自动吸附在软键盘上方） */}
       {!readOnly && terrainLabelDraft && (() => {
         const screen = worldToScreenPoint({ x: terrainLabelDraft.x, y: terrainLabelDraft.y });
         const left = Math.max(96, Math.min(screen.x, stageSize.width - 96));
         const top = Math.max(58, Math.min(screen.y - 18, stageSize.height - 24));
         return (
           <div
-            className="metro-inline-rename"
-            style={{ left, top }}
+            className={`metro-inline-rename${isCompact ? ' is-mobile-docked' : ''}`}
+            style={isCompact ? undefined : { left, top }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <input
@@ -5759,6 +6101,16 @@ const Canvas: React.FC<CanvasProps> = ({
                 }
               }}
             />
+            {isCompact ? (
+              <button
+                type="button"
+                className="metro-inline-rename__btn"
+                onClick={() => setTerrainLabelDraft(null)}
+                aria-label="取消"
+              >
+                <CloseOutlined />
+              </button>
+            ) : null}
             <button
               type="button"
               className="metro-inline-rename__btn metro-inline-rename__btn--ok"
@@ -5771,7 +6123,7 @@ const Canvas: React.FC<CanvasProps> = ({
         );
       })()}
 
-      {/* 非阻塞行内站点命名浮层 */}
+      {/* 非阻塞行内站点命名浮层（移动端自动贴合虚拟键盘正上方，杜绝输入法遮挡） */}
       {!readOnly && inlineRename && (() => {
         const st = stationById.get(inlineRename.stationId);
         if (!st) return null;
@@ -5780,8 +6132,8 @@ const Canvas: React.FC<CanvasProps> = ({
         const top = Math.max(58, Math.min(screen.y - 18, stageSize.height - 24));
         return (
           <div
-            className="metro-inline-rename"
-            style={{ left, top }}
+            className={`metro-inline-rename${isCompact ? ' is-mobile-docked' : ''}`}
+            style={isCompact ? undefined : { left, top }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <input
@@ -5812,6 +6164,16 @@ const Canvas: React.FC<CanvasProps> = ({
             >
               <TranslationOutlined />
             </button>
+            {isCompact ? (
+              <button
+                type="button"
+                className="metro-inline-rename__btn"
+                onClick={() => setInlineRename(null)}
+                aria-label="取消改名"
+              >
+                <CloseOutlined />
+              </button>
+            ) : null}
             <button
               type="button"
               className="metro-inline-rename__btn metro-inline-rename__btn--ok"
@@ -5824,7 +6186,231 @@ const Canvas: React.FC<CanvasProps> = ({
         );
       })()}
 
-      {/* 途经点圆弧调节弹窗（仅在一级菜单点击「调整圆弧」后弹出，顶部切换已统一为标准弹性胶囊） */}
+      {/* 移动端非阻塞选中态动作抽屉条（覆盖站点改名/起笔/八向方位/备注 与 区间插站/并行对调/拐点调节，且不阻挡单指继续拖拽站点） */}
+      {isCompact &&
+        !readOnly &&
+        !terrainEditMode &&
+        !inlineRename &&
+        !arcEditorWaypoint &&
+        activeTool === 'select' &&
+        (() => {
+          if (selectedStationIds.size === 1) {
+            const stId = Array.from(selectedStationIds)[0];
+            const st = stationById.get(stId);
+            if (!st) return null;
+            const curLabelPos: StationLabelPosition = st.labelPosition || 'auto';
+            const inCurrentLine = Boolean(currentLine && currentLine.stationIds.includes(st.id));
+            return (
+              <div className="metro-mobile-sel-bar" onMouseDown={(e) => e.stopPropagation()}>
+                <div className="metro-mobile-sel-bar__row">
+                  <span className="metro-mobile-sel-bar__title">
+                    <span
+                      className="metro-floating-menu__dot"
+                      style={{ backgroundColor: getStationColor(st.id) }}
+                    />
+                    <span>{st.name}</span>
+                  </span>
+                  <div className="metro-mobile-sel-bar__actions">
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__chip is-primary"
+                      onClick={() =>
+                        setInlineRename({ stationId: st.id, value: st.name, originalName: st.name })
+                      }
+                    >
+                      <EditOutlined /> {isEn ? 'Rename' : '改名'}
+                    </button>
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__chip"
+                      onClick={() => {
+                        if (!currentLineId) {
+                          const owning = lines.find((l) => l.stationIds.includes(st.id));
+                          if (owning) onSelectLine?.(owning.id);
+                          else if (!requireSelectedLineForDraw()) return;
+                        }
+                        setSelectedStationIds(new Set());
+                        setActiveTool('draw');
+                        setDrawAnchorStationId(st.id);
+                        setDrawPendingWaypoints([]);
+                      }}
+                    >
+                      <NodeIndexOutlined /> {isEn ? 'Extend' : '起笔/支线'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`metro-mobile-sel-bar__chip${mobileLabelPosOpen ? ' is-active' : ''}`}
+                      onClick={() => setMobileLabelPosOpen((v) => !v)}
+                    >
+                      {isEn ? 'Label' : '站名方位'}
+                    </button>
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__chip"
+                      onClick={() => setStationInfoModal({ visible: true, station: st, note: st.note || '' })}
+                    >
+                      {isEn ? 'Note' : '备注'}
+                    </button>
+                    {inCurrentLine && currentLine && onRemoveStationFromLine ? (
+                      <button
+                        type="button"
+                        className="metro-mobile-sel-bar__chip"
+                        onClick={() => {
+                          onRemoveStationFromLine(currentLine.id, st.id);
+                          setSelectedStationIds(new Set());
+                        }}
+                      >
+                        <DisconnectOutlined /> {isEn ? 'Detach' : '移出当前线'}
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__chip is-danger"
+                      onClick={() => {
+                        onDeleteStation(st.id);
+                        setSelectedStationIds(new Set());
+                      }}
+                    >
+                      <DeleteOutlined />
+                    </button>
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__close"
+                      onClick={() => setSelectedStationIds(new Set())}
+                      aria-label="关闭选中条"
+                    >
+                      <CloseOutlined />
+                    </button>
+                  </div>
+                </div>
+                {mobileLabelPosOpen ? (
+                  <div className="metro-mobile-sel-bar__subrow">
+                    {LABEL_POSITION_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        className={`metro-label-pos-chip${curLabelPos === opt.key ? ' is-active' : ''}`}
+                        onClick={() => {
+                          onBeginInteraction?.();
+                          onUpdateStation({ ...st, labelPosition: opt.key });
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
+
+          if (selectedSectionId) {
+            const sec = sectionById.get(selectedSectionId);
+            if (!sec) return null;
+            const secLine = lineById.get(sec.lineId);
+            const pMeta = parallelMetaBySectionId.get(sec.id);
+            const isHoriz = pMeta?.axisHint === 'horizontal';
+            const secWps = getSectionWaypoints(sec.id);
+            return (
+              <div className="metro-mobile-sel-bar" onMouseDown={(e) => e.stopPropagation()}>
+                <div className="metro-mobile-sel-bar__row">
+                  <span className="metro-mobile-sel-bar__title">
+                    <span
+                      className="metro-floating-menu__dot"
+                      style={{ backgroundColor: secLine?.color || '#3b82f6' }}
+                    />
+                    <span>{secLine ? `${secLine.name} · 区间` : '区间'}</span>
+                  </span>
+                  <div className="metro-mobile-sel-bar__actions">
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__chip is-primary"
+                      onClick={() => {
+                        const sSt = stationById.get(sec.startStationId);
+                        const eSt = stationById.get(sec.endStationId);
+                        const fallbackWorld =
+                          sSt && eSt
+                            ? { x: (sSt.x + eSt.x) / 2, y: (sSt.y + eSt.y) / 2 }
+                            : { x: 0, y: 0 };
+                        const tap =
+                          lastSectionTapRef.current?.sectionId === sec.id
+                            ? lastSectionTapRef.current
+                            : { world: fallbackWorld, screen: worldToScreenPoint(fallbackWorld) };
+                        setSelectedSectionId(null);
+                        insertStationIntoSectionAt(sec, tap.world, tap.screen, false);
+                      }}
+                    >
+                      <PlusCircleOutlined /> {isEn ? 'Insert Station' : '在此插站'}
+                    </button>
+                    {pMeta && pMeta.totalSlots === 2 ? (
+                      <button
+                        type="button"
+                        className="metro-mobile-sel-bar__chip"
+                        onClick={() => handleReorderParallelSection(sec.id, 'swap', false)}
+                      >
+                        <SwapOutlined /> {isHoriz ? '对调上下' : '对调左右'}
+                      </button>
+                    ) : null}
+                    {pMeta && pMeta.totalSlots > 2 ? (
+                      <>
+                        <button
+                          type="button"
+                          className="metro-mobile-sel-bar__chip"
+                          disabled={pMeta.slotIndex <= 0}
+                          onClick={() => handleReorderParallelSection(sec.id, 'prev', false)}
+                        >
+                          {isHoriz ? <ArrowUpOutlined /> : <ArrowLeftOutlined />}
+                        </button>
+                        <button
+                          type="button"
+                          className="metro-mobile-sel-bar__chip"
+                          disabled={pMeta.slotIndex >= pMeta.totalSlots - 1}
+                          onClick={() => handleReorderParallelSection(sec.id, 'next', false)}
+                        >
+                          {isHoriz ? <ArrowDownOutlined /> : <ArrowRightOutlined />}
+                        </button>
+                      </>
+                    ) : null}
+                    {secWps.map((_, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className="metro-mobile-sel-bar__chip"
+                        onClick={() => {
+                          setSelectedWaypoint({ sectionId: sec.id, waypointIndex: idx });
+                          setArcEditorWaypoint({ sectionId: sec.id, waypointIndex: idx });
+                        }}
+                      >
+                        {isEn ? `Bend ${idx + 1}` : `拐点 ${idx + 1}`}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__chip is-danger"
+                      onClick={() => {
+                        onDeleteSection(sec.id);
+                        setSelectedSectionId(null);
+                      }}
+                    >
+                      <DeleteOutlined />
+                    </button>
+                    <button
+                      type="button"
+                      className="metro-mobile-sel-bar__close"
+                      onClick={() => setSelectedSectionId(null)}
+                      aria-label="关闭选中条"
+                    >
+                      <CloseOutlined />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
+      {/* 途经点圆弧调节弹窗（桌面端悬浮在节点旁，移动端自动沉入底部主控坞正上方） */}
       {!readOnly && activeWaypointArcGeometry && (() => {
         const screen = worldToScreenPoint(activeWaypointArcGeometry.currPt);
         const left = Math.max(14, Math.min(screen.x + 18, stageSize.width - 276));
@@ -5850,8 +6436,8 @@ const Canvas: React.FC<CanvasProps> = ({
 
         return (
           <div
-            className="metro-wp-arc-bar"
-            style={{ left, top }}
+            className={`metro-wp-arc-bar${isCompact ? ' is-mobile-docked' : ''}`}
+            style={isCompact ? undefined : { left, top }}
             onMouseDown={(e) => e.stopPropagation()}
           >
             <div className="metro-wp-arc-bar__top">

@@ -11,6 +11,7 @@ import {
   EditOutlined,
   MenuOutlined,
   SaveOutlined,
+  SearchOutlined,
   DownloadOutlined,
   InfoCircleOutlined,
   ThunderboltOutlined,
@@ -492,6 +493,7 @@ const App: React.FC = () => {
   }, []);
   // 移动端侧栏抽屉开关。桌面端 CSS 直接展示 Sider，这个 state 只在 ≤768px 起作用。
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [mobileToolDockHost, setMobileToolDockHost] = useState<HTMLDivElement | null>(null);
   const [mobileViewControlsHost, setMobileViewControlsHost] = useState<HTMLDivElement | null>(null);
   const [createLineRequest, setCreateLineRequest] = useState(0);
   // AI 助手对话框、CLI 穿透请求与本地自有密钥设置
@@ -2422,6 +2424,8 @@ const App: React.FC = () => {
           case 'fit':
           case 'reset':
           case 'center':
+          case 'toggle_search':
+          case 'open_guide':
             setViewCmd({ seq: Date.now() + Math.random(), action: a });
             break;
           case 'set_style': {
@@ -3041,15 +3045,29 @@ const App: React.FC = () => {
                 onExportSvg={handleExportSvg}
                 onOpenVideoModal={() => (userProfile || isDesktopClient || hasDesktopBridge()) ? setVideoModalOpen(true) : requestGuestAuth('video')}
                 onOpenGallery={openGallery}
+                onOpenGuide={() => setViewCmd({ seq: Date.now() + Math.random(), action: { type: 'open_guide' } })}
                 onUndo={handleUndo}
                 onRedo={handleRedo}
                 canUndo={canUndo}
                 canRedo={canRedo}
+                mobileToolDockRef={setMobileToolDockHost}
                 mobileViewControlsRef={setMobileViewControlsHost}
               />
             </section>
 
             <section className="metro-user-panel">
+              {/* 移动端顶栏搜站入口（桌面端隐藏，桌面端由右下角 HUD / Ctrl+F 提供） */}
+              <button
+                type="button"
+                className="metro-mobile-search-btn"
+                aria-label={language === 'en-US' ? 'Find station' : '搜索站点'}
+                onClick={() => {
+                  setIsMobileSidebarOpen(false);
+                  setViewCmd({ seq: Date.now() + Math.random(), action: { type: 'toggle_search' } });
+                }}
+              >
+                <SearchOutlined />
+              </button>
               {/* AI 助手按钮：32px 同色系极光环，与顶栏控件齐高 */}
               <Tooltip title={!isOnline ? '离线状态：联网后可使用 AI 助手' : 'AI 助手 —— 用自然语言编辑线路图'}>
                 <button
@@ -3147,6 +3165,11 @@ const App: React.FC = () => {
               onRemoveStationFromLine={handleRemoveStationFromLine}
               onReorderStations={handleReorderStations}
               onReorderLines={handleReorderLines}
+              onCloseMobile={() => setIsMobileSidebarOpen(false)}
+              onFocusStation={(stationId) => {
+                setIsMobileSidebarOpen(false);
+                setViewCmd({ seq: Date.now() + Math.random(), action: { type: 'center', stationId } });
+              }}
             />
           </Sider>
 
@@ -3198,6 +3221,7 @@ const App: React.FC = () => {
                   stageRef.current = stage;
                 }}
                 viewCommand={viewCmd}
+                mobileToolDockHost={mobileToolDockHost}
                 mobileViewControlsHost={mobileViewControlsHost}
               />
               : <div className="metro-guest-loading" role="status">正在打开本机草稿…</div>}
