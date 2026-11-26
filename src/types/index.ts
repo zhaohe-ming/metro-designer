@@ -84,7 +84,19 @@ export type AmapBaseMapSettings = {
   coordSystem?: GeoCoordSystem;
 };
 
-export type LightCityArchetype = 'london' | 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'custom';
+export type LightCityArchetype =
+  | 'london'
+  | 'tokyo'
+  | 'paris'
+  | 'newyork'
+  | 'shanghai'
+  | 'river'
+  | 'confluence'
+  | 'bay'
+  | 'ring'
+  | 'delta'
+  | 'lake'
+  | 'custom';
 export type LightCityZoneKind = 'urban' | 'park' | 'island';
 export type LightCityRoadKind = 'express' | 'arterial' | 'street';
 export type LightCityLabelKind = 'district' | 'subdistrict' | 'water';
@@ -249,7 +261,20 @@ const normalizeLightCityPoint = (raw: any): LightCityPoint | null => {
 export const normalizeLightCitySettings = (raw: unknown): LightCitySettings | undefined => {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const src = raw as Partial<LightCitySettings>;
-  const archetypes: LightCityArchetype[] = ['london', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
+  const archetypes: LightCityArchetype[] = [
+    'london',
+    'tokyo',
+    'paris',
+    'newyork',
+    'shanghai',
+    'river',
+    'confluence',
+    'bay',
+    'ring',
+    'delta',
+    'lake',
+    'custom'
+  ];
   const archetype: LightCityArchetype = archetypes.includes(src.archetype as LightCityArchetype)
     ? (src.archetype as LightCityArchetype)
     : 'river';

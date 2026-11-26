@@ -10,7 +10,19 @@ import {
   LightCitySettings,
   Station
 } from '../types';
-import { LONDON_LIGHT_CITY_DATA } from './londonLightCityData';
+import { LONDON_LIGHT_CITY_DATA, PackedRealCityLightCityData } from './londonLightCityData';
+import { TOKYO_LIGHT_CITY_DATA } from './tokyoLightCityData';
+import { PARIS_LIGHT_CITY_DATA } from './parisLightCityData';
+import { NEWYORK_LIGHT_CITY_DATA } from './newyorkLightCityData';
+import { SHANGHAI_LIGHT_CITY_DATA } from './shanghaiLightCityData';
+
+const REAL_CITY_PACKS: Partial<Record<LightCityArchetype, PackedRealCityLightCityData>> = {
+  london: LONDON_LIGHT_CITY_DATA,
+  tokyo: TOKYO_LIGHT_CITY_DATA,
+  paris: PARIS_LIGHT_CITY_DATA,
+  newyork: NEWYORK_LIGHT_CITY_DATA,
+  shanghai: SHANGHAI_LIGHT_CITY_DATA
+};
 
 export interface LightCityPalette {
   canvasBg: string;
@@ -82,10 +94,10 @@ export function getLightCityPalette(isDark = false): LightCityPalette {
 }
 
 /**
- * 实景精细轻地图（如伦敦）采用无底框纸面融合 + 外圈 360° 径向羽化渐隐，不绘制人工大椭圆底色块
+ * 实景精细轻地图（伦敦/东京/巴黎/纽约/上海）采用无底框纸面融合 + 外圈 360° 径向羽化渐隐，不绘制人工大椭圆底色块
  */
 export function shouldFeatherLightCityEdges(lightCity: Pick<LightCitySettings, 'archetype'> | undefined): boolean {
-  return Boolean(lightCity && lightCity.archetype === 'london');
+  return Boolean(lightCity && REAL_CITY_PACKS[lightCity.archetype]);
 }
 
 export function resolveLightCityPolygonIterations(points: LightCityPoint[]): number {
@@ -149,6 +161,34 @@ export const LIGHT_CITY_ARCHETYPES: LightCityArchetypeMeta[] = [
     en: 'London (Detailed Grid)',
     hintZh: '真实泰晤士河曲流 + 金丝雀船坞 + 皇家公园群 + 三级实景街网',
     hintEn: 'Real River Thames, Canary Wharf docks, Royal Parks & 3-tier street grid'
+  },
+  {
+    id: 'tokyo',
+    zh: '东京实景（精细街网）',
+    en: 'Tokyo (Detailed Grid)',
+    hintZh: '真实东京湾与台场丰洲群岛 + 皇居护城河与隅田川 + 首都高山手三级街网',
+    hintEn: 'Tokyo Bay, Odaiba & Toyosu islands, Imperial moat, Sumida & 3-tier grid'
+  },
+  {
+    id: 'paris',
+    zh: '巴黎实景（精细街网）',
+    en: 'Paris (Detailed Grid)',
+    hintZh: '真实塞纳河大曲流与西岱岛 + 布洛涅/文森森林 + 奥斯曼星形放射街网',
+    hintEn: 'La Seine loop, Île de la Cité, twin royal woods & Haussmannian boulevards'
+  },
+  {
+    id: 'newyork',
+    zh: '纽约实景（精细街网）',
+    en: 'New York (Detailed Grid)',
+    hintZh: '真实哈德逊与东河港湾 + 曼哈顿中央公园 + 大道街格与跨河桥隧',
+    hintEn: 'Hudson & East Rivers, Manhattan grid, Central Park & harbor islands'
+  },
+  {
+    id: 'shanghai',
+    zh: '上海实景（精细街网）',
+    en: 'Shanghai (Detailed Grid)',
+    hintZh: '真实黄浦江陆家嘴大弯 + 苏州河百转汇流 + 内环高架与浦江两岸街网',
+    hintEn: 'Huangpu Lujiazui bend, Suzhou Creek, Fuxing Island & Puxi-Pudong grid'
   },
   {
     id: 'river',
@@ -448,7 +488,8 @@ export function generateLightCity(params: {
     };
   }
 
-  if (params.archetype === 'london') {
+  const realPack = REAL_CITY_PACKS[params.archetype];
+  if (realPack) {
     const unpackPts = (flat: number[]): LightCityPoint[] => {
       const pts: LightCityPoint[] = [];
       for (let i = 0; i < flat.length - 1; i += 2) {
@@ -457,25 +498,31 @@ export function generateLightCity(params: {
       return pts;
     };
 
-    LONDON_LIGHT_CITY_DATA.urbanZones.forEach((flat) => {
+    realPack.urbanZones.forEach((flat) => {
       const points = unpackPts(flat);
       if (points.length >= 3) {
         features.push({ id: nextId('zone'), type: 'zone', kind: 'urban', points });
       }
     });
-    LONDON_LIGHT_CITY_DATA.parks.forEach((flat) => {
+    realPack.parks.forEach((flat) => {
       const points = unpackPts(flat);
       if (points.length >= 3) {
         features.push({ id: nextId('park'), type: 'zone', kind: 'park', points });
       }
     });
-    LONDON_LIGHT_CITY_DATA.waters.forEach((flat) => {
+    realPack.waters.forEach((flat) => {
       const points = unpackPts(flat);
       if (points.length >= 3) {
         features.push({ id: nextId('water'), type: 'waterArea', points });
       }
     });
-    LONDON_LIGHT_CITY_DATA.rivers.forEach((rv) => {
+    (realPack.islands || []).forEach((flat) => {
+      const points = unpackPts(flat);
+      if (points.length >= 3) {
+        features.push({ id: nextId('island'), type: 'zone', kind: 'island', points });
+      }
+    });
+    realPack.rivers.forEach((rv) => {
       const points = unpackPts(rv.p);
       if (points.length >= 2) {
         features.push({
@@ -487,25 +534,25 @@ export function generateLightCity(params: {
       }
     });
     // 按 街巷 -> 主干道 -> 快速路 顺序叠置，使高等级干道在双遍交叉融合中自然处于顶层
-    LONDON_LIGHT_CITY_DATA.streets.forEach((flat) => {
+    realPack.streets.forEach((flat) => {
       const points = unpackPts(flat);
       if (points.length >= 2) {
         features.push({ id: nextId('st'), type: 'road', kind: 'street', points });
       }
     });
-    LONDON_LIGHT_CITY_DATA.arterial.forEach((flat) => {
+    realPack.arterial.forEach((flat) => {
       const points = unpackPts(flat);
       if (points.length >= 2) {
         features.push({ id: nextId('art'), type: 'road', kind: 'arterial', points });
       }
     });
-    LONDON_LIGHT_CITY_DATA.express.forEach((flat) => {
+    realPack.express.forEach((flat) => {
       const points = unpackPts(flat);
       if (points.length >= 2) {
         features.push({ id: nextId('exp'), type: 'road', kind: 'express', points });
       }
     });
-    LONDON_LIGHT_CITY_DATA.labels.forEach((lbl) => {
+    realPack.labels.forEach((lbl) => {
       features.push({
         id: nextId('lbl'),
         type: 'label',
@@ -518,7 +565,7 @@ export function generateLightCity(params: {
 
     return {
       theme: 'paper-grey',
-      archetype: 'london',
+      archetype: params.archetype,
       seed,
       opacity: 1,
       layerVisibility: {

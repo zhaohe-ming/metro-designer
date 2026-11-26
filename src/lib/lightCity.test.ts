@@ -97,6 +97,57 @@ describe('Light City generator, normalization & SVG export', () => {
     expect(enTexts.some((t) => t.includes('WESTMINSTER') || t.includes('CANARY'))).toBe(true);
   });
 
+  test('Tokyo, Paris, New York, and Shanghai real-world templates generate rich geometry, edge feathering, and zero vertex truncation', () => {
+    const cases: Array<{
+      id: 'tokyo' | 'paris' | 'newyork' | 'shanghai';
+      zhKey: string;
+      enKey: string;
+    }> = [
+      { id: 'tokyo', zhKey: '新宿', enKey: 'SHINJUKU' },
+      { id: 'paris', zhKey: '塞纳河', enKey: 'LA SEINE' },
+      { id: 'newyork', zhKey: '曼哈顿', enKey: 'MANHATTAN' },
+      { id: 'shanghai', zhKey: '陆家嘴', enKey: 'LUJIAZUI' }
+    ];
+
+    for (const c of cases) {
+      const cityZh = generateLightCity({ archetype: c.id, seed: 2026, language: 'zh-CN' });
+      const cityEn = generateLightCity({ archetype: c.id, seed: 2026, language: 'en-US' });
+
+      expect(cityZh.archetype).toBe(c.id);
+      expect(cityZh.features.length).toBeGreaterThan(500);
+      expect(cityZh.features.filter((f) => f.type === 'zone' && f.kind === 'urban')).toHaveLength(0);
+      expect(cityZh.features.filter((f) => f.type === 'zone' && f.kind === 'park').length).toBeGreaterThan(25);
+      expect(cityZh.features.filter((f) => f.type === 'zone' && f.kind === 'island').length).toBeGreaterThanOrEqual(2);
+      expect(cityZh.features.filter((f) => f.type === 'road' && f.kind === 'express').length).toBeGreaterThan(20);
+      expect(cityZh.features.filter((f) => f.type === 'road' && f.kind === 'arterial').length).toBeGreaterThan(80);
+      expect(cityZh.features.filter((f) => f.type === 'road' && f.kind === 'street').length).toBeGreaterThan(250);
+
+      const svg = buildLightCitySvgLayer(cityZh, false);
+      expect(svg).toContain('radialGradient');
+      expect(svg).toContain('mask="url(#lc_fade_mask_');
+
+      const normalized = normalizeMapSettings({
+        ...DEFAULT_MAP_SETTINGS,
+        baseMap: { mode: 'light-city', lightCity: cityZh }
+      });
+      expect(normalized.baseMap.lightCity?.archetype).toBe(c.id);
+      expect(normalized.baseMap.lightCity?.features.length).toBe(cityZh.features.length);
+
+      // Every polygon and polyline must survive normalizeMapSettings without hitting the 400-vertex slice cap
+      cityZh.features.forEach((orig, idx) => {
+        const normFeat = normalized.baseMap.lightCity?.features[idx];
+        if (orig.type !== 'label' && normFeat && normFeat.type !== 'label') {
+          expect(normFeat.points.length).toBe(orig.points.length);
+        }
+      });
+
+      const zhLabels = cityZh.features.filter((f) => f.type === 'label').map((f: any) => f.text);
+      const enLabels = cityEn.features.filter((f) => f.type === 'label').map((f: any) => f.text);
+      expect(zhLabels.some((t) => t.includes(c.zhKey))).toBe(true);
+      expect(enLabels.some((t) => t.includes(c.enKey))).toBe(true);
+    }
+  });
+
   test('normalizeMapSettings preserves light-city mode, layer toggles, and hideWaypoints', () => {
     const generated = generateLightCity({ archetype: 'bay', seed: 4242 });
     const normalized = normalizeMapSettings({

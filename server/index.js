@@ -1776,8 +1776,8 @@ const AI_EDIT_TOOLS = [
           hideWaypoints: { type: 'boolean', description: '是否默认隐藏途经点控制柄' },
           lightCityArchetype: {
             type: 'string',
-            enum: ['london', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'shuffle'],
-            description: '轻城市地貌模板：london(伦敦实景精细街网) / river(穿城大江) / confluence(两江交汇) / bay(湾区海港) / ring(平原环城) / delta(河网水乡) / lake(湖山新城) / shuffle(换随机种子)'
+            enum: ['london', 'tokyo', 'paris', 'newyork', 'shanghai', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'shuffle'],
+            description: '轻城市地貌模板：london(伦敦实景精细街网) / tokyo(东京实景精细街网) / paris(巴黎实景精细街网) / newyork(纽约实景精细街网) / shanghai(上海实景精细街网) / river(穿城大江) / confluence(两江交汇) / bay(湾区海港) / ring(平原环城) / delta(河网水乡) / lake(湖山新城) / shuffle(换随机种子)'
           }
         }
       }
@@ -2017,7 +2017,7 @@ function validateAIOperation(op, lineIds, stationIds) {
       if (op.hideWaypoints !== undefined && typeof op.hideWaypoints !== 'boolean') return false;
       if (
         op.lightCityArchetype !== undefined &&
-        !['london', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'shuffle'].includes(op.lightCityArchetype)
+        !['london', 'tokyo', 'paris', 'newyork', 'shanghai', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'shuffle'].includes(op.lightCityArchetype)
       ) {
         return false;
       }

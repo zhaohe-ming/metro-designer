@@ -35,7 +35,20 @@ function normalizeLightCityPoint(raw) {
 
 function normalizeLightCitySettings(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const archetypes = ['london', 'river', 'confluence', 'bay', 'ring', 'delta', 'lake', 'custom'];
+  const archetypes = [
+    'london',
+    'tokyo',
+    'paris',
+    'newyork',
+    'shanghai',
+    'river',
+    'confluence',
+    'bay',
+    'ring',
+    'delta',
+    'lake',
+    'custom'
+  ];
   const archetype = archetypes.includes(raw.archetype) ? raw.archetype : 'river';
   const seed = Math.max(1, Math.min(999999999, Math.round(Number(raw.seed) || 1024)));
   const opacity = Math.round(normalizeNumber(raw.opacity, 1, 0.25, 1) * 100) / 100;

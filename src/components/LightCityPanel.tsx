@@ -18,10 +18,13 @@ import {
   buildLightCitySvgLayer,
   generateLightCity,
   getLightCityPalette,
-  LIGHT_CITY_ARCHETYPES
+  LIGHT_CITY_ARCHETYPES,
+  shouldFeatherLightCityEdges
 } from '../lib/lightCity';
 
 export type TerrainTool = 'select' | 'river' | 'waterArea' | 'zone' | 'road' | 'label';
+
+const staticRealPreviewCache = new Map<string, string>();
 
 interface LightCityPickerModalProps {
   open: boolean;
@@ -49,9 +52,25 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
 
   const previews = useMemo(() => {
     const map = new Map<LightCityArchetype, string>();
+    if (!open) return map;
     LIGHT_CITY_ARCHETYPES.forEach((meta, idx) => {
       if (meta.id === 'custom') {
         map.set(meta.id, '');
+        return;
+      }
+      if (shouldFeatherLightCityEdges({ archetype: meta.id })) {
+        const cacheKey = `${meta.id}_${isDark ? 1 : 0}_${language}`;
+        let cached = staticRealPreviewCache.get(cacheKey);
+        if (!cached) {
+          const generated = generateLightCity({
+            archetype: meta.id,
+            seed: 1001 + idx * 17,
+            language
+          });
+          cached = buildLightCitySvgLayer(generated, isDark);
+          staticRealPreviewCache.set(cacheKey, cached);
+        }
+        map.set(meta.id, cached);
         return;
       }
       const generated = generateLightCity({
@@ -62,14 +81,14 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
       map.set(meta.id, buildLightCitySvgLayer(generated, isDark));
     });
     return map;
-  }, [seedBase, isDark, language]);
+  }, [open, seedBase, isDark, language]);
 
   return (
     <DraggableModal
       open={open}
       title={isEn ? 'Choose Light City Basemap' : '选择轻城市底图地貌'}
       onCancel={onCancel}
-      width={660}
+      width={688}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
           <Button
@@ -109,8 +128,11 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(186px, 1fr))',
-            gap: 12
+            gridTemplateColumns: 'repeat(auto-fill, minmax(194px, 1fr))',
+            gap: 12,
+            maxHeight: '62vh',
+            overflowY: 'auto',
+            paddingRight: 4
           }}
           role="radiogroup"
           aria-label={isEn ? 'Light City Archetypes' : '轻城市地貌原型'}

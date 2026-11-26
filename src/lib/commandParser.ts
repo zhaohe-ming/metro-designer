@@ -328,11 +328,36 @@ const requireName = (token: Token | undefined, label: string): { name: string } 
 
 const LIGHT_CITY_ARCH_ALIASES: Record<
   string,
-  'london' | 'river' | 'confluence' | 'bay' | 'ring' | 'delta' | 'lake' | 'shuffle' | 'plain'
+  | 'london'
+  | 'tokyo'
+  | 'paris'
+  | 'newyork'
+  | 'shanghai'
+  | 'river'
+  | 'confluence'
+  | 'bay'
+  | 'ring'
+  | 'delta'
+  | 'lake'
+  | 'shuffle'
+  | 'plain'
 > = {
   london: 'london',
   伦敦: 'london',
   伦敦实景: 'london',
+  tokyo: 'tokyo',
+  东京: 'tokyo',
+  东京实景: 'tokyo',
+  paris: 'paris',
+  巴黎: 'paris',
+  巴黎实景: 'paris',
+  newyork: 'newyork',
+  nyc: 'newyork',
+  纽约: 'newyork',
+  纽约实景: 'newyork',
+  shanghai: 'shanghai',
+  上海: 'shanghai',
+  上海实景: 'shanghai',
   river: 'river',
   大江: 'river',
   穿城大江: 'river',
@@ -791,7 +816,7 @@ export function interpretCommand(input: string, ctx: CommandContext): ResolvedCo
       const rawArg = (rest[0]?.value || '').trim().toLowerCase();
       const mapped = LIGHT_CITY_ARCH_ALIASES[rawArg] || LIGHT_CITY_ARCH_ALIASES[rest[0]?.value || ''];
       if (!mapped) {
-        return err('用法：city london(伦敦实景) | river(大江) | confluence(交汇) | bay(海湾) | ring(环城) | delta(水乡) | lake(湖山) | shuffle(换城) | plain(纯画布)');
+        return err('用法：city london(伦敦) | tokyo(东京) | paris(巴黎) | newyork(纽约) | shanghai(上海) | river(大江) | confluence(交汇) | bay(海湾) | ring(环城) | delta(水乡) | lake(湖山) | shuffle(换城) | plain(纯画布)');
       }
       if (mapped === 'plain') {
         return { kind: 'action', action: { type: 'set_basemap_plain' }, undoable: true, summary: '已切换为纯画布模式' };
