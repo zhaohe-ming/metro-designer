@@ -31,6 +31,8 @@ export interface ProLineSpec {
   decelMps2: number;
   /** 终点折返标准时间（秒） */
   turnbackSec: number;
+  /** 信号系统最小追踪安全间隔（秒，默认 120s = 2分钟追踪，上限 30对/h） */
+  minHeadwaySec?: number;
 }
 
 export interface ProStationProfile {
@@ -123,8 +125,21 @@ export interface ProServicePattern {
   routeSteps: ProRouteStep[];
   /** 高峰发车间隔（秒，如 240 = 4分钟一班） */
   headwaySec: number;
-  /** 是否双向对称开行（用于周转配车测算） */
+  /** 首班发车错峰相位偏移（秒，默认 0，用于快慢车错峰避让） */
+  firstDepartureOffsetSec?: number;
+  /** 是否允许本交路列车在越行站自动延长停站待避后方快车（普通车/区间车默认 true） */
+  autoOvertake?: boolean;
+  /** 是否双向对称开行（用于周转配车测算与双向上下行铺画） */
   bidirectional: boolean;
+}
+
+export interface ProTimetableConfig {
+  /** 运行图铺画时间窗起点（距 00:00 的分钟数，默认 420 = 07:00） */
+  windowStartMin: number;
+  /** 运行图铺画窗口时长（分钟，默认 60 分钟） */
+  windowDurationMin: number;
+  /** 全局默认最小追踪安全间隔（秒，默认 120s） */
+  defaultMinHeadwaySec: number;
 }
 
 /**
@@ -145,6 +160,7 @@ export interface ProOpsDocument {
   sectionOverrides: Record<string, ProSectionOverride>;
   trackConnections: ProTrackConnection[];
   servicePatterns: ProServicePattern[];
+  timetableConfig?: ProTimetableConfig;
 }
 
 export interface ProValidationIssue {
@@ -219,6 +235,12 @@ export const DEFAULT_PRO_SCALE_CONFIG: ProScaleConfig = {
   useGeoDistanceWhenAvailable: true
 };
 
+export const DEFAULT_PRO_TIMETABLE_CONFIG: ProTimetableConfig = {
+  windowStartMin: 420,
+  windowDurationMin: 60,
+  defaultMinHeadwaySec: 120
+};
+
 export function createDefaultLineSpec(code: ProRollingStockCode = '6B'): ProLineSpec {
   if (code === 'custom') {
     return {
@@ -227,7 +249,8 @@ export function createDefaultLineSpec(code: ProRollingStockCode = '6B'): ProLine
       maxSpeedKmh: 100,
       accelMps2: 1.0,
       decelMps2: 1.1,
-      turnbackSec: 150
+      turnbackSec: 150,
+      minHeadwaySec: 120
     };
   }
   const preset = ROLLING_STOCK_PRESETS[code];
@@ -237,7 +260,8 @@ export function createDefaultLineSpec(code: ProRollingStockCode = '6B'): ProLine
     maxSpeedKmh: preset.maxSpeedKmh,
     accelMps2: preset.accelMps2,
     decelMps2: preset.decelMps2,
-    turnbackSec: preset.turnbackSec
+    turnbackSec: preset.turnbackSec,
+    minHeadwaySec: 120
   };
 }
 
@@ -249,7 +273,8 @@ export function createEmptyProOpsDocument(): ProOpsDocument {
     stationProfiles: {},
     sectionOverrides: {},
     trackConnections: [],
-    servicePatterns: []
+    servicePatterns: [],
+    timetableConfig: { ...DEFAULT_PRO_TIMETABLE_CONFIG }
   };
 }
 
@@ -300,7 +325,8 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
         maxSpeedKmh: Math.round(clampNum(item.maxSpeedKmh, fallback.maxSpeedKmh, 25, 350)),
         accelMps2: Math.round(clampNum(item.accelMps2, fallback.accelMps2, 0.2, 2.5) * 100) / 100,
         decelMps2: Math.round(clampNum(item.decelMps2, fallback.decelMps2, 0.2, 2.5) * 100) / 100,
-        turnbackSec: Math.round(clampNum(item.turnbackSec, fallback.turnbackSec, 30, 900))
+        turnbackSec: Math.round(clampNum(item.turnbackSec, fallback.turnbackSec, 30, 900)),
+        minHeadwaySec: Math.round(clampNum(item.minHeadwaySec, 120, 45, 900))
       };
     });
   }
@@ -451,6 +477,7 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
           ? Math.round(clampNum(item.startDwellSecOverride, 30, 5, 600))
           : undefined;
 
+      const defaultAutoOvertake = category === 'local' || category === 'short_turn';
       servicePatterns.push({
         id,
         name: cleanStr(item.name, 64) || `运行交路 ${idx + 1}`,
@@ -461,10 +488,19 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
         ...(startDwell !== undefined ? { startDwellSecOverride: startDwell } : {}),
         routeSteps,
         headwaySec: Math.round(clampNum(item.headwaySec, 240, 60, 7200)),
+        firstDepartureOffsetSec: Math.round(clampNum(item.firstDepartureOffsetSec, 0, 0, 7199)),
+        autoOvertake: typeof item.autoOvertake === 'boolean' ? item.autoOvertake : defaultAutoOvertake,
         bidirectional: item.bidirectional !== false
       });
     });
   }
+
+  const rawTt = src.timetableConfig && typeof src.timetableConfig === 'object' ? src.timetableConfig : {};
+  const timetableConfig: ProTimetableConfig = {
+    windowStartMin: Math.round(clampNum(rawTt.windowStartMin, DEFAULT_PRO_TIMETABLE_CONFIG.windowStartMin, 0, 1380)),
+    windowDurationMin: Math.round(clampNum(rawTt.windowDurationMin, DEFAULT_PRO_TIMETABLE_CONFIG.windowDurationMin, 15, 240)),
+    defaultMinHeadwaySec: Math.round(clampNum(rawTt.defaultMinHeadwaySec, DEFAULT_PRO_TIMETABLE_CONFIG.defaultMinHeadwaySec, 45, 900))
+  };
 
   return {
     schemaVersion: 1,
@@ -473,7 +509,8 @@ export function normalizeProOpsDocument(raw: unknown): ProOpsDocument | undefine
     stationProfiles,
     sectionOverrides,
     trackConnections,
-    servicePatterns
+    servicePatterns,
+    timetableConfig
   };
 }
 
@@ -488,6 +525,7 @@ export function cloneProOpsDocument(doc: ProOpsDocument): ProOpsDocument {
     servicePatterns: doc.servicePatterns.map((p) => ({
       ...p,
       routeSteps: p.routeSteps.map((s) => ({ ...s }))
-    }))
+    })),
+    timetableConfig: doc.timetableConfig ? { ...doc.timetableConfig } : { ...DEFAULT_PRO_TIMETABLE_CONFIG }
   };
 }

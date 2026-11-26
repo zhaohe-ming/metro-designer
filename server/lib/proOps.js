@@ -49,7 +49,8 @@ function normalizeProOpsDocument(raw) {
         maxSpeedKmh: Math.round(clampNum(item.maxSpeedKmh, 80, 25, 350)),
         accelMps2: Math.round(clampNum(item.accelMps2, 1.0, 0.2, 2.5) * 100) / 100,
         decelMps2: Math.round(clampNum(item.decelMps2, 1.1, 0.2, 2.5) * 100) / 100,
-        turnbackSec: Math.round(clampNum(item.turnbackSec, 150, 30, 900))
+        turnbackSec: Math.round(clampNum(item.turnbackSec, 150, 30, 900)),
+        minHeadwaySec: Math.round(clampNum(item.minHeadwaySec, 120, 45, 900))
       };
     });
   }
@@ -195,6 +196,7 @@ function normalizeProOpsDocument(raw) {
           ? Math.round(clampNum(item.startDwellSecOverride, 30, 5, 600))
           : undefined;
 
+      const defaultAutoOvertake = category === 'local' || category === 'short_turn';
       servicePatterns.push({
         id,
         name: cleanStr(item.name, 64) || `运行交路 ${idx + 1}`,
@@ -205,10 +207,19 @@ function normalizeProOpsDocument(raw) {
         ...(startDwell !== undefined ? { startDwellSecOverride: startDwell } : {}),
         routeSteps,
         headwaySec: Math.round(clampNum(item.headwaySec, 240, 60, 7200)),
+        firstDepartureOffsetSec: Math.round(clampNum(item.firstDepartureOffsetSec, 0, 0, 7199)),
+        autoOvertake: typeof item.autoOvertake === 'boolean' ? item.autoOvertake : defaultAutoOvertake,
         bidirectional: item.bidirectional !== false
       });
     });
   }
+
+  const rawTt = raw.timetableConfig && typeof raw.timetableConfig === 'object' ? raw.timetableConfig : {};
+  const timetableConfig = {
+    windowStartMin: Math.round(clampNum(rawTt.windowStartMin, 420, 0, 1380)),
+    windowDurationMin: Math.round(clampNum(rawTt.windowDurationMin, 60, 15, 240)),
+    defaultMinHeadwaySec: Math.round(clampNum(rawTt.defaultMinHeadwaySec, 120, 45, 900))
+  };
 
   return {
     schemaVersion: 1,
@@ -217,7 +228,8 @@ function normalizeProOpsDocument(raw) {
     stationProfiles,
     sectionOverrides,
     trackConnections,
-    servicePatterns
+    servicePatterns,
+    timetableConfig
   };
 }
 

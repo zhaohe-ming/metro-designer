@@ -4569,22 +4569,116 @@ const Canvas: React.FC<CanvasProps> = ({
           })}
         </div>
 
-        {!readOnly && isLightCityMode && !terrainEditMode && (
-          <button
-            type="button"
-            className="metro-draw-subbar__pill metro-lightcity-entry-btn"
-            onClick={() => {
-              liftDrawingPen();
-              setSelectedStationIds(new Set());
-              setSelectedSectionId(null);
-              setSelectedWaypoint(null);
-              setArcEditorWaypoint(null);
-              setTerrainEditMode(true);
-            }}
-          >
-            <CompassOutlined />
-            <span>{isEn ? 'Edit Basemap' : '编辑底图'}</span>
-          </button>
+        {!readOnly && !terrainEditMode && (isLightCityMode || activeTool === 'draw') && (
+          <div className="metro-canvas-tools__subrow">
+            {isLightCityMode && (
+              <button
+                type="button"
+                className="metro-draw-subbar__pill metro-lightcity-entry-btn"
+                onClick={() => {
+                  liftDrawingPen();
+                  setSelectedStationIds(new Set());
+                  setSelectedSectionId(null);
+                  setSelectedWaypoint(null);
+                  setArcEditorWaypoint(null);
+                  setTerrainEditMode(true);
+                }}
+              >
+                <CompassOutlined />
+                <span>{isEn ? 'Edit Basemap' : '编辑底图'}</span>
+              </button>
+            )}
+
+            {activeTool === 'draw' && (
+              <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
+                <Dropdown
+                  trigger={['click']}
+                  placement="bottomLeft"
+                  menu={{
+                    items: [
+                      ...lines.map((line) => ({
+                        key: line.id,
+                        label: (
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: line.id === currentLineId ? 700 : 500 }}>
+                            <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
+                            <span>{line.name}</span>
+                          </span>
+                        ),
+                        onClick: () => onSelectLine?.(line.id)
+                      })),
+                      ...(onCreateLine
+                        ? [
+                            ...(lines.length > 0 ? [{ type: 'divider' as const }] : []),
+                            {
+                              key: '__create_line__',
+                              icon: <PlusOutlined />,
+                              label: isEn ? 'New line…' : '新建线路…',
+                              onClick: () => onCreateLine()
+                            }
+                          ]
+                        : [])
+                    ]
+                  }}
+                >
+                  {currentLine ? (
+                    <button
+                      type="button"
+                      className="metro-draw-subbar__line metro-draw-subbar__line-btn"
+                      title={isEn ? 'Switch line' : '点击切换绘制线路'}
+                    >
+                      <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
+                      <span>{currentLine.name}</span>
+                      <DownOutlined style={{ fontSize: 9, opacity: 0.65 }} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="metro-draw-subbar__pill"
+                      onClick={() => {
+                        if (lines.length === 0 && onCreateLine) onCreateLine();
+                      }}
+                    >
+                      {lines.length > 0
+                        ? isEn
+                          ? 'Select line ▾'
+                          : '选择绘制线路 ▾'
+                        : isEn
+                          ? '+ Create first line'
+                          : '+ 新建第一条线路'}
+                    </button>
+                  )}
+                </Dropdown>
+                {anchorStation ? (
+                  <>
+                    <span className="metro-draw-subbar__sep" />
+                    <ElasticCapsuleTabs<'station' | 'bend'>
+                      size="sm"
+                      ariaLabel="落点模式切换"
+                      value={drawWaypointSubmode ? 'bend' : 'station'}
+                      onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
+                      options={[
+                        { value: 'station', label: isEn ? 'Station' : '落站点' },
+                        {
+                          value: 'bend',
+                          label: `${isEn ? 'Bend' : '打拐点'}${
+                            drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
+                          }`
+                        }
+                      ]}
+                    />
+                    <button
+                      type="button"
+                      className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
+                      onClick={liftDrawingPen}
+                      title="收起虚线，随后可点任意站点从另一端延伸或拉支线 (右键 / Esc)"
+                    >
+                      {isEn ? 'Lift Pen' : '抬笔'}
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            )}
+          </div>
         )}
 
         {!readOnly && isLightCityMode && terrainEditMode && (
@@ -4637,96 +4731,6 @@ const Canvas: React.FC<CanvasProps> = ({
             }}
             language={language}
           />
-        )}
-
-        {!readOnly && !terrainEditMode && activeTool === 'draw' && (
-          <div className="metro-draw-subbar" role="group" aria-label="绘制辅助选项">
-            <Dropdown
-              trigger={['click']}
-              placement="bottomLeft"
-              menu={{
-                items: [
-                  ...lines.map((line) => ({
-                    key: line.id,
-                    label: (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: line.id === currentLineId ? 700 : 500 }}>
-                        <span style={{ width: 9, height: 9, borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
-                        <span>{line.name}</span>
-                      </span>
-                    ),
-                    onClick: () => onSelectLine?.(line.id)
-                  })),
-                  ...(onCreateLine
-                    ? [
-                        ...(lines.length > 0 ? [{ type: 'divider' as const }] : []),
-                        {
-                          key: '__create_line__',
-                          icon: <PlusOutlined />,
-                          label: isEn ? 'New line…' : '新建线路…',
-                          onClick: () => onCreateLine()
-                        }
-                      ]
-                    : [])
-                ]
-              }}
-            >
-              {currentLine ? (
-                <button
-                  type="button"
-                  className="metro-draw-subbar__line metro-draw-subbar__line-btn"
-                  title={isEn ? 'Switch line' : '点击切换绘制线路'}
-                >
-                  <span className="metro-draw-subbar__swatch" style={{ backgroundColor: currentLine.color }} />
-                  <span>{currentLine.name}</span>
-                  <DownOutlined style={{ fontSize: 9, opacity: 0.65 }} />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="metro-draw-subbar__pill"
-                  onClick={() => {
-                    if (lines.length === 0 && onCreateLine) onCreateLine();
-                  }}
-                >
-                  {lines.length > 0
-                    ? isEn
-                      ? 'Select line ▾'
-                      : '选择绘制线路 ▾'
-                    : isEn
-                      ? '+ Create first line'
-                      : '+ 新建第一条线路'}
-                </button>
-              )}
-            </Dropdown>
-            {anchorStation ? (
-              <>
-                <span className="metro-draw-subbar__sep" />
-                <ElasticCapsuleTabs<'station' | 'bend'>
-                  size="sm"
-                  ariaLabel="落点模式切换"
-                  value={drawWaypointSubmode ? 'bend' : 'station'}
-                  onChange={(mode) => setDrawWaypointSubmode(mode === 'bend')}
-                  options={[
-                    { value: 'station', label: isEn ? 'Station' : '落站点' },
-                    {
-                      value: 'bend',
-                      label: `${isEn ? 'Bend' : '打拐点'}${
-                        drawPendingWaypoints.length > 0 ? ` (${drawPendingWaypoints.length})` : ''
-                      }`
-                    }
-                  ]}
-                />
-                <button
-                  type="button"
-                  className="metro-draw-subbar__pill metro-draw-subbar__pill--lift"
-                  onClick={liftDrawingPen}
-                  title="收起虚线，随后可点任意站点从另一端延伸或拉支线 (右键 / Esc)"
-                >
-                  {isEn ? 'Lift Pen' : '抬笔'}
-                </button>
-              </>
-            ) : null}
-          </div>
         )}
 
         {!readOnly && selectedStationIds.size > 1 && (

@@ -3,6 +3,7 @@ import { Circle, Group, Layer, Line as KonvaLine, Rect, Text as KonvaText } from
 import { Line, Section, Station } from '../types';
 import { CanvasOverlayRenderContext } from '../components/Canvas';
 import { ServiceKinematicsResult } from './kinematics';
+import { LiveTrainSnapshot } from './timetable';
 import {
   ProOpsDocument,
   ProServicePattern,
@@ -21,6 +22,54 @@ export interface ProCanvasOverlayProps {
   selectedStationId?: string | null;
   selectedSectionId?: string | null;
   rulerPoints?: Station[];
+  liveTrains?: LiveTrainSnapshot[];
+}
+
+function interpolateAlongPts(
+  pts: Array<{ x: number; y: number }>,
+  progress: number
+): { x: number; y: number; nx: number; ny: number } {
+  if (pts.length === 0) return { x: 0, y: 0, nx: 0, ny: -1 };
+  if (pts.length === 1) return { x: pts[0].x, y: pts[0].y, nx: 0, ny: -1 };
+
+  const segLens: number[] = [];
+  let totalLen = 0;
+  for (let i = 1; i < pts.length; i += 1) {
+    const len = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+    segLens.push(len);
+    totalLen += len;
+  }
+
+  if (totalLen < 1e-3) {
+    return { x: pts[0].x, y: pts[0].y, nx: 0, ny: -1 };
+  }
+
+  const target = Math.max(0, Math.min(1, progress)) * totalLen;
+  let acc = 0;
+  for (let i = 0; i < segLens.length; i += 1) {
+    const sl = segLens[i];
+    if (acc + sl >= target || i === segLens.length - 1) {
+      const localT = sl > 1e-4 ? (target - acc) / sl : 0;
+      const pA = pts[i];
+      const pB = pts[i + 1];
+      const dx = pB.x - pA.x;
+      const dy = pB.y - pA.y;
+      const norm = Math.hypot(dx, dy) || 1;
+      // 右手法向偏移单位向量（使上下行双线对向列车各自靠右错开行驶，不迎头重叠）
+      const nx = -dy / norm;
+      const ny = dx / norm;
+      return {
+        x: pA.x + dx * localT,
+        y: pA.y + dy * localT,
+        nx,
+        ny
+      };
+    }
+    acc += sl;
+  }
+
+  const last = pts[pts.length - 1];
+  return { x: last.x, y: last.y, nx: 0, ny: -1 };
 }
 
 const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
@@ -33,7 +82,8 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
   activeKinematics,
   selectedStationId,
   selectedSectionId,
-  rulerPoints = []
+  rulerPoints = [],
+  liveTrains = []
 }) => {
   const { scale, isAmapMode, isDarkCanvas, getStationDisplayPoint, getWaypointDisplayPoint } = ctx;
   const invScale = isAmapMode ? 1 : 1 / Math.max(0.2, scale);
@@ -45,7 +95,7 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
     [proOps.trackConnections]
   );
 
-  const buildSectionFlatPoints = (sec: Section, forward: boolean): number[] => {
+  const buildSectionOrderedPoints = (sec: Section, forward: boolean): Array<{ x: number; y: number }> => {
     const sStart = stationMap.get(sec.startStationId);
     const sEnd = stationMap.get(sec.endStationId);
     if (!sStart || !sEnd) return [];
@@ -54,7 +104,11 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
       ...(sec.waypoints || []).map((wp) => getWaypointDisplayPoint(wp)),
       getStationDisplayPoint(sEnd)
     ];
-    const ordered = forward ? rawPts : [...rawPts].reverse();
+    return forward ? rawPts : [...rawPts].reverse();
+  };
+
+  const buildSectionFlatPoints = (sec: Section, forward: boolean): number[] => {
+    const ordered = buildSectionOrderedPoints(sec, forward);
     const flat: number[] = [];
     ordered.forEach((p) => {
       flat.push(p.x, p.y);
@@ -67,7 +121,7 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
 
   return (
     <Layer name="pro-ops-overlay" listening={false}>
-      {/* 1. 所有异站跨线联络线（以双色虚线展示物理轨行连接，普通绘制模式下完全不可见） */}
+      {/* 1. 所有异站跨线联络线（仅专业模式可见） */}
       {proOps.trackConnections
         .filter((conn) => conn.kind === 'inter_station_link')
         .map((conn) => {
@@ -90,7 +144,7 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
           );
         })}
 
-      {/* 2. 当前选中运行交路的高亮走廊、停靠实心环与越站空心标记 */}
+      {/* 2. 当前选中运行交路走廊高亮与停靠/越站节点 */}
       {activePattern && activeValidation?.status === 'valid' && activeKinematics?.status === 'valid' && (
         <Group>
           {activePattern.routeSteps.map((step, idx) => {
@@ -143,7 +197,6 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
             );
           })}
 
-          {/* 按站点汇总其在当前交路中的访问角色（支持环线/6字线同站既停又越时优先显式停靠或复合环） */}
           {(() => {
             const byStation = new Map<
               string,
@@ -215,7 +268,6 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
                 );
               }
 
-              // 纯越站通过（Pass）：绘制小巧醒目的越行空心虚线环，直观区分「过站不停」
               return (
                 <Group key={`visit_node_${sid}`} x={pt.x} y={pt.y}>
                   <Circle
@@ -266,7 +318,7 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
         );
       })()}
 
-      {/* 5. 两点标尺校准连线与锚点 */}
+      {/* 5. 两点标尺校准锚点 */}
       {rulerPoints.length >= 1 && (() => {
         const p1 = getStationDisplayPoint(rulerPoints[0]);
         const p2 = rulerPoints[1] ? getStationDisplayPoint(rulerPoints[1]) : null;
@@ -318,6 +370,86 @@ const ProCanvasOverlay: React.FC<ProCanvasOverlayProps> = ({
           </Group>
         );
       })()}
+
+      {/* 6. Phase 2 实时列车动态仿真回放层（双线靠右分边运行 + 越行站待避外移视觉演示） */}
+      {liveTrains.length > 0 && (
+        <Group>
+          {liveTrains.map((tr) => {
+            const fromSt = stationMap.get(tr.fromStationId);
+            const toSt = stationMap.get(tr.toStationId);
+            if (!fromSt) return null;
+
+            let pts: Array<{ x: number; y: number }>;
+            if (tr.status !== 'running') {
+              const pFrom = getStationDisplayPoint(fromSt);
+              const pTo = toSt ? getStationDisplayPoint(toSt) : { x: pFrom.x + 1, y: pFrom.y };
+              pts = [pFrom, pTo];
+            } else if (tr.sectionId) {
+              const sec = sectionMap.get(tr.sectionId);
+              if (sec) {
+                const forward = sec.startStationId === tr.fromStationId;
+                pts = buildSectionOrderedPoints(sec, forward);
+              } else {
+                pts = toSt
+                  ? [getStationDisplayPoint(fromSt), getStationDisplayPoint(toSt)]
+                  : [getStationDisplayPoint(fromSt)];
+              }
+            } else {
+              pts = toSt
+                ? [getStationDisplayPoint(fromSt), getStationDisplayPoint(toSt)]
+                : [getStationDisplayPoint(fromSt)];
+            }
+
+            const interp = interpolateAlongPts(pts, tr.status === 'running' ? tr.progress : 0);
+            // 待避慢车外移至副线（9.5px），让正线快车从内侧高速超越；正常上下行靠右微偏（3.6px）
+            const lateralOffset = (tr.status === 'yielding' ? 9.5 : 3.6) * invScale;
+            const cx = interp.x + interp.nx * lateralOffset;
+            const cy = interp.y + interp.ny * lateralOffset;
+
+            return (
+              <Group key={tr.trainId} x={cx} y={cy}>
+                {tr.status === 'yielding' && (
+                  <Circle
+                    radius={10.5 * invScale}
+                    fill="rgba(16, 185, 129, 0.22)"
+                    stroke="#10b981"
+                    strokeWidth={1.6 * invScale}
+                    perfectDrawEnabled={false}
+                  />
+                )}
+                <Circle
+                  radius={6.8 * invScale}
+                  fill={tr.color}
+                  stroke="#ffffff"
+                  strokeWidth={2.2 * invScale}
+                  perfectDrawEnabled={false}
+                />
+                <Rect
+                  x={-18 * invScale}
+                  y={-21 * invScale}
+                  width={36 * invScale}
+                  height={12 * invScale}
+                  cornerRadius={6 * invScale}
+                  fill={tr.status === 'yielding' ? '#059669' : tr.color}
+                  opacity={0.94}
+                  perfectDrawEnabled={false}
+                />
+                <KonvaText
+                  x={-18 * invScale}
+                  y={-19 * invScale}
+                  width={36 * invScale}
+                  align="center"
+                  text={tr.status === 'yielding' ? '待避' : tr.badgeCode.slice(0, 2)}
+                  fontSize={8.5 * invScale}
+                  fontStyle="bold"
+                  fill="#ffffff"
+                  perfectDrawEnabled={false}
+                />
+              </Group>
+            );
+          })}
+        </Group>
+      )}
     </Layer>
   );
 };

@@ -10,6 +10,7 @@ import { hasDesktopBridge, saveDesktopExport } from '../lib/desktopClient';
 import { sanitizeProjectFilename } from '../lib/projectFile';
 import { createId } from '../utils/id';
 import ProCanvasOverlay from './ProCanvasOverlay';
+import MareyChartView from './MareyChartView';
 import {
   calibrateMetersPerUnitBetweenPoints,
   computeNetworkMileageSummary,
@@ -30,9 +31,18 @@ import {
   rasterizeSvgToPngBlob
 } from './corridorDiagram';
 import {
+  buildMareyDiagramModel,
+  buildMareyDiagramSvg,
+  computeLiveTrainSnapshots,
+  formatClockSec,
+  recommendOptimalPhaseOffset,
+  solveNetworkTimetable
+} from './timetable';
+import {
   cloneProOpsDocument,
   createDefaultLineSpec,
   createEmptyProOpsDocument,
+  DEFAULT_PRO_TIMETABLE_CONFIG,
   normalizeProOpsDocument,
   ProOpsDocument,
   ProRollingStockCode,
@@ -73,11 +83,6 @@ export interface ProWorkspaceProps {
   onBindUndoBridge: (bridge: ProUndoBridge | null) => void;
 }
 
-/**
- * 允许完整删空多位数字重新填写的数值输入框：
- * - 删除全部数字时自动挂 0 显示（若 allowZero=true 则同步提交 0；若 min > 0 则在输入期间挂 0 不强制弹回原默认值，失焦后再收敛到合法范围）；
- * - 挂 0 状态下直接敲击新数字（如 3）会自动替换占位 0 为 3，敲击小数点（0.）则顺畅输入小数。
- */
 interface ProNumberInputProps {
   value: number;
   onChange: (next: number) => void;
@@ -119,7 +124,6 @@ const ProNumberInput: React.FC<ProNumberInputProps> = ({
       }
     }
 
-    // 全部删空时挂 0
     if (raw === '' || raw === '.') {
       setText('0');
       if (allowZero) {
@@ -128,12 +132,10 @@ const ProNumberInput: React.FC<ProNumberInputProps> = ({
       return;
     }
 
-    // 从挂 0 状态继续输入非零数字时（可能出现 "03" 或光标在左时的 "30"），自动去掉占位 0
     if (text === '0' && raw.length === 2 && !raw.includes('.')) {
       if (raw.startsWith('0') && raw[1] !== '0') {
         raw = raw.slice(1);
       } else if (raw.endsWith('0') && raw[0] !== '0') {
-        // 光标在挂零 '0' 左侧直接敲入新数字时替换占位 0
         raw = raw[0];
       }
     } else if (raw.length > 1 && raw.startsWith('0') && raw[1] !== '.') {
@@ -141,8 +143,6 @@ const ProNumberInput: React.FC<ProNumberInputProps> = ({
     }
 
     setText(raw);
-
-    // 末尾刚敲小数点（如 "12."）时暂不截断，等输入小数位
     if (raw.endsWith('.')) return;
 
     const parsed = Number(raw);
@@ -198,6 +198,7 @@ const ProNumberInput: React.FC<ProNumberInputProps> = ({
 };
 
 const MAX_PRO_HISTORY = 40;
+const PLAYBACK_SPEEDS = [5, 15, 30] as const;
 
 const ProWorkspace: React.FC<ProWorkspaceProps> = ({
   lines,
@@ -339,6 +340,19 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     return res;
   }, [graph, reconciledState.proOps, validations, isGeoMode]);
 
+  // Phase 2 全网运行时刻表、越行待避与追踪间隔冲突求解
+  const timetableResult = useMemo(
+    () =>
+      solveNetworkTimetable({
+        graph,
+        proOps: reconciledState.proOps,
+        validations,
+        kinematicsMap,
+        isGeoMode
+      }),
+    [graph, reconciledState.proOps, validations, kinematicsMap, isGeoMode]
+  );
+
   const [activeTab, setActiveTab] = useState<'services' | 'scale' | 'connections'>('services');
   const [targetLineId, setTargetLineId] = useState<string>(() => lines[0]?.id || '');
   const [targetVariantKey, setTargetVariantKey] = useState<string>('');
@@ -352,9 +366,56 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
   const [rulerStations, setRulerStations] = useState<Station[]>([]);
   const [rulerKmVal, setRulerKmVal] = useState<number>(2);
 
+  // 底部双视图面板（导乘图 vs 斜线运行图）与拖拽高度状态
+  const [bottomView, setBottomView] = useState<'strip' | 'marey'>('strip');
   const [dockCollapsed, setDockCollapsed] = useState(false);
+  const [dockHeightPx, setDockHeightPx] = useState<number>(268);
   const [axisMode, setAxisMode] = useState<'line' | 'pattern'>('line');
   const [corridorLineId, setCorridorLineId] = useState<string>(() => lines[0]?.id || '');
+  const [mareySubCorridorId, setMareySubCorridorId] = useState<string>('');
+  const [mareyDirection, setMareyDirection] = useState<'both' | 'up' | 'down'>('both');
+  const [mareyZoomX, setMareyZoomX] = useState<number>(1);
+
+  // Phase 2 动态列车仿真回放时钟状态
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playbackSpeedIdx, setPlaybackSpeedIdx] = useState<number>(1); // 默认 15x
+  const [simTimeSec, setSimTimeSec] = useState<number>(
+    () => (doc.timetableConfig?.windowStartMin ?? DEFAULT_PRO_TIMETABLE_CONFIG.windowStartMin) * 60 + 600
+  );
+  const [showTrainsWhenPaused, setShowTrainsWhenPaused] = useState(false);
+
+  const playbackSpeed = PLAYBACK_SPEEDS[playbackSpeedIdx];
+
+  useEffect(() => {
+    setSimTimeSec((prev) => {
+      if (prev < timetableResult.windowStartSec || prev > timetableResult.windowEndSec) {
+        return timetableResult.windowStartSec + 300;
+      }
+      return prev;
+    });
+  }, [timetableResult.windowStartSec, timetableResult.windowEndSec]);
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    let rafId = 0;
+    let lastTs = performance.now();
+    const tick = (now: number) => {
+      const dtSec = Math.min(0.1, (now - lastTs) / 1000);
+      lastTs = now;
+      setSimTimeSec((prev) => {
+        const next = prev + dtSec * playbackSpeed;
+        return next > timetableResult.windowEndSec ? timetableResult.windowStartSec : next;
+      });
+      rafId = window.requestAnimationFrame(tick);
+    };
+    rafId = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isPlaying, playbackSpeed, timetableResult.windowStartSec, timetableResult.windowEndSec]);
+
+  const liveTrainSnapshots = useMemo(() => {
+    if (!isPlaying && !showTrainsWhenPaused && bottomView !== 'marey') return [];
+    return computeLiveTrainSnapshots(timetableResult.trains, simTimeSec);
+  }, [isPlaying, showTrainsWhenPaused, bottomView, timetableResult.trains, simTimeSec]);
 
   const [shortTurnModalOpen, setShortTurnModalOpen] = useState(false);
   const [stStartId, setStStartId] = useState<string>('');
@@ -457,6 +518,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
         selectedStationId={selectedStationId}
         selectedSectionId={selectedSectionId}
         rulerPoints={rulerStations}
+        liveTrains={liveTrainSnapshots}
       />
     ),
     [
@@ -469,7 +531,8 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       kinematicsMap,
       selectedStationId,
       selectedSectionId,
-      rulerStations
+      rulerStations,
+      liveTrainSnapshots
     ]
   );
 
@@ -503,6 +566,28 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       axisMode,
       corridorLineId,
       selectedPatternId
+    ]
+  );
+
+  const mareyModel = useMemo(
+    () =>
+      buildMareyDiagramModel({
+        graph,
+        proOps: reconciledState.proOps,
+        timetable: timetableResult,
+        isGeoMode,
+        targetLineId: corridorLineId,
+        targetSubCorridorId: mareySubCorridorId || null,
+        directionFilter: mareyDirection
+      }),
+    [
+      graph,
+      reconciledState.proOps,
+      timetableResult,
+      isGeoMode,
+      corridorLineId,
+      mareySubCorridorId,
+      mareyDirection
     ]
   );
 
@@ -552,6 +637,47 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     message.success(`已创建「${p.name}」`);
   };
 
+  const handleAutoOptimizeOffset = (pattern: ProServicePattern) => {
+    const rec = recommendOptimalPhaseOffset({
+      graph,
+      proOps: reconciledState.proOps,
+      validations,
+      kinematicsMap,
+      targetPatternId: pattern.id,
+      isGeoMode
+    });
+    commitDoc((prev) => ({
+      ...prev,
+      servicePatterns: prev.servicePatterns.map((p) =>
+        p.id === pattern.id ? { ...p, firstDepartureOffsetSec: rec.bestOffsetSec } : p
+      )
+    }));
+    message.success(
+      `已推荐最优错峰相位 +${rec.bestOffsetSec}s（剩余冲突 ${rec.conflictCount} 处）`
+    );
+  };
+
+  const handleToggleStationPassingTrack = (stationId: string, explicitValue?: boolean) => {
+    const stName = stations.find((s) => s.id === stationId)?.name || '车站';
+    commitDoc((prev) => {
+      const cur = prev.stationProfiles[stationId] || {};
+      const nextVal = explicitValue !== undefined ? explicitValue : !cur.hasPassingTrack;
+      return {
+        ...prev,
+        stationProfiles: {
+          ...prev.stationProfiles,
+          [stationId]: {
+            ...cur,
+            hasPassingTrack: nextVal
+          }
+        }
+      };
+    });
+    if (explicitValue === true) {
+      message.success(`已将「${stName}」设为越行待避站，前序慢车已自动让行快车`);
+    }
+  };
+
   const openShortTurnBuilder = () => {
     const line = lines.find((l) => l.id === targetLineId);
     if (!line || line.stationIds.length < 2) {
@@ -591,6 +717,8 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       stopAtStart: true,
       routeSteps: steps,
       headwaySec: 300,
+      firstDepartureOffsetSec: 120,
+      autoOvertake: true,
       bidirectional: stStartId !== stEndId
     };
     commitDoc((prev) => ({
@@ -802,6 +930,8 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
       stopAtStart: true,
       routeSteps,
       headwaySec: 360,
+      firstDepartureOffsetSec: 90,
+      autoOvertake: !thExpress,
       bidirectional: true
     };
 
@@ -965,7 +1095,21 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     message.success(`已导出「${filename}」`);
   };
 
-  const handleExportDiagramSvg = async () => {
+  const handleExportCurrentBottomSvg = async () => {
+    if (bottomView === 'marey') {
+      if (mareyModel.stations.length < 2) {
+        message.warning('当前线路尚无可导出的运行图');
+        return;
+      }
+      const svg = buildMareyDiagramSvg(mareyModel, {
+        theme: mapSettings.canvasTheme,
+        zoomX: mareyZoomX
+      });
+      const base = sanitizeProjectFilename(`${mapDisplayName}-${mareyModel.line?.name || ''}-斜线运行图`);
+      await saveExportBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), `${base}.svg`);
+      return;
+    }
+
     if (diagramModel.columns.length === 0) {
       message.warning('当前没有可导出的走廊站点');
       return;
@@ -975,12 +1119,27 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     await saveExportBlob(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }), `${base}.svg`);
   };
 
-  const handleExportDiagramPng = async () => {
-    if (diagramModel.columns.length === 0) {
-      message.warning('当前没有可导出的走廊站点');
-      return;
-    }
+  const handleExportCurrentBottomPng = async () => {
     try {
+      if (bottomView === 'marey') {
+        if (mareyModel.stations.length < 2) {
+          message.warning('当前线路尚无可导出的运行图');
+          return;
+        }
+        const svg = buildMareyDiagramSvg(mareyModel, {
+          theme: mapSettings.canvasTheme,
+          zoomX: mareyZoomX
+        });
+        const pngBlob = await rasterizeSvgToPngBlob(svg, 2);
+        const base = sanitizeProjectFilename(`${mapDisplayName}-${mareyModel.line?.name || ''}-斜线运行图`);
+        await saveExportBlob(pngBlob, `${base}.png`);
+        return;
+      }
+
+      if (diagramModel.columns.length === 0) {
+        message.warning('当前没有可导出的走廊站点');
+        return;
+      }
       const svg = buildServiceDiagramSvg(diagramModel, mapSettings.canvasTheme);
       const pngBlob = await rasterizeSvgToPngBlob(svg, 2);
       const base = sanitizeProjectFilename(`${mapDisplayName}-运行体系导乘图`);
@@ -990,12 +1149,49 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
     }
   };
 
+  // 底部面板高度拖拽手柄
+  const handleStartResizeDock = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (dockCollapsed) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = dockHeightPx;
+    const maxH = Math.max(240, Math.round(window.innerHeight * 0.66));
+
+    const onMove = (ev: PointerEvent) => {
+      const delta = startY - ev.clientY;
+      setDockHeightPx(Math.max(175, Math.min(maxH, startH + delta)));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  };
+
   const stationMap = useMemo(() => new Map(stations.map((s) => [s.id, s])), [stations]);
   const lineMap = useMemo(() => new Map(lines.map((l) => [l.id, l])), [lines]);
   const inspectedStation = selectedStationId ? stationMap.get(selectedStationId) : undefined;
   const inspectedSection = selectedSectionId
     ? sections.find((s) => s.id === selectedSectionId)
     : undefined;
+
+  // 当前选定线路走廊的最大合并发车密度统计
+  const corridorCapacitySummary = useMemo(() => {
+    const secs = timetableResult.sectionCapacity.filter((s) => s.lineId === corridorLineId);
+    if (secs.length === 0) return null;
+    let maxTph = 0;
+    let maxPphpd = 0;
+    let overCap = false;
+    let signalMax = 30;
+    secs.forEach((s) => {
+      if (s.totalTph > maxTph) maxTph = s.totalTph;
+      if (s.totalPphpd > maxPphpd) maxPphpd = s.totalPphpd;
+      if (s.overSignalCapacity) overCap = true;
+      signalMax = s.signalMaxTph;
+    });
+    return { maxTph, maxPphpd, overCap, signalMax };
+  }, [timetableResult.sectionCapacity, corridorLineId]);
 
   // ==================== 左侧专业运营工作台面板（桌面/平板） ====================
   const siderContent =
@@ -1005,7 +1201,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
             <div className="pro-sider-header">
               <div className="pro-sider-header__title">
                 <span>专业运营</span>
-                <span className="pro-sider-header__badge">Phase 1</span>
+                <span className="pro-sider-header__badge">Phase 2</span>
               </div>
               <button type="button" className="pro-btn pro-btn--sm" onClick={onExitProMode}>
                 返回绘制
@@ -1149,6 +1345,11 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                     const val = validations[activePattern.id];
                     const kin = kinematicsMap[activePattern.id];
                     const isBroken = val?.status === 'broken';
+                    const autoOvertakeOn =
+                      typeof activePattern.autoOvertake === 'boolean'
+                        ? activePattern.autoOvertake
+                        : activePattern.category === 'local' || activePattern.category === 'short_turn';
+
                     return (
                       <div className={`pro-card${isBroken ? ' pro-card--warn' : ''}`}>
                         <div className="pro-card__title">
@@ -1254,23 +1455,51 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                             />
                           </div>
                           <div className="pro-field">
-                            <label>标识颜色</label>
-                            <input
-                              type="color"
-                              className="pro-input"
-                              style={{ padding: 2, cursor: 'pointer' }}
-                              value={activePattern.color}
-                              onChange={(e) => {
-                                const color = e.target.value;
+                            <label>首班相位偏移</label>
+                            <ProNumberInput
+                              value={activePattern.firstDepartureOffsetSec || 0}
+                              min={0}
+                              max={3599}
+                              allowZero
+                              unitSuffix="秒"
+                              onChange={(offset) => {
                                 commitDoc((prev) => ({
                                   ...prev,
                                   servicePatterns: prev.servicePatterns.map((p) =>
-                                    p.id === activePattern.id ? { ...p, color } : p
+                                    p.id === activePattern.id
+                                      ? { ...p, firstDepartureOffsetSec: offset }
+                                      : p
                                   )
                                 }));
                               }}
                             />
                           </div>
+                        </div>
+
+                        <div className="pro-quick-grid">
+                          <button
+                            type="button"
+                            className="pro-btn pro-btn--sm"
+                            onClick={() => handleAutoOptimizeOffset(activePattern)}
+                            title="自动搜索最小化运行图追踪冲突与待避延时的首班发车错峰秒数"
+                          >
+                            智能错峰相位
+                          </button>
+                          <button
+                            type="button"
+                            className={`pro-btn pro-btn--sm${autoOvertakeOn ? ' pro-btn--primary' : ''}`}
+                            onClick={() =>
+                              commitDoc((prev) => ({
+                                ...prev,
+                                servicePatterns: prev.servicePatterns.map((p) =>
+                                  p.id === activePattern.id ? { ...p, autoOvertake: !autoOvertakeOn } : p
+                                )
+                              }))
+                            }
+                            title="开启后，该交路列车在设有越行配线的车站被后方快车追近时会自动延长停站让行"
+                          >
+                            {autoOvertakeOn ? '✓ 越行自动让行' : '越行不让行'}
+                          </button>
                         </div>
 
                         {!isBroken && kin && kin.visits.length >= 2 && (
@@ -1421,7 +1650,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
 
                   <div className="pro-card">
                     <div className="pro-card__title">
-                      <span>车辆制式与牵引参数</span>
+                      <span>车辆制式与信号追踪</span>
                     </div>
                     <div className="pro-field">
                       <label>选择物理线路</label>
@@ -1503,19 +1732,13 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                           </div>
                           <div className="pro-field-row">
                             <div className="pro-field">
-                              <label>加速度</label>
+                              <label>最小追踪间隔</label>
                               <ProNumberInput
-                                value={spec.accelMps2}
-                                min={0.2}
-                                max={2.5}
-                                allowDecimal
-                                unitSuffix="m/s²"
-                                onChange={(v) =>
-                                  patchSpec({
-                                    rollingStock: 'custom',
-                                    accelMps2: v
-                                  })
-                                }
+                                value={spec.minHeadwaySec || 120}
+                                min={45}
+                                max={900}
+                                unitSuffix="秒"
+                                onChange={(v) => patchSpec({ minHeadwaySec: v })}
                               />
                             </div>
                             <div className="pro-field">
@@ -1883,7 +2106,7 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
         )
       : null;
 
-  // ==================== 画布内部：仅在两点标尺校准激活时展示引导条（去掉图1常驻提示） ====================
+  // ==================== 画布内部：仅在两点标尺校准激活时展示引导条 ====================
   const stageRulerHud =
     rulerMode && stageHost
       ? createPortal(
@@ -1931,17 +2154,41 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
         )
       : null;
 
-  // ==================== 底部独立停靠导乘图（位于画布容器下方，与右下角缩放栏零重叠） ====================
+  // ==================== 底部双视图面板（一维导乘图 + 斜线运行图 + 实时列车回放） ====================
   const bottomDockContent = dockHost
     ? createPortal(
-        <div className={`pro-strip-dock${dockCollapsed ? ' is-collapsed' : ''}`}>
+        <div
+          className={`pro-strip-dock${dockCollapsed ? ' is-collapsed' : ''}`}
+          style={!dockCollapsed ? { height: dockHeightPx } : undefined}
+        >
+          {!dockCollapsed && (
+            <div
+              className="pro-strip-dock__resizer"
+              title="上下拖拽调节运营面板高度"
+              onPointerDown={handleStartResizeDock}
+            />
+          )}
+
           <div className="pro-strip-dock__bar">
             <div className="pro-strip-dock__bar-left">
-              <span className="pro-strip-dock__title">运行体系导乘图</span>
-              {!dockCollapsed && (
+              <ElasticCapsuleTabs
+                size="sm"
+                ariaLabel="底部看板视图切换"
+                value={bottomView}
+                onChange={(v) => {
+                  setBottomView(v);
+                  if (dockCollapsed) setDockCollapsed(false);
+                }}
+                options={[
+                  { value: 'strip', label: '导乘图' },
+                  { value: 'marey', label: '运行图' }
+                ]}
+              />
+
+              {!dockCollapsed && bottomView === 'strip' && (
                 <select
                   className="pro-select"
-                  style={{ width: 'auto', height: 26 }}
+                  style={{ width: 'auto', height: 28 }}
                   value={axisMode === 'pattern' ? '__pattern__' : corridorLineId}
                   onChange={(e) => {
                     const val = e.target.value;
@@ -1963,22 +2210,140 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                   ) : null}
                 </select>
               )}
+
+              {!dockCollapsed && bottomView === 'marey' && (
+                <>
+                  <select
+                    className="pro-select"
+                    style={{ width: 'auto', height: 28 }}
+                    value={corridorLineId}
+                    onChange={(e) => {
+                      setCorridorLineId(e.target.value);
+                      setMareySubCorridorId('');
+                    }}
+                  >
+                    {lines.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        走廊：{l.name}
+                      </option>
+                    ))}
+                  </select>
+
+                  {mareyModel.subCorridors.length > 1 && (
+                    <select
+                      className="pro-select"
+                      style={{ width: 'auto', height: 28 }}
+                      value={mareyModel.activeSubCorridorId}
+                      onChange={(e) => setMareySubCorridorId(e.target.value)}
+                    >
+                      {mareyModel.subCorridors.map((sc) => (
+                        <option key={sc.id} value={sc.id}>
+                          {sc.label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {!isMobileCompact && (
+                    <ElasticCapsuleTabs
+                      size="sm"
+                      ariaLabel="运行图上下行筛选"
+                      value={mareyDirection}
+                      onChange={setMareyDirection}
+                      options={[
+                        { value: 'both', label: '双向' },
+                        { value: 'up', label: '上行' },
+                        { value: 'down', label: '下行' }
+                      ]}
+                    />
+                  )}
+
+                  <button
+                    type="button"
+                    className="pro-btn pro-btn--sm"
+                    onClick={() => setMareyZoomX((z) => (z >= 2.5 ? 1 : Math.round((z + 0.75) * 100) / 100))}
+                    title="切换时间横轴缩放倍率"
+                  >
+                    {mareyZoomX}x 展开
+                  </button>
+
+                  {corridorCapacitySummary && corridorCapacitySummary.maxTph > 0 && (
+                    <span
+                      className={`pro-kpi-chip${corridorCapacitySummary.overCap ? ' pro-kpi-chip--conflict' : ''}`}
+                      title={`信号最小追踪上限约 ${corridorCapacitySummary.signalMax} 对/h`}
+                    >
+                      峰值 {corridorCapacitySummary.maxTph} 对/h ·{' '}
+                      {(corridorCapacitySummary.maxPphpd / 10000).toFixed(2)} 万人/h
+                    </span>
+                  )}
+
+                  {timetableResult.conflicts.length > 0 ? (
+                    <span
+                      className="pro-kpi-chip pro-kpi-chip--conflict"
+                      title="点击使用第一处冲突推荐车站设为越行站，或为快车智能错峰"
+                      onClick={() => {
+                        const firstCf = timetableResult.conflicts[0];
+                        if (firstCf?.suggestedPassingStationId) {
+                          handleToggleStationPassingTrack(firstCf.suggestedPassingStationId, true);
+                        } else if (activePattern) {
+                          handleAutoOptimizeOffset(activePattern);
+                        }
+                      }}
+                    >
+                      冲突 {timetableResult.conflicts.length} 处 · 点此一键消解
+                    </span>
+                  ) : timetableResult.trains.length > 0 ? (
+                    <span className="pro-kpi-chip pro-kpi-chip--ok">
+                      零冲突{timetableResult.overtakes.length > 0 ? ` · 自动待避 ${timetableResult.overtakes.length} 次` : ''}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </div>
 
             <div className="pro-strip-dock__bar-right">
+              {timetableResult.trains.length > 0 && (
+                <div className="pro-playback-pill">
+                  <button
+                    type="button"
+                    className={`pro-btn pro-btn--sm${isPlaying ? ' pro-btn--primary' : ''}`}
+                    onClick={() => {
+                      setIsPlaying((p) => {
+                        if (p) setShowTrainsWhenPaused(true);
+                        return !p;
+                      });
+                    }}
+                  >
+                    {isPlaying ? '暂停' : '发车回放'}
+                  </button>
+                  <span className="pro-playback-pill__clock">
+                    {formatClockSec(simTimeSec, true)}
+                  </span>
+                  <button
+                    type="button"
+                    className="pro-btn pro-btn--sm"
+                    style={{ padding: '2px 6px' }}
+                    onClick={() => setPlaybackSpeedIdx((idx) => (idx + 1) % PLAYBACK_SPEEDS.length)}
+                    title="切换列车动态仿真倍速"
+                  >
+                    {playbackSpeed}x
+                  </button>
+                </div>
+              )}
+
               {!dockCollapsed && (
                 <>
                   <button
                     type="button"
                     className="pro-btn pro-btn--sm"
-                    onClick={() => void handleExportDiagramSvg()}
+                    onClick={() => void handleExportCurrentBottomSvg()}
                   >
                     导出 SVG
                   </button>
                   <button
                     type="button"
                     className="pro-btn pro-btn--sm"
-                    onClick={() => void handleExportDiagramPng()}
+                    onClick={() => void handleExportCurrentBottomPng()}
                   >
                     导出 PNG
                   </button>
@@ -1998,14 +2363,29 @@ const ProWorkspace: React.FC<ProWorkspaceProps> = ({
                 className="pro-btn pro-btn--sm"
                 onClick={() => setDockCollapsed((c) => !c)}
               >
-                {dockCollapsed ? '展开导乘图' : '收起'}
+                {dockCollapsed ? '展开面板' : '收起'}
               </button>
             </div>
           </div>
 
           {!dockCollapsed && (
             <div className="pro-strip-dock__scroll">
-              {diagramModel.columns.length === 0 ? (
+              {bottomView === 'marey' ? (
+                <MareyChartView
+                  model={mareyModel}
+                  zoomX={mareyZoomX}
+                  isDark={mapSettings.canvasTheme === 'dark'}
+                  simTimeSec={simTimeSec}
+                  selectedPatternId={selectedPatternId}
+                  onSelectPattern={(pid) => setSelectedPatternId(pid)}
+                  onScrubTime={(sec) => {
+                    setShowTrainsWhenPaused(true);
+                    setSimTimeSec(sec);
+                  }}
+                  onToggleStationPassingTrack={(sid) => handleToggleStationPassingTrack(sid)}
+                  onResolveConflictPassingStation={(sid) => handleToggleStationPassingTrack(sid, true)}
+                />
+              ) : diagramModel.columns.length === 0 ? (
                 <div className="pro-card__hint" style={{ padding: '12px 4px' }}>
                   当前走廊暂无车站，请先在线网绘制模式绘制线路与车站。
                 </div>

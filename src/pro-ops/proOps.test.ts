@@ -12,6 +12,13 @@ import {
   reconcileProOps
 } from './reconcile';
 import { buildCorridorDiagramModel, buildServiceDiagramSvg } from './corridorDiagram';
+import {
+  buildMareyDiagramModel,
+  buildMareyDiagramSvg,
+  computeLiveTrainSnapshots,
+  recommendOptimalPhaseOffset,
+  solveNetworkTimetable
+} from './timetable';
 import { createEmptyProOpsDocument, normalizeProOpsDocument, ProOpsDocument, ProServicePattern } from './types';
 
 function createFourStationLinearGraph(): MapGraph {
@@ -464,5 +471,138 @@ describe('Pro Operations Mode Phase 1 Engine & Isolation', () => {
     expect(zeroNorm.scaleConfig.metersPerUnit).toBe(0);
     const zeroMileage = computeNetworkMileageSummary(complexGraph, zeroNorm, false);
     expect(zeroMileage.totalLineKm).toBe(0);
+  });
+
+  test('Phase 2 Marey timetable detects catch-up conflicts, auto-resolves via passing track hold, optimizes offset & interpolates live trains', () => {
+    // 5 站干线（总长 6km，每段 1.5km）：S0 - S1 - S2 - S3 - S4
+    const graph = reconcileGraph({
+      stations: [
+        { id: 'S0', name: '始发站', x: 0, y: 0 },
+        { id: 'S1', name: '一站', x: 60, y: 0 },
+        { id: 'S2', name: '中枢站', x: 120, y: 0 },
+        { id: 'S3', name: '三站', x: 180, y: 0 },
+        { id: 'S4', name: '终到站', x: 240, y: 0 }
+      ],
+      sections: [
+        { id: 'e0', lineId: 'L1', startStationId: 'S0', endStationId: 'S1' },
+        { id: 'e1', lineId: 'L1', startStationId: 'S1', endStationId: 'S2' },
+        { id: 'e2', lineId: 'L1', startStationId: 'S2', endStationId: 'S3' },
+        { id: 'e3', lineId: 'L1', startStationId: 'S3', endStationId: 'S4' }
+      ],
+      lines: [
+        {
+          id: 'L1',
+          name: '1号线',
+          color: '#2563eb',
+          stationIds: ['S0', 'S1', 'S2', 'S3', 'S4'],
+          sectionIds: ['e0', 'e1', 'e2', 'e3']
+        }
+      ]
+    });
+
+    const doc = createEmptyProOpsDocument();
+    doc.lineSpecs.L1 = {
+      rollingStock: '4D',
+      carCapacity: 1200,
+      maxSpeedKmh: 140,
+      accelMps2: 1.0,
+      decelMps2: 1.0,
+      turnbackSec: 150,
+      minHeadwaySec: 120
+    };
+
+    const local = createLineAllStopPattern(graph, 'L1')!;
+    local.headwaySec = 600; // 每 10 分钟一班
+    local.firstDepartureOffsetSec = 0;
+    local.autoOvertake = true;
+    local.bidirectional = false;
+
+    const express = createLineAllStopPattern(graph, 'L1')!;
+    express.id = 'pat_exp';
+    express.name = '1号线直达快车';
+    express.code = '快车';
+    express.color = '#ea580c';
+    express.category = 'express';
+    express.headwaySec = 600;
+    // 快车仅比慢车晚 120s 发车，中途全越站，必在后半程追上并超越慢车！
+    express.firstDepartureOffsetSec = 120;
+    express.autoOvertake = false;
+    express.bidirectional = false;
+    express.routeSteps = express.routeSteps.map((s, idx, arr) => ({
+      ...s,
+      stopAtEnd: idx === arr.length - 1
+    }));
+
+    doc.servicePatterns = [local, express];
+
+    // 1) 未设越行站时：快车追上慢车，产生追踪冲突且给出建议设越行站的车站
+    const state1 = reconcileProOps(graph, doc);
+    const kinMap1 = Object.fromEntries(
+      state1.proOps.servicePatterns.map((p) => [
+        p.id,
+        solveServiceKinematics(graph, state1.proOps, p, state1.validations[p.id], false)
+      ])
+    );
+    const ttConflict = solveNetworkTimetable({
+      graph,
+      proOps: state1.proOps,
+      validations: state1.validations,
+      kinematicsMap: kinMap1,
+      isGeoMode: false
+    });
+    expect(ttConflict.conflicts.length).toBeGreaterThan(0);
+    expect(ttConflict.conflicts[0].suggestedPassingStationId).toBeDefined();
+    expect(ttConflict.peakSectionTph).toBeCloseTo(12, 1);
+
+    // 2) 智能错峰优化：即便不加越行线，在 10 分钟车隔下调整快车相位也能实现零冲突错峰
+    const opt = recommendOptimalPhaseOffset({
+      graph,
+      proOps: state1.proOps,
+      validations: state1.validations,
+      kinematicsMap: kinMap1,
+      targetPatternId: express.id,
+      isGeoMode: false
+    });
+    expect(opt.conflictCount).toBe(0);
+
+    // 3) 保持 120s 紧跟发车，但在中枢站 S2（及 S1）开启越行配线 -> 自动延长慢车停站待避，冲突清零！
+    doc.stationProfiles.S1 = { hasPassingTrack: true };
+    doc.stationProfiles.S2 = { hasPassingTrack: true };
+    const state2 = reconcileProOps(graph, doc);
+    const kinMap2 = Object.fromEntries(
+      state2.proOps.servicePatterns.map((p) => [
+        p.id,
+        solveServiceKinematics(graph, state2.proOps, p, state2.validations[p.id], false)
+      ])
+    );
+    const ttResolved = solveNetworkTimetable({
+      graph,
+      proOps: state2.proOps,
+      validations: state2.validations,
+      kinematicsMap: kinMap2,
+      isGeoMode: false
+    });
+    expect(ttResolved.overtakes.length).toBeGreaterThan(0);
+    expect(ttResolved.conflicts.length).toBe(0);
+
+    // 4) 生成 Marey 斜线运行图模型、SVG 导出与实时列车位置快照（含 yielding 待避状态）
+    const marey = buildMareyDiagramModel({
+      graph,
+      proOps: state2.proOps,
+      timetable: ttResolved,
+      isGeoMode: false,
+      targetLineId: 'L1',
+      directionFilter: 'both'
+    });
+    expect(marey.threads.length).toBeGreaterThan(4);
+    expect(marey.markers.some((m) => m.kind === 'overtake')).toBe(true);
+
+    const mareySvg = buildMareyDiagramSvg(marey, { theme: 'dark', zoomX: 1.5, playheadSec: ttResolved.overtakes[0].timeSec });
+    expect(mareySvg.startsWith('<?xml')).toBe(true);
+    expect(mareySvg).toContain('Marey Train Diagram');
+
+    const snapsAtOvertake = computeLiveTrainSnapshots(ttResolved.trains, ttResolved.overtakes[0].timeSec);
+    expect(snapsAtOvertake.length).toBeGreaterThanOrEqual(2);
+    expect(snapsAtOvertake.some((s) => s.status === 'yielding' || s.status === 'dwelling')).toBe(true);
   });
 });

@@ -387,7 +387,7 @@
   flex-wrap: wrap;
 }
 
-/* 底部独立停靠的一维拉直版运行体系导乘图面板（位于画布容器下方，彻底杜绝与右下角缩放栏互相遮挡） */
+/* 底部独立停靠的一维拉直版运行体系导乘图与斜线运行图面板（位于画布容器下方，彻底杜绝与右下角缩放栏互相遮挡） */
 .pro-strip-dock {
   position: relative;
   width: 100%;
@@ -395,8 +395,32 @@
   border-top: 1px solid var(--color-border-strong);
   display: flex;
   flex-direction: column;
-  max-height: 38vh;
   overflow: hidden;
+}
+
+.pro-strip-dock__resizer {
+  height: 7px;
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-subtle);
+  flex-shrink: 0;
+  touch-action: none;
+}
+
+.pro-strip-dock__resizer::after {
+  content: '';
+  width: 36px;
+  height: 3px;
+  border-radius: 999px;
+  background: var(--color-border-strong);
+  transition: background 0.14s ease, width 0.14s ease;
+}
+
+.pro-strip-dock__resizer:hover::after {
+  width: 48px;
+  background: var(--color-primary-600);
 }
 
 .pro-strip-dock.is-collapsed {
@@ -652,6 +676,146 @@
   font-size: 9.5px;
   color: var(--color-text-muted);
   white-space: nowrap;
+}
+
+/* Phase 2 斜线运行图（Marey Chart）与播放栏 */
+.pro-playback-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px 2px 3px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-strong);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.pro-playback-pill__clock {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 11.5px;
+  color: var(--color-primary-600);
+  min-width: 54px;
+  text-align: center;
+}
+
+.pro-kpi-chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-soft);
+  white-space: nowrap;
+}
+
+.pro-kpi-chip--ok {
+  color: #059669;
+  background: rgba(16, 185, 129, 0.12);
+  border-color: rgba(16, 185, 129, 0.28);
+}
+
+.pro-kpi-chip--conflict {
+  color: #dc2626;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  cursor: pointer;
+}
+
+.pro-marey-wrap {
+  display: flex;
+  align-items: flex-start;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.pro-marey-yaxis {
+  width: 158px;
+  min-width: 158px;
+  border-right: 1px solid var(--color-border-strong);
+  background: var(--color-surface-subtle);
+  flex-shrink: 0;
+  z-index: 2;
+}
+
+.pro-marey-yaxis__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  border-bottom: 1px solid var(--color-border);
+  box-sizing: border-box;
+}
+
+.pro-marey-yaxis__body {
+  position: relative;
+}
+
+.pro-marey-yaxis__item {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.pro-marey-yaxis__km {
+  font-size: 9.5px;
+  color: var(--color-text-muted);
+  width: 28px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.pro-marey-yaxis__name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--color-text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pro-marey-pass-btn {
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 9.5px;
+  font-weight: 700;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.pro-marey-pass-btn.is-on {
+  background: #10b981;
+  border-color: #10b981;
+  color: #ffffff;
+}
+
+.pro-marey-plot-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 @media (max-width: 768px) {

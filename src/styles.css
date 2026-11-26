@@ -1644,6 +1644,18 @@ body {
   pointer-events: auto;
 }
 
+.metro-canvas-tools__subrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.metro-canvas-tools__subrow > * {
+  pointer-events: auto;
+  flex-shrink: 0;
+}
+
 .metro-tool-group {
   display: inline-flex;
   gap: 2px;
@@ -3950,13 +3962,20 @@ body[data-android-client="true"] {
     gap: 6px !important;
     pointer-events: none;
   }
+  .metro-canvas-tools > .metro-canvas-tools__subrow,
   .metro-canvas-tools > .metro-draw-subbar,
   .metro-canvas-tools > .metro-multiselect-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
     max-width: 100%;
     overflow-x: auto;
     scrollbar-width: none;
     flex-wrap: nowrap;
+    pointer-events: auto;
   }
+  .metro-canvas-tools > .metro-canvas-tools__subrow::-webkit-scrollbar,
   .metro-canvas-tools > .metro-draw-subbar::-webkit-scrollbar,
   .metro-canvas-tools > .metro-multiselect-bar::-webkit-scrollbar { display: none; }
   .metro-canvas-start { inset: 96px 16px 126px; }
