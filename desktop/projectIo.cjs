@@ -147,7 +147,7 @@ function createProjectController({ app, dialog, getWindow, onRecentChanged }) {
       defaultPath,
       properties: ['openFile'],
       filters: [
-        { name: 'Metro Designer 工程 (*.metro, *.json)', extensions: ['metro', 'json'] },
+        { name: 'TransitCanvas 轨道工坊工程 (*.metro, *.json)', extensions: ['metro', 'json'] },
         { name: '所有文件 (*.*)', extensions: ['*'] }
       ]
     });
@@ -182,7 +182,7 @@ function createProjectController({ app, dialog, getWindow, onRecentChanged }) {
         title: payload.saveAs ? '另存为本地工程' : '保存本地工程',
         defaultPath: path.join(baseDir, `${baseName}.metro`),
         filters: [
-          { name: 'Metro Designer 工程 (*.metro)', extensions: ['metro'] },
+          { name: 'TransitCanvas 轨道工坊工程 (*.metro)', extensions: ['metro'] },
           { name: 'JSON 工程备份 (*.json)', extensions: ['json'] }
         ]
       });

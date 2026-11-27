@@ -299,7 +299,7 @@ public final class MainActivity extends Activity {
     private void handleBack() {
         if (rendererGone) { finish(); return; }
         if (web.canGoBack()) web.goBack();
-        else new AlertDialog.Builder(this).setTitle("退出 Metro Designer？")
+        else new AlertDialog.Builder(this).setTitle("退出 TransitCanvas？")
             .setMessage("离开前请保存当前作品。")
             .setPositiveButton("退出", (d, which) -> finish()).setNegativeButton("继续设计", null).show();
     }

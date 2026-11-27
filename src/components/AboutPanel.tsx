@@ -13,15 +13,15 @@ interface AboutPanelProps {
 
 const AboutPanel: React.FC<AboutPanelProps> = ({ language, onClose, onOpenProfile }) => {
   const en = language === 'en-US';
-  return <DraggableModal open title={en ? 'About Metro Designer' : '关于我们'} onCancel={onClose}
+  return <DraggableModal open title={en ? 'About TransitCanvas' : '关于我们'} onCancel={onClose}
     width={560} className="metro-about" footer={<Button onClick={onClose}>{en ? 'Close' : '关闭'}</Button>}>
     <div className="metro-about__brand"><img src="/favicon.svg" alt="" width={40} height={40} />
-      <div><h2>Metro Designer</h2><p>{en ? 'Design a city, one line at a time.' : '从一条线路开始，画出整座城市的地铁图。'}</p></div></div>
-    <p className="metro-about__intro">{en ? 'Draw lines, manage stations and interchanges, and export maps and animated demos.' : '多线路绘制、站点管理、换乘编排，导出地图与动态演示。'}</p>
+      <div><h2>TransitCanvas</h2><p>{en ? 'Design and simulate a city transit network, one line at a time.' : '轨道工坊 · 从一条线路开始，构筑整座城市的轨道交通。'}</p></div></div>
+    <p className="metro-about__intro">{en ? 'Draw lines, sculpt light cities, simulate timetables, and export maps and animated demos.' : '多制式线网绘制、轻城市造景、快慢车运行图推演，导出高清矢量图与动态演进视频。'}</p>
     <dl className="metro-about__versions">
       <div><dt>{en ? 'Platform' : '当前平台'}</dt><dd>{androidVersion ? 'Android' : desktopVersion ? 'Windows' : (en ? 'Web' : '网页版')}</dd></div>
       {(androidVersion || desktopVersion) && <div><dt>{en ? 'App version' : '客户端版本'}</dt><dd>v{androidVersion || desktopVersion}</dd></div>}
-      <div><dt>{en ? 'Web update' : '网页更新'}</dt><dd>2026-11-17</dd></div>
+      <div><dt>{en ? 'Web update' : '网页更新'}</dt><dd>2026-11-27</dd></div>
     </dl>
     <details className="metro-about__changes"><summary>{en ? 'What’s new' : '更新记录'}</summary>
       <ul><li>{en ? 'Open geographic basemap styles and remembered selection.' : '支持免密钥四风格地理底图预览与上次选择记忆。'}</li>
@@ -35,7 +35,7 @@ const AboutPanel: React.FC<AboutPanelProps> = ({ language, onClose, onOpenProfil
     </nav>
     <div className="metro-about__contact"><MailOutlined /><a href="mailto:3855166698@qq.com">3855166698@qq.com</a></div>
     <p className="metro-about__foot">{en ? 'For account deletion or data requests, contact us using your registered email.' : '账号注销、数据导出或删除申请，可通过注册邮箱联系。'}</p>
-    <p className="metro-about__foot">© 2026 Metro Designer</p>
+    <p className="metro-about__foot">© 2026 TransitCanvas · 轨道工坊</p>
   </DraggableModal>;
 };
 

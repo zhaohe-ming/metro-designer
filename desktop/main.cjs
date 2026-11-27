@@ -20,7 +20,7 @@ const webRoot = path.join(__dirname, 'web');
 const offlineFile = path.join(__dirname, 'offline.html');
 const offlineURL = pathToFileURL(offlineFile).href;
 
-app.setName('Metro Designer');
+app.setName('TransitCanvas');
 app.enableSandbox();
 
 if (!app.requestSingleInstanceLock()) {
@@ -121,7 +121,7 @@ function setupIpcHandlers() {
       typeof state?.filePath === 'string' && state.filePath.trim()
         ? ` (${path.basename(state.filePath)})`
         : '';
-    mainWindow.setTitle(`${rawTitle}${dirtyMark}${fileHint} — Metro Designer`);
+    mainWindow.setTitle(`${rawTitle}${dirtyMark}${fileHint} — TransitCanvas`);
   });
 }
 
@@ -204,15 +204,15 @@ function rebuildApplicationMenu() {
           { label: '检查客户端更新…', click: () => { void updatesController?.check(true); } },
           { label: '前往客户端下载页', click: () => openExternal('https://www.metro-designer.com/downloads.html') },
           {
-            label: '关于 Metro Designer',
+            label: '关于 TransitCanvas',
             click: () => {
               if (!mainWindow || mainWindow.isDestroyed()) return;
               dialog.showMessageBox(mainWindow, {
                 type: 'info',
-                title: 'Metro Designer',
-                message: `Metro Designer v${app.getVersion()}`,
+                title: 'TransitCanvas',
+                message: `TransitCanvas v${app.getVersion()}`,
                 detail:
-                  '地铁线路图设计器 · Windows 本地原生客户端\n' +
+                  '轨道工坊 · Windows 本地原生客户端\n' +
                   '支持离线绘图、本地 .metro 工程读写及 PNG / SVG / MP4 导出；联网后同步云端地图、开源地理底图与 AI 助手。'
               });
             }
@@ -241,7 +241,7 @@ function createWindow() {
     height: 920,
     minWidth: 960,
     minHeight: 640,
-    title: 'Metro Designer',
+    title: 'TransitCanvas',
     backgroundColor: '#e9eef5',
     show: false,
     icon: path.join(__dirname, 'assets/icon.ico'),

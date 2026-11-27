@@ -3,7 +3,12 @@ const assert = require('node:assert/strict');
 const { isSite, isExternalLink, isExport } = require('./policy.cjs');
 
 test('navigation is restricted to exact HTTPS site origins', () => {
-  for (const url of ['https://www.metro-designer.com/', 'https://metro-designer.com/?token=x']) assert.equal(isSite(url), true);
+  for (const url of [
+    'https://www.transitcanvas.com/',
+    'https://transitcanvas.com/?token=x',
+    'https://www.metro-designer.com/',
+    'https://metro-designer.com/?token=x'
+  ]) assert.equal(isSite(url), true);
   for (const url of ['http://www.metro-designer.com/', 'https://metro-designer.com.evil.test', 'https://metro-designer.com@evil.test', 'file:///C:/Windows/system.ini', 'javascript:alert(1)', 'invalid']) assert.equal(isSite(url), false);
 });
 test('external handler accepts HTTPS and email only', () => {

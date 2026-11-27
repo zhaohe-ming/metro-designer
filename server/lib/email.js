@@ -3,7 +3,7 @@
 // 而是明确返回 { ok: false, reason } 以便路由回滚孤儿注册记录并提示用户稍后重试。
 
 const RESEND_API_KEY = (process.env.RESEND_API_KEY || '').trim();
-const EMAIL_FROM = (process.env.EMAIL_FROM || 'Metro Designer <onboarding@resend.dev>').trim();
+const EMAIL_FROM = (process.env.EMAIL_FROM || 'TransitCanvas <onboarding@resend.dev>').trim();
 const APP_BASE_URL = (process.env.APP_BASE_URL || process.env.FRONTEND_ORIGIN || 'http://localhost:3000')
   .split(',')[0]
   .trim()
@@ -72,7 +72,7 @@ function escape(value) {
 function brandedShell(title, body) {
   return `<!doctype html><html><body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif">
   <div style="max-width:520px;margin:32px auto;background:#ffffff;border-radius:14px;padding:32px 32px 28px;box-shadow:0 8px 24px rgba(15,23,42,.06)">
-    <div style="font-size:14px;letter-spacing:.04em;color:#2563eb;font-weight:700;margin-bottom:18px">METRO DESIGNER</div>
+    <div style="font-size:14px;letter-spacing:.04em;color:#2563eb;font-weight:700;margin-bottom:18px">TRANSITCANVAS · 轨道工坊</div>
     <h1 style="font-size:20px;line-height:1.35;color:#0f172a;margin:0 0 16px">${escape(title)}</h1>
     ${body}
     <div style="margin-top:28px;padding-top:18px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;line-height:1.6">
@@ -95,7 +95,7 @@ async function deliverOrFallback(label, payload, fetchImpl = fetch) {
 
 async function sendVerificationEmail({ to, username, token }, fetchImpl = fetch) {
   const link = `${APP_BASE_URL}/verify-email?token=${encodeURIComponent(token)}`;
-  const subject = '验证你的 Metro Designer 邮箱';
+  const subject = '验证你的 TransitCanvas（轨道工坊）邮箱';
   const text = [
     `你好 ${username || '设计师'}，`,
     '',
@@ -107,7 +107,7 @@ async function sendVerificationEmail({ to, username, token }, fetchImpl = fetch)
   const html = brandedShell(
     '验证你的邮箱',
     `<p style="font-size:15px;color:#334155;line-height:1.65;margin:0 0 18px">
-      你好 <strong>${escape(username || '设计师')}</strong>，欢迎加入 Metro Designer。点击下方按钮完成邮箱验证：
+      你好 <strong>${escape(username || '设计师')}</strong>，欢迎加入 TransitCanvas（轨道工坊）。点击下方按钮完成邮箱验证：
     </p>
     <p style="margin:0 0 18px">
       <a href="${link}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:600;font-size:15px">完成验证</a>
@@ -121,7 +121,7 @@ async function sendVerificationEmail({ to, username, token }, fetchImpl = fetch)
 
 async function sendPasswordResetEmail({ to, username, token }, fetchImpl = fetch) {
   const link = `${APP_BASE_URL}/reset-password?token=${encodeURIComponent(token)}`;
-  const subject = '重置你的 Metro Designer 密码';
+  const subject = '重置你的 TransitCanvas（轨道工坊）密码';
   const text = [
     `你好 ${username || '设计师'}，`,
     '',
@@ -133,7 +133,7 @@ async function sendPasswordResetEmail({ to, username, token }, fetchImpl = fetch
   const html = brandedShell(
     '重置你的密码',
     `<p style="font-size:15px;color:#334155;line-height:1.65;margin:0 0 18px">
-      你好 <strong>${escape(username || '设计师')}</strong>，我们收到了重置 Metro Designer 密码的请求。点击下方按钮设置新密码：
+      你好 <strong>${escape(username || '设计师')}</strong>，我们收到了重置 TransitCanvas（轨道工坊）密码的请求。点击下方按钮设置新密码：
     </p>
     <p style="margin:0 0 18px">
       <a href="${link}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:600;font-size:15px">设置新密码</a>

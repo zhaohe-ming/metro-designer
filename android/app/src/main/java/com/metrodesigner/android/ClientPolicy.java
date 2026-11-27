@@ -10,7 +10,9 @@ public final class ClientPolicy {
             URI u = new URI(url);
             return "https".equalsIgnoreCase(u.getScheme()) && u.getUserInfo() == null
                 && (u.getPort() == -1 || u.getPort() == 443)
-                && ("www.metro-designer.com".equalsIgnoreCase(u.getHost())
+                && ("www.transitcanvas.com".equalsIgnoreCase(u.getHost())
+                    || "transitcanvas.com".equalsIgnoreCase(u.getHost())
+                    || "www.metro-designer.com".equalsIgnoreCase(u.getHost())
                     || "metro-designer.com".equalsIgnoreCase(u.getHost()));
         } catch (Exception e) { return false; }
     }

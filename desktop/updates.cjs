@@ -71,7 +71,7 @@ function attachUpdates({ updater, dialog, getWindow, isPackaged, getVersion }) {
     }
     void (async () => {
       const result = await show({
-        type: 'info', title: '发现新版', message: `Metro Designer v${info.version} 已发布`,
+        type: 'info', title: '发现新版', message: `TransitCanvas v${info.version} 已发布`,
         detail: '现在下载，继续保留当前作品。下载完成后，由你选择安装时间。',
         buttons: ['下载更新', '稍后'], defaultId: 1, cancelId: 1, noLink: true
       });

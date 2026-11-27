@@ -1,8 +1,8 @@
 {
   "name": "metro-designer-desktop",
   "version": "1.2.0",
-  "description": "Metro Designer Windows 客户端",
-  "author": "Metro Designer",
+  "description": "TransitCanvas 轨道工坊 Windows 客户端",
+  "author": "TransitCanvas",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -18,8 +18,8 @@
   },
   "build": {
     "appId": "com.metro-designer.desktop",
-    "productName": "Metro Designer",
-    "artifactName": "Metro-Designer-Setup-${version}-${arch}.${ext}",
+    "productName": "TransitCanvas",
+    "artifactName": "TransitCanvas-Setup-${version}-${arch}.${ext}",
     "directories": {
       "output": "../outputs/windows-app-v1.2.0"
     },
@@ -38,8 +38,8 @@
     "fileAssociations": [
       {
         "ext": "metro",
-        "name": "Metro Designer Project",
-        "description": "Metro Designer 线路图工程文件",
+        "name": "TransitCanvas Project",
+        "description": "TransitCanvas 轨道工坊工程文件",
         "icon": "assets/icon.ico"
       }
     ],
@@ -55,7 +55,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Metro Designer",
+      "shortcutName": "TransitCanvas",
       "deleteAppDataOnUninstall": false,
       "installerLanguages": [
         "zh_CN",

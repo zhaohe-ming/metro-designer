@@ -12,7 +12,7 @@ const AuthBrandPanel: React.FC = () => {
           <circle cx="8" cy="16" r="1.3" fill="currentColor" /><circle cx="16" cy="16" r="1.3" fill="currentColor" />
           <path d="m8 20-3 4m11-4 3 4M7 23h10" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
         </svg>
-        <span>METRO DESIGNER</span>
+        <span>TRANSITCANVAS</span>
       </div>
       <div className="auth-brand-copy">
         <h2 className="auth-brand-title"><span>从一条线路开始，</span><span>画出整座城市的地铁图。</span></h2>

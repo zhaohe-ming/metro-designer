@@ -348,7 +348,7 @@ const i18n = {
     dotLabelColor: 'Text color',
     resetDefault: 'Reset default',
     unnamedMap: 'Untitled map',
-    defaultUserName: 'Metro Designer',
+    defaultUserName: 'TransitCanvas',
     signOut: 'Sign out',
     close: 'Close',
     phone: 'Phone',
@@ -3217,7 +3217,7 @@ const App: React.FC = () => {
               </button>
               <div className="metro-brand-mark">
                 <span className="metro-brand-mark__dot" />
-                <div className="metro-brand-title">Metro Designer</div>
+                <div className="metro-brand-title">TransitCanvas</div>
               </div>
               {/* 方案名 chip 从画布顶部挪到 header 这里：
                   既保留"我在编辑哪张图"的视觉锚，又不占用画布空间 */}

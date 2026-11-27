@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const dependencies = Object.keys(require('../package.json').dependencies);
-const chunks = ['Metro Designer — Open-source notices\nGenerated from installed dependencies.\n'];
+const chunks = ['TransitCanvas — Open-source notices\nGenerated from installed dependencies.\n'];
 for (const name of dependencies) {
   const dir = path.join(root, 'node_modules', name);
   const pkg = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8'));

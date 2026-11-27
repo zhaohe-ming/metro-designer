@@ -78,7 +78,7 @@ async function fetchUpstreamTile(urls, fetchImpl = fetch) {
     try {
       const response = await fetchImpl(url, {
         headers: {
-          'User-Agent': 'MetroDesigner/1.2 (+https://www.metro-designer.com)',
+          'User-Agent': 'TransitCanvas/1.2 (+https://www.transitcanvas.com)',
           Accept: 'image/png,image/webp,image/*;q=0.8'
         },
         signal: controller.signal

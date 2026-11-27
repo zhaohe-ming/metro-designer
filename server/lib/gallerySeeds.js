@@ -35,7 +35,7 @@ function network(id, title, description, routes, landmarks = {}, dark = false) {
       color: palette[index % palette.length], stationIds, sectionIds };
   });
   return { id: `example-${id}`, title, description: `${description}\n这是可自由复制的架空设计示例，线路和站名均为虚构。`, category: 'fictional', coverCrop: { zoom: 1.22, x: 0, y: 0 }, city: '',
-    author: { name: 'Metro Designer 示例', avatar: '', official: true }, allowFork: true, includeNotes: false, featured: true, example: true,
+    author: { name: 'TransitCanvas 示例', avatar: '', official: true }, allowFork: true, includeNotes: false, featured: true, example: true,
     snapshot: { lines, stations, sections, mapSettings: { mapStyle: 'dot-label', canvasTheme: dark ? 'dark' : 'light', cityStyle: 'standard',
       showLineNameLabels: true, dotLabelStyle: { fontSize: 13, fontWeight: 700, color: dark ? '#f8fafc' : '#0f172a' },
       labelDensity: 'key', cornerRadius: 16, baseMap: { mode: 'plain', amap: { center: [116.397428, 39.90923], zoom: 11, style: 'normal' } } } } };

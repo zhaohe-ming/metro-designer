@@ -1,7 +1,12 @@
 const SITE_URL = 'https://www.metro-designer.com/';
 const START_URL = 'https://www.metro-designer.com/?workbench=1';
 const API_ORIGIN = 'https://metro-designer-api.onrender.com';
-const SITE_ORIGINS = new Set(['https://www.metro-designer.com', 'https://metro-designer.com']);
+const SITE_ORIGINS = new Set([
+  'https://www.transitcanvas.com',
+  'https://transitcanvas.com',
+  'https://www.metro-designer.com',
+  'https://metro-designer.com'
+]);
 
 function isSite(url) {
   try { return SITE_ORIGINS.has(new URL(url).origin); } catch { return false; }

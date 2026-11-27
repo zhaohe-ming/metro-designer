@@ -1,4 +1,4 @@
-Metro Designer — Open-source notices
+TransitCanvas — Open-source notices
 Generated from installed dependencies.
 
 
