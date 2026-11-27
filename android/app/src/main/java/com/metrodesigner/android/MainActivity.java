@@ -115,15 +115,20 @@ public final class MainActivity extends Activity {
         settings.setSafeBrowsingEnabled(true);
         settings.setSupportMultipleWindows(true);
         settings.setJavaScriptCanOpenWindowsAutomatically(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " MetroDesignerAndroid/" + BuildConfig.VERSION_NAME);
+        settings.setUserAgentString(settings.getUserAgentString() + " TransitCanvasAndroid/" + BuildConfig.VERSION_NAME);
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false);
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
 
-        // The bridge exists only on the two official HTTPS origins; subframes are rejected again below.
+        // The bridge exists only on the official HTTPS origins; subframes are rejected again below.
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             WebViewCompat.addWebMessageListener(web, "MetroAndroid",
-                new HashSet<>(Arrays.asList("https://www.metro-designer.com", "https://metro-designer.com")),
+                new HashSet<>(Arrays.asList(
+                    "https://www.transitcanvas.com",
+                    "https://transitcanvas.com",
+                    "https://www.metro-designer.com",
+                    "https://metro-designer.com"
+                )),
                 (view, message, sourceOrigin, isMainFrame, reply) -> {
                     if (!isMainFrame || !ClientPolicy.isSite(sourceOrigin.toString()) || !ClientPolicy.isSite(view.getUrl())) return;
                     String data = message.getData();

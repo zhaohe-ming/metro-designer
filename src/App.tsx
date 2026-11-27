@@ -1351,7 +1351,7 @@ const App: React.FC = () => {
   const downloadGuestBackup = async () => {
     if (!draftSnapshotRef.current) return;
     const blob = new Blob([JSON.stringify(draftSnapshotRef.current, null, 2)], { type: 'application/json' });
-    const filename = 'metro-designer-草稿备份.json';
+    const filename = 'TransitCanvas-草稿备份.json';
     if (isAndroidClient) { await saveAndroidExport(blob, filename); return; }
     if (hasDesktopBridge()) {
       const saved = await saveDesktopExport(blob, filename);

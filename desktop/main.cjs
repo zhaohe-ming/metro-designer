@@ -262,7 +262,7 @@ function createWindow() {
 
   const win = mainWindow;
   const wc = win.webContents;
-  wc.setUserAgent(`${wc.getUserAgent()} MetroDesignerDesktop/${app.getVersion()}`);
+  wc.setUserAgent(`${wc.getUserAgent()} TransitCanvasDesktop/${app.getVersion()}`);
   win.once('ready-to-show', () => win.show());
   win.on('closed', () => {
     mainWindow = null;

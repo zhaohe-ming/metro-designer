@@ -1,4 +1,4 @@
-# Metro Designer Windows 客户端
+# TransitCanvas（轨道工坊）Windows 客户端
 
 Windows 10 / 11 x64 本地原生客户端（Electron 45.3.3，Local-First 架构）。
 
@@ -19,7 +19,7 @@ npm run dist
 ```
 
 - `npm run prepare:web`：构建根目录 React 前端（默认指向生产 API `https://metro-designer-api.onrender.com`，自动剔除 sourcemap 与 Android APK），同步至忽略提交的 `desktop/web/`。
-- `npm run dist`：先执行 `prepare:web`，再生成安装包 `../outputs/windows-app-v1.2.0/Metro-Designer-Setup-1.2.0-x64.exe`。
+- `npm run dist`：先执行 `prepare:web`，再生成安装包 `../outputs/windows-app-v1.2.0/TransitCanvas-Setup-1.2.0-x64.exe`。
 
 ## 安全与沙箱边界
 

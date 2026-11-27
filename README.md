@@ -1,10 +1,10 @@
 # TransitCanvas · 轨道工坊
 
-在浏览器里画地铁线路图，并生成"按开通日期逐段铺开"的演示视频。
+在浏览器里绘制城市轨道线网、造景轻城市、推演运行图，并生成"按开通日期演进"的动态演示视频。
 
-**在线访问：** https://metro-designer.com
+**在线访问：** https://www.transitcanvas.com
 
-**Windows 客户端：** [下载页面](https://www.metro-designer.com/downloads.html) · Windows 10 / 11 x64，联网使用，与网页版共用账号及云端地图。
+**Windows 客户端：** [下载页面](https://www.transitcanvas.com/downloads.html) · Windows 10 / 11 x64，离线可用，联网与网页版共用账号及云端地图。
 桌面源码和打包说明见 [`desktop/README.md`](desktop/README.md)。
 
 <!-- TODO: 放一张工作台截图 + 一段视频导出的 GIF 到 docs/，引用如下：
@@ -14,7 +14,7 @@
 
 ## 主要功能
 
-- **免登录预览**：[直接试用](https://www.metro-designer.com/?preview=1)，可编辑示例线网、本机保存草稿，登录后继续云端保存。说明见 [免登录预览](docs/guest-preview.md)。
+- **免登录预览**：[直接试用](https://www.transitcanvas.com/?preview=1)，可编辑示例线网、本机保存草稿，登录后继续云端保存。说明见 [免登录预览](docs/guest-preview.md)。
 
 - **双模式画布**：纯示意图（自由排版）/ 高德底图（真实地理坐标），随时切换
 - **完整的线网编辑**：站点拖拽、连线、区间途经点、自动吸附、Ctrl+Z 撤销重做

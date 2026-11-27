@@ -9,7 +9,7 @@ import {
 } from '../types';
 import type { ProOpsDocument } from '../pro-ops/types';
 
-export const METRO_PROJECT_FORMAT = 'metro-designer-project';
+export const METRO_PROJECT_FORMAT = 'transitcanvas-project';
 export const METRO_PROJECT_EXT = '.metro';
 
 export interface MetroProjectViewport {

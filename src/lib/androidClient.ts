@@ -1,4 +1,5 @@
-export const androidVersion = navigator.userAgent.match(/MetroDesignerAndroid\/(\d+\.\d+\.\d+)/)?.[1] || null;
+export const androidVersion =
+  navigator.userAgent.match(/(?:TransitCanvasAndroid|MetroDesignerAndroid)\/(\d+\.\d+\.\d+)/)?.[1] || null;
 export const isAndroidClient = androidVersion !== null;
 export const isAndroidDevice = /Android/i.test(navigator.userAgent);
 

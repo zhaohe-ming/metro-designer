@@ -5,9 +5,9 @@
 ## 交付
 
 - 官网下载页：/android.html
-- 安装包：public/downloads/Metro-Designer-Android-1.0.0.apk
+- 安装包：public/downloads/TransitCanvas-Android-1.0.0.apk
 - 版本信息：public/android-release.json
-- 校验文件：public/downloads/Metro-Designer-Android-1.0.0.sha256
+- 校验文件：public/downloads/TransitCanvas-Android-1.0.0.sha256
 - 本机构建输出及报告：outputs/android-app-v1.0.0
 - 原生工程：android；文件保存协议：src/lib/androidClient.ts
 - 手机未登录页在简介下展示下载按钮；Android 浏览器的账号菜单指向安卓下载页。应用内登录页隐藏重复下载入口。

@@ -1,6 +1,6 @@
 # 免登录预览 · 2026-11-22
 
-入口：登录页“免登录预览”，或 `https://www.metro-designer.com/?preview=1`。
+入口：登录页“免登录预览”，或 `https://www.transitcanvas.com/?preview=1`。
 
 ## 用户流程
 

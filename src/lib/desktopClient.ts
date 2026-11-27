@@ -58,7 +58,7 @@ declare global {
 export const desktopVersion =
   (typeof window !== 'undefined' && window.metroDesktop?.version) ||
   (typeof navigator !== 'undefined'
-    ? navigator.userAgent.match(/MetroDesignerDesktop\/(\d+\.\d+\.\d+)/)?.[1] || null
+    ? navigator.userAgent.match(/(?:TransitCanvasDesktop|MetroDesignerDesktop)\/(\d+\.\d+\.\d+)/)?.[1] || null
     : null);
 
 export const isDesktopClient = desktopVersion !== null;

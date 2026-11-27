@@ -2986,7 +2986,7 @@ body[data-interface-theme="dark"] .metro-modal-root :where(.ant-radio-button-wra
 /* 顶栏方案名 chip：上一轮从画布挪到 header 后的样式             */
 /* ============================================================ */
 
-/* 紧贴在 ● Metro Designer 右边的小 pill。点击 = 开重命名 / 保存弹窗。
+/* 紧贴在 ● TransitCanvas 右边的小 pill。点击 = 开重命名 / 保存弹窗。
    跟之前画布上的 mapchip 不一样：尺寸更小，并使用 ghost 风格，避免抢品牌主视觉 */
 .metro-brand-panel {
   display: flex;

@@ -11,11 +11,11 @@ test('extractProjectArg picks existing .metro or .json path and ignores flags', 
   fs.writeFileSync(metroFile, '{}', 'utf8');
   try {
     assert.equal(
-      extractProjectArg(['MetroDesigner.exe', '--allow-file', metroFile], dir, 1),
+      extractProjectArg(['TransitCanvas.exe', '--allow-file', metroFile], dir, 1),
       metroFile
     );
     assert.equal(
-      extractProjectArg(['MetroDesigner.exe', path.join(dir, 'missing.metro')], dir, 1),
+      extractProjectArg(['TransitCanvas.exe', path.join(dir, 'missing.metro')], dir, 1),
       null
     );
   } finally {
