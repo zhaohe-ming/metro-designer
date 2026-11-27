@@ -15,8 +15,10 @@ import { TOKYO_LIGHT_CITY_DATA } from './tokyoLightCityData';
 import { PARIS_LIGHT_CITY_DATA } from './parisLightCityData';
 import { NEWYORK_LIGHT_CITY_DATA } from './newyorkLightCityData';
 import { SHANGHAI_LIGHT_CITY_DATA } from './shanghaiLightCityData';
+import { SHANGHAI_WIDE_LIGHT_CITY_DATA } from './shanghaiWideLightCityData';
 
 const REAL_CITY_PACKS: Partial<Record<LightCityArchetype, PackedRealCityLightCityData>> = {
+  shanghai_wide: SHANGHAI_WIDE_LIGHT_CITY_DATA,
   london: LONDON_LIGHT_CITY_DATA,
   tokyo: TOKYO_LIGHT_CITY_DATA,
   paris: PARIS_LIGHT_CITY_DATA,
@@ -156,6 +158,13 @@ export interface LightCityArchetypeMeta {
 
 export const LIGHT_CITY_ARCHETYPES: LightCityArchetypeMeta[] = [
   {
+    id: 'shanghai_wide',
+    zh: '上海全域（市域宏观）',
+    en: 'Greater Shanghai (City-Wide)',
+    hintZh: '长江口与杭州湾岸线 + 黄浦江全段/滴水湖/淀山湖 + 高速环放骨干（适合完整线网）',
+    hintEn: 'Yangtze Estuary & Hangzhou Bay, full Huangpu, Dishui Lake & expressway rings'
+  },
+  {
     id: 'london',
     zh: '伦敦实景（精细街网）',
     en: 'London (Detailed Grid)',
@@ -185,9 +194,9 @@ export const LIGHT_CITY_ARCHETYPES: LightCityArchetypeMeta[] = [
   },
   {
     id: 'shanghai',
-    zh: '上海实景（精细街网）',
-    en: 'Shanghai (Detailed Grid)',
-    hintZh: '真实黄浦江陆家嘴大弯 + 苏州河百转汇流 + 内环高架与浦江两岸街网',
+    zh: '上海主城（精细街网）',
+    en: 'Central Shanghai (Detailed)',
+    hintZh: '真实黄浦江陆家嘴大弯 + 苏州河百转汇流 + 内环高架与浦江两岸精细街网',
     hintEn: 'Huangpu Lujiazui bend, Suzhou Creek, Fuxing Island & Puxi-Pudong grid'
   },
   {
@@ -490,10 +499,12 @@ export function generateLightCity(params: {
 
   const realPack = REAL_CITY_PACKS[params.archetype];
   if (realPack) {
+    const packBaseSpan = realPack.baseSpan || 1600;
+    const rs = (params.stations?.length ?? 0) >= 2 ? Math.max(0.75, span / packBaseSpan) : 1;
     const unpackPts = (flat: number[]): LightCityPoint[] => {
       const pts: LightCityPoint[] = [];
       for (let i = 0; i < flat.length - 1; i += 2) {
-        pts.push({ x: r1(cx + flat[i] * s), y: r1(cy + flat[i + 1] * s) });
+        pts.push({ x: r1(cx + flat[i] * rs), y: r1(cy + flat[i + 1] * rs) });
       }
       return pts;
     };
@@ -528,7 +539,7 @@ export function generateLightCity(params: {
         features.push({
           id: nextId('river'),
           type: 'river',
-          width: r1(Math.max(3.5, rv.w * s)),
+          width: r1(Math.max(3.5, rv.w * rs)),
           points
         });
       }
@@ -557,8 +568,8 @@ export function generateLightCity(params: {
         id: nextId('lbl'),
         type: 'label',
         kind: lbl.kind,
-        x: r1(cx + lbl.x * s),
-        y: r1(cy + lbl.y * s),
+        x: r1(cx + lbl.x * rs),
+        y: r1(cy + lbl.y * rs),
         text: isEn ? lbl.en : lbl.zh
       });
     });
@@ -1294,6 +1305,21 @@ function getPrecomputedBundle(features: LightCityFeature[]): PrecomputedLightCit
   return bundle;
 }
 
+export function getLightCityWorldBounds(lightCity: LightCitySettings | undefined): LightCityBounds | null {
+  if (!lightCity || !lightCity.features.length) return null;
+  return getPrecomputedBundle(lightCity.features).bounds;
+}
+
+export function getLightCityPreviewViewBox(lightCity: LightCitySettings | undefined): string {
+  const b = getLightCityWorldBounds(lightCity);
+  if (!b) return '-60 -130 1640 1200';
+  const vx = Math.round(b.cx - b.width * 0.44);
+  const vy = Math.round(b.cy - b.height * 0.42);
+  const vw = Math.max(200, Math.round(b.width * 0.88));
+  const vh = Math.max(150, Math.round(b.height * 0.84));
+  return `${vx} ${vy} ${vw} ${vh}`;
+}
+
 /**
  * 为无损 SVG 导出构建轻城市矢量图层节点字符串
  */
@@ -1378,31 +1404,49 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
 
   let maskDefs = '';
   let maskAttr = '';
+  let innerWrapOpen = '';
+  let innerWrapClose = '';
   if (feathered) {
     const uid = Math.abs(lightCity.seed || 1) % 100000;
-    const gradId = `lc_fade_grad_${uid}`;
-    const maskId = `lc_fade_mask_${uid}`;
-    const { minX, minY, width, height, cx, cy } = bundle.bounds;
-    const rx = r1(width * 0.445);
-    const ry = r1(height * 0.445);
+    const hGradId = `lc_fade_h_${uid}`;
+    const vGradId = `lc_fade_v_${uid}`;
+    const hMaskId = `lc_fade_mask_${uid}`;
+    const vMaskId = `lc_fade_vmask_${uid}`;
+    const { minX, minY, width, height } = bundle.bounds;
     maskDefs = `<defs>
-      <radialGradient id="${gradId}" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#ffffff" stop-opacity="1" />
-        <stop offset="52%" stop-color="#ffffff" stop-opacity="1" />
-        <stop offset="70%" stop-color="#ffffff" stop-opacity="0.76" />
-        <stop offset="85%" stop-color="#ffffff" stop-opacity="0.32" />
-        <stop offset="95%" stop-color="#ffffff" stop-opacity="0.06" />
+      <linearGradient id="${hGradId}" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+        <stop offset="4%" stop-color="#ffffff" stop-opacity="0.22" />
+        <stop offset="9%" stop-color="#ffffff" stop-opacity="0.68" />
+        <stop offset="14%" stop-color="#ffffff" stop-opacity="1" />
+        <stop offset="86%" stop-color="#ffffff" stop-opacity="1" />
+        <stop offset="91%" stop-color="#ffffff" stop-opacity="0.68" />
+        <stop offset="96%" stop-color="#ffffff" stop-opacity="0.22" />
         <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
-      </radialGradient>
-      <mask id="${maskId}" maskUnits="userSpaceOnUse" x="${minX}" y="${minY}" width="${width}" height="${height}">
-        <rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="#000000" />
-        <ellipse cx="${r1(cx)}" cy="${r1(cy)}" rx="${rx}" ry="${ry}" fill="url(#${gradId})" />
+      </linearGradient>
+      <linearGradient id="${vGradId}" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0" />
+        <stop offset="4%" stop-color="#ffffff" stop-opacity="0.22" />
+        <stop offset="9%" stop-color="#ffffff" stop-opacity="0.68" />
+        <stop offset="14%" stop-color="#ffffff" stop-opacity="1" />
+        <stop offset="86%" stop-color="#ffffff" stop-opacity="1" />
+        <stop offset="91%" stop-color="#ffffff" stop-opacity="0.68" />
+        <stop offset="96%" stop-color="#ffffff" stop-opacity="0.22" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </linearGradient>
+      <mask id="${hMaskId}" maskUnits="userSpaceOnUse" x="${minX}" y="${minY}" width="${width}" height="${height}">
+        <rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="url(#${hGradId})" />
+      </mask>
+      <mask id="${vMaskId}" maskUnits="userSpaceOnUse" x="${minX}" y="${minY}" width="${width}" height="${height}">
+        <rect x="${minX}" y="${minY}" width="${width}" height="${height}" fill="url(#${vGradId})" />
       </mask>
     </defs>\n    `;
-    maskAttr = ` mask="url(#${maskId})"`;
+    maskAttr = ` mask="url(#${hMaskId})"`;
+    innerWrapOpen = `<g mask="url(#${vMaskId})">\n      `;
+    innerWrapClose = `\n    </g>`;
   }
 
-  return `<g id="light-city-basemap" opacity="${r1(lightCity.opacity ?? 1)}"${maskAttr}>\n    ${maskDefs}${[
+  return `<g id="light-city-basemap" opacity="${r1(lightCity.opacity ?? 1)}"${maskAttr}>\n    ${maskDefs}${innerWrapOpen}${[
     ...zonesOut,
     ...waterBanksOut,
     ...waterFillsOut,
@@ -1410,7 +1454,7 @@ export function buildLightCitySvgLayer(lightCity: LightCitySettings | undefined,
     ...roadOutersOut,
     ...roadInnersOut,
     ...labelsOut
-  ].join('\n    ')}\n  </g>`;
+  ].join('\n    ')}${innerWrapClose}\n  </g>`;
 }
 
 interface CachedLightCityRaster {
@@ -1426,21 +1470,30 @@ const rasterCache = new WeakMap<LightCityFeature[], Map<string, CachedLightCityR
 let viewportScratchCanvas: HTMLCanvasElement | null = null;
 
 function applyWorldFeatherMaskToCanvas(ctx: CanvasRenderingContext2D, bounds: LightCityBounds) {
-  const rx = Math.max(40, bounds.width * 0.445);
-  const ry = Math.max(40, bounds.height * 0.445);
+  const { minX, minY, maxX, maxY, width, height } = bounds;
+  const padX = Math.max(40, width * 0.25);
+  const padY = Math.max(40, height * 0.25);
+  const addSmoothStops = (g: CanvasGradient) => {
+    g.addColorStop(0, 'rgba(0, 0, 0, 0)');
+    g.addColorStop(0.04, 'rgba(0, 0, 0, 0.22)');
+    g.addColorStop(0.09, 'rgba(0, 0, 0, 0.68)');
+    g.addColorStop(0.14, 'rgba(0, 0, 0, 1)');
+    g.addColorStop(0.86, 'rgba(0, 0, 0, 1)');
+    g.addColorStop(0.91, 'rgba(0, 0, 0, 0.68)');
+    g.addColorStop(0.96, 'rgba(0, 0, 0, 0.22)');
+    g.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  };
   ctx.save();
   ctx.globalCompositeOperation = 'destination-in';
-  ctx.translate(bounds.cx, bounds.cy);
-  ctx.scale(rx, ry);
-  const grad = ctx.createRadialGradient(0, 0, 0.52, 0, 0, 1.0);
-  grad.addColorStop(0, 'rgba(0, 0, 0, 1)');
-  grad.addColorStop(0.38, 'rgba(0, 0, 0, 0.76)');
-  grad.addColorStop(0.69, 'rgba(0, 0, 0, 0.32)');
-  grad.addColorStop(0.9, 'rgba(0, 0, 0, 0.06)');
-  grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
-  ctx.fillStyle = grad;
-  // 覆盖超过 [-2, 2] 确保外圈残留像素全部乘 0 归零
-  ctx.fillRect(-2.2, -2.2, 4.4, 4.4);
+  const hGrad = ctx.createLinearGradient(minX, 0, maxX, 0);
+  addSmoothStops(hGrad);
+  ctx.fillStyle = hGrad;
+  ctx.fillRect(minX - padX, minY - padY, width + padX * 2, height + padY * 2);
+
+  const vGrad = ctx.createLinearGradient(0, minY, 0, maxY);
+  addSmoothStops(vGrad);
+  ctx.fillStyle = vGrad;
+  ctx.fillRect(minX - padX, minY - padY, width + padX * 2, height + padY * 2);
   ctx.restore();
 }
 

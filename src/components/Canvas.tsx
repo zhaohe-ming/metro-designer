@@ -59,6 +59,7 @@ import {
   drawLightCityToCanvas2D,
   generateLightCity,
   getLightCityPalette,
+  getLightCityWorldBounds,
   resolveLightCityPolygonIterations,
   resolveLightCityRoadMetrics,
   resolveLightCitySplineSegments,
@@ -3194,6 +3195,10 @@ const Canvas: React.FC<CanvasProps> = ({
       amapRef.current.setZoomAndCenter?.(amapOptions.zoom, amapOptions.center);
       return;
     }
+    if (stations.length === 0 && isLightCityMode && lightCity && lightCity.features.length > 0) {
+      fitView(24, 1);
+      return;
+    }
     applyCanvasViewport(1, { x: 0, y: 0 });
   };
 
@@ -3234,7 +3239,24 @@ const Canvas: React.FC<CanvasProps> = ({
   };
 
   const fitView = (extraPadding = 0, maxZoomCap = 1.15) => {
-    if (stations.length === 0) return;
+    if (stations.length === 0) {
+      if (!isAmapMode && isLightCityMode && lightCity && lightCity.features.length > 0) {
+        const lcBounds = getLightCityWorldBounds(lightCity);
+        if (lcBounds && stageSize.width > 0 && stageSize.height > 0) {
+          const padX = isCompact ? 28 : 36;
+          const padTop = (isCompact ? 108 : 42) + extraPadding * 0.5;
+          const padBottom = (isCompact ? 128 : 42) + extraPadding * 0.5;
+          const sx = Math.max(40, stageSize.width - padX * 2) / Math.max(lcBounds.width, 1);
+          const sy = Math.max(40, stageSize.height - padTop - padBottom) / Math.max(lcBounds.height, 1);
+          const nextScale = Math.max(ZOOM_MIN, Math.min(sx, sy, maxZoomCap));
+          applyCanvasViewport(nextScale, {
+            x: (stageSize.width - lcBounds.width * nextScale) / 2 - lcBounds.minX * nextScale,
+            y: padTop + (stageSize.height - padTop - padBottom - lcBounds.height * nextScale) / 2 - lcBounds.minY * nextScale
+          });
+        }
+      }
+      return;
+    }
     if (isAmapMode && amapRef.current) {
       const lngLatStations = stations.filter(
         (station) => typeof station.lng === 'number' && typeof station.lat === 'number'
@@ -3297,11 +3319,25 @@ const Canvas: React.FC<CanvasProps> = ({
     ) {
       initialFitRef.current = false;
       lastFittedDocKeyRef.current = documentKey;
-      if (!isAmapMode && stations.length > 0) {
-        initialFitViewRef.current(72, 1);
+      if (!isAmapMode && (stations.length > 0 || (isLightCityMode && (lightCity?.features.length || 0) > 0))) {
+        initialFitViewRef.current(stations.length > 0 ? 72 : 24, 1);
       }
     }
-  }, [documentKey, isAmapMode, isDocumentLoading, stageSize.width, stageSize.height, stations.length]);
+  }, [documentKey, isAmapMode, isDocumentLoading, isLightCityMode, lightCity, stageSize.width, stageSize.height, stations.length]);
+
+  const lastAutoFramedLightCityKeyRef = useRef<string>('');
+  useEffect(() => {
+    if (isAmapMode || isDocumentLoading || stations.length > 0) return;
+    if (!isLightCityMode || !lightCity || !lightCity.features.length) {
+      lastAutoFramedLightCityKeyRef.current = '';
+      return;
+    }
+    if (stageSize.width <= 0 || stageSize.height <= 0) return;
+    const lcKey = `${documentKey}_${lightCity.archetype}_${lightCity.seed}`;
+    if (lastAutoFramedLightCityKeyRef.current === lcKey) return;
+    lastAutoFramedLightCityKeyRef.current = lcKey;
+    initialFitViewRef.current(24, 1);
+  }, [documentKey, isAmapMode, isDocumentLoading, isLightCityMode, lightCity, stageSize.width, stageSize.height, stations.length]);
 
   const centerOnStation = (stationId: string, pulseHighlight = false) => {
     const st = stationById.get(stationId);

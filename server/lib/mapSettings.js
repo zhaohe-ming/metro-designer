@@ -36,6 +36,7 @@ function normalizeLightCityPoint(raw) {
 function normalizeLightCitySettings(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const archetypes = [
+    'shanghai_wide',
     'london',
     'tokyo',
     'paris',

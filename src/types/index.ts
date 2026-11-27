@@ -85,6 +85,7 @@ export type AmapBaseMapSettings = {
 };
 
 export type LightCityArchetype =
+  | 'shanghai_wide'
   | 'london'
   | 'tokyo'
   | 'paris'
@@ -262,6 +263,7 @@ export const normalizeLightCitySettings = (raw: unknown): LightCitySettings | un
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const src = raw as Partial<LightCitySettings>;
   const archetypes: LightCityArchetype[] = [
+    'shanghai_wide',
     'london',
     'tokyo',
     'paris',

@@ -18,13 +18,19 @@ import {
   buildLightCitySvgLayer,
   generateLightCity,
   getLightCityPalette,
+  getLightCityPreviewViewBox,
   LIGHT_CITY_ARCHETYPES,
   shouldFeatherLightCityEdges
 } from '../lib/lightCity';
 
 export type TerrainTool = 'select' | 'river' | 'waterArea' | 'zone' | 'road' | 'label';
 
-const staticRealPreviewCache = new Map<string, string>();
+interface PreviewEntry {
+  svg: string;
+  viewBox: string;
+}
+
+const staticRealPreviewCache = new Map<string, PreviewEntry>();
 
 interface LightCityPickerModalProps {
   open: boolean;
@@ -51,11 +57,11 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
   const pal = getLightCityPalette(isDark);
 
   const previews = useMemo(() => {
-    const map = new Map<LightCityArchetype, string>();
+    const map = new Map<LightCityArchetype, PreviewEntry>();
     if (!open) return map;
     LIGHT_CITY_ARCHETYPES.forEach((meta, idx) => {
       if (meta.id === 'custom') {
-        map.set(meta.id, '');
+        map.set(meta.id, { svg: '', viewBox: '-60 -130 1640 1200' });
         return;
       }
       if (shouldFeatherLightCityEdges({ archetype: meta.id })) {
@@ -67,7 +73,10 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
             seed: 1001 + idx * 17,
             language
           });
-          cached = buildLightCitySvgLayer(generated, isDark);
+          cached = {
+            svg: buildLightCitySvgLayer(generated, isDark),
+            viewBox: getLightCityPreviewViewBox(generated)
+          };
           staticRealPreviewCache.set(cacheKey, cached);
         }
         map.set(meta.id, cached);
@@ -78,7 +87,10 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
         seed: seedBase + idx * 97,
         language
       });
-      map.set(meta.id, buildLightCitySvgLayer(generated, isDark));
+      map.set(meta.id, {
+        svg: buildLightCitySvgLayer(generated, isDark),
+        viewBox: getLightCityPreviewViewBox(generated)
+      });
     });
     return map;
   }, [open, seedBase, isDark, language]);
@@ -139,7 +151,9 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
         >
           {LIGHT_CITY_ARCHETYPES.map((meta) => {
             const active = selected === meta.id;
-            const svgInner = previews.get(meta.id) || '';
+            const preview = previews.get(meta.id);
+            const svgInner = preview?.svg || '';
+            const svgViewBox = preview?.viewBox || '-60 -130 1640 1200';
             return (
               <button
                 key={meta.id}
@@ -175,7 +189,7 @@ export const LightCityPickerModal: React.FC<LightCityPickerModalProps> = ({
                     </span>
                   ) : (
                     <svg
-                      viewBox="-60 -130 1640 1200"
+                      viewBox={svgViewBox}
                       width="100%"
                       height="100%"
                       preserveAspectRatio="xMidYMid slice"

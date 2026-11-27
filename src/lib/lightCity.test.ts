@@ -2,6 +2,8 @@ import {
   buildLightCitySvgLayer,
   generateLightCity,
   getLightCityPalette,
+  getLightCityPreviewViewBox,
+  getLightCityWorldBounds,
   LIGHT_CITY_ARCHETYPES,
   sampleRoundedRoadPolyline,
   sampleSmoothClosedPolygon,
@@ -78,7 +80,7 @@ describe('Light City generator, normalization & SVG export', () => {
     expect(streetCount).toBeGreaterThan(250);
 
     const londonSvg = buildLightCitySvgLayer(londonZh, false);
-    expect(londonSvg).toContain('radialGradient');
+    expect(londonSvg).toContain('linearGradient');
     expect(londonSvg).toContain('mask="url(#lc_fade_mask_');
 
     const normalized = normalizeMapSettings({
@@ -123,7 +125,7 @@ describe('Light City generator, normalization & SVG export', () => {
       expect(cityZh.features.filter((f) => f.type === 'road' && f.kind === 'street').length).toBeGreaterThan(250);
 
       const svg = buildLightCitySvgLayer(cityZh, false);
-      expect(svg).toContain('radialGradient');
+      expect(svg).toContain('linearGradient');
       expect(svg).toContain('mask="url(#lc_fade_mask_');
 
       const normalized = normalizeMapSettings({
@@ -146,6 +148,43 @@ describe('Light City generator, normalization & SVG export', () => {
       expect(zhLabels.some((t) => t.includes(c.zhKey))).toBe(true);
       expect(enLabels.some((t) => t.includes(c.enKey))).toBe(true);
     }
+  });
+
+  test('Greater Shanghai city-wide macro template covers full metropolitan span without fine street clutter', () => {
+    const shWide = generateLightCity({ archetype: 'shanghai_wide', seed: 2026, language: 'zh-CN' });
+    const bounds = getLightCityWorldBounds(shWide);
+    expect(bounds).not.toBeNull();
+    expect(bounds!.width).toBeGreaterThan(3600);
+    expect(bounds!.height).toBeGreaterThan(3000);
+
+    // Macro template keeps expressways + primary corridors and omits fine street clutter
+    expect(shWide.features.filter((f) => f.type === 'road' && f.kind === 'street')).toHaveLength(0);
+    expect(shWide.features.filter((f) => f.type === 'road' && f.kind === 'express').length).toBeGreaterThan(50);
+    expect(shWide.features.filter((f) => f.type === 'road' && f.kind === 'arterial').length).toBeGreaterThan(100);
+    expect(shWide.features.filter((f) => f.type === 'zone' && f.kind === 'island').length).toBeGreaterThanOrEqual(4);
+
+    const labels = shWide.features.filter((f) => f.type === 'label').map((f: any) => f.text);
+    expect(labels.some((t) => t.includes('滴水湖'))).toBe(true);
+    expect(labels.some((t) => t.includes('浦东国际机场'))).toBe(true);
+    expect(labels.some((t) => t.includes('虹桥'))).toBe(true);
+    expect(labels.some((t) => t.includes('嘉定'))).toBe(true);
+    expect(labels.some((t) => t.includes('松江'))).toBe(true);
+
+    const vb = getLightCityPreviewViewBox(shWide);
+    expect(vb.split(' ').map(Number)[2]).toBeGreaterThan(3000);
+
+    const normalized = normalizeMapSettings({
+      ...DEFAULT_MAP_SETTINGS,
+      baseMap: { mode: 'light-city', lightCity: shWide }
+    });
+    expect(normalized.baseMap.lightCity?.archetype).toBe('shanghai_wide');
+    expect(normalized.baseMap.lightCity?.features.length).toBe(shWide.features.length);
+    shWide.features.forEach((orig, idx) => {
+      const normFeat = normalized.baseMap.lightCity?.features[idx];
+      if (orig.type !== 'label' && normFeat && normFeat.type !== 'label') {
+        expect(normFeat.points.length).toBe(orig.points.length);
+      }
+    });
   });
 
   test('normalizeMapSettings preserves light-city mode, layer toggles, and hideWaypoints', () => {

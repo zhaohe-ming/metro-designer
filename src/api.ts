@@ -147,6 +147,7 @@ export type AIOperation =
       cornerRadius?: number;
       hideWaypoints?: boolean;
       lightCityArchetype?:
+        | 'shanghai_wide'
         | 'london'
         | 'tokyo'
         | 'paris'

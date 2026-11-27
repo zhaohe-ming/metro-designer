@@ -4,6 +4,8 @@
 // 纯本地矢量多边形与折线，零外部瓦片请求、支持离线秒开、无损 SVG 与 1080P 视频导出及画笔二次编辑。
 
 export interface PackedRealCityLightCityData {
+  /** 默认基准跨度（精细主城默认 1600；市域全域宏观图可设为 3800 以覆盖整座大都会线网） */
+  baseSpan?: number;
   urbanZones: number[][];
   parks: number[][];
   waters: number[][];
